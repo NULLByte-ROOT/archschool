@@ -1,0 +1,69 @@
+name: archschool
+
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: archschool_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: archschool_db
+    volumes:
+      - archschool_db_data:/var/lib/postgresql/data
+    networks:
+      - archschool_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d archschool_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: archschool_backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@archschool_db:5432/archschool_db
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - archschool_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+    container_name: archschool_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "6241:80"
+    networks:
+      - archschool_net
+
+networks:
+  archschool_net:
+    name: archschool_net
+    driver: bridge
+
+volumes:
+  archschool_db_data:
+    name: archschool_db_data
