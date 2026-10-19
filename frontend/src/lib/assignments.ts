@@ -280,19 +280,42 @@ export function formatDue(due?: string | null): string {
   });
 }
 
+/**
+ * اختلاف «روز تقویمی» بین دو تاریخ، مستقل از ساعت.
+ * ساعت هر دو تاریخ به نیمه‌شب منتقل می‌شود تا مهلتِ فردا همیشه ۱ روز باشد.
+ */
+export function calendarDayDiff(due: Date, base: Date = new Date()): number {
+  const dueDay = Date.UTC(due.getFullYear(), due.getMonth(), due.getDate());
+  const baseDay = Date.UTC(base.getFullYear(), base.getMonth(), base.getDate());
+  return Math.round((dueDay - baseDay) / DAY_MS);
+}
+
 export function relativeDue(due?: string | null, now: number = Date.now()): string {
   if (!due) return "";
-  const diff = parseDue(due).getTime() - now;
-  if (diff <= 0) return "مهلت گذشته";
-  if (diff < HOUR_MS) {
-    const minutes = Math.max(1, Math.round(diff / 60_000));
-    return `${minutes} دقیقه مانده`;
+
+  const dueDate = parseDue(due);
+  const diff = dueDate.getTime() - now;
+  const dayDiff = calendarDayDiff(dueDate, new Date(now));
+
+  // گذشته
+  if (dayDiff < 0) {
+    const days = -dayDiff;
+    return days === 1 ? "1 روز گذشته" : `${days} روز گذشته`;
   }
-  if (diff < DAY_MS) {
+
+  // امروز
+  if (dayDiff === 0) {
+    if (diff <= 0) return "مهلت گذشته";
+    if (diff < HOUR_MS) {
+      const minutes = Math.max(1, Math.round(diff / 60_000));
+      return `امروز · ${minutes} دقیقه مانده`;
+    }
     const hours = Math.max(1, Math.round(diff / HOUR_MS));
-    return `${hours} ساعت مانده`;
+    return `امروز · ${hours} ساعت مانده`;
   }
-  return `${Math.ceil(diff / DAY_MS)} روز مانده`;
+
+  // آینده: فردا = ۱ روز، نه بر اساس ۲۴ ساعت دقیق
+  return dayDiff === 1 ? "1 روز مانده" : `${dayDiff} روز مانده`;
 }
 
 /** تاریخ کامل شمسیِ امروز، مثلاً «پنجشنبه ۲۶ مهر» */
