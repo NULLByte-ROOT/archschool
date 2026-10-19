@@ -6,6 +6,7 @@ BRANCH="main"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/backend/.env"
 DB_URL="postgresql://postgres:postgres@archschool_db:5432/archschool_db"
+PRODUCTION_DOMAIN="${PRODUCTION_DOMAIN:-archschool.vidxsepehr.ir}"
 
 cd "${SCRIPT_DIR}"
 
@@ -144,6 +145,18 @@ pull_code() {
     success "Code pulled from GitHub."
 }
 
+add_cors_origin() {
+    local origin="$1"
+    [[ -n "${origin}" ]] || return 0
+    if grep -q '^CORS_ORIGINS=' "${ENV_FILE}"; then
+        if ! grep -qF "\"${origin}\"" "${ENV_FILE}"; then
+            sed -i "s|^CORS_ORIGINS=\(.*\)\]|CORS_ORIGINS=\1,\"${origin}\"]|" "${ENV_FILE}"
+        fi
+    else
+        printf 'CORS_ORIGINS=["%s"]\n' "${origin}" >> "${ENV_FILE}"
+    fi
+}
+
 ensure_env() {
     mkdir -p "${SCRIPT_DIR}/backend"
 
@@ -159,6 +172,7 @@ ensure_env() {
                 printf 'ALGORITHM=HS256\n'
                 printf 'ACCESS_TOKEN_EXPIRE_MINUTES=10080\n'
                 printf 'ADMIN_CODE=change-me\n'
+                printf 'MAX_UPLOAD_MB=25\n'
             } > "${ENV_FILE}"
             info "Created a new backend/.env."
         fi
@@ -168,6 +182,14 @@ ensure_env() {
         sed -i "s|^DATABASE_URL=.*|DATABASE_URL=${DB_URL}|" "${ENV_FILE}"
     else
         printf 'DATABASE_URL=%s\n' "${DB_URL}" >> "${ENV_FILE}"
+    fi
+
+    # Guarantee the production origin is present on every start/update.
+    add_cors_origin "https://${PRODUCTION_DOMAIN}"
+    add_cors_origin "http://${PRODUCTION_DOMAIN}"
+
+    if ! grep -q '^MAX_UPLOAD_MB=' "${ENV_FILE}"; then
+        printf 'MAX_UPLOAD_MB=25\n' >> "${ENV_FILE}"
     fi
 
     if ! grep -q '^SECRET_KEY=' "${ENV_FILE}" || grep -qE '^SECRET_KEY=(change-me.*)?$' "${ENV_FILE}"; then
@@ -192,6 +214,11 @@ configure_domain() {
     domain="${domain#https://}"
     domain="${domain%/}"
 
+    # Always keep the known production origin in CORS, even before/without
+    # the interactive domain step, so API calls from the browser are allowed.
+    add_cors_origin "https://${PRODUCTION_DOMAIN}"
+    add_cors_origin "http://${PRODUCTION_DOMAIN}"
+
     if [[ -z "${domain}" ]]; then
         warn "No domain configured. Use http://SERVER_IP:6241 to access the app."
         return 0
@@ -202,15 +229,13 @@ configure_domain() {
         return 0
     fi
 
-    local cors="[\"http://localhost:5173\",\"http://127.0.0.1:5173\",\"https://${domain}\",\"http://${domain}\"]"
-    if grep -q '^CORS_ORIGINS=' "${ENV_FILE}"; then
-        sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=${cors}|" "${ENV_FILE}"
-    else
-        printf 'CORS_ORIGINS=%s\n' "${cors}" >> "${ENV_FILE}"
-    fi
+    add_cors_origin "https://${domain}"
+    add_cors_origin "http://${domain}"
 
     success "CORS_ORIGINS updated for ${domain}."
     info "Point your existing Nginx/Apache virtual host for ${domain} to http://127.0.0.1:6241."
+    info "IMPORTANT: set 'client_max_body_size 30m;' in that host's Nginx server block,"
+    info "otherwise uploads larger than 1 MB fail with a 413 / 'Failed to fetch'."
     info "Ports 80/443 are left untouched, so other projects remain isolated."
 }
 

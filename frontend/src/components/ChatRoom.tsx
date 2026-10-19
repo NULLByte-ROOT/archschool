@@ -547,6 +547,11 @@ export default function ChatRoom({
 
   async function handleFile(file: File | undefined) {
     if (!file || uploading) return;
+    console.info("[chat] attachment selected", {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+    });
     setUploading(true);
     setError(null);
     try {
@@ -555,6 +560,7 @@ export default function ChatRoom({
       setReplyTo(null);
       nearBottomRef.current = true;
     } catch (e) {
+      console.error("[chat] attachment upload failed", e);
       setError(e instanceof Error ? e.message : "آپلود فایل ناموفق بود");
     } finally {
       setUploading(false);

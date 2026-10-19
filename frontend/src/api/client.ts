@@ -1,4 +1,28 @@
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
+const RAW_BASE_URL = (import.meta.env.VITE_API_URL ?? "/api").trim();
+
+/**
+ * The API always goes through the same origin in production (`/api`).
+ * Never fall back to a hardcoded `localhost` URL: on an HTTPS deployment the
+ * browser would block it as mixed content and every request would fail with
+ * "Failed to fetch".
+ */
+const BASE_URL = (() => {
+  if (!RAW_BASE_URL || RAW_BASE_URL === "/") return "/api";
+  return RAW_BASE_URL.replace(/\/+$/, "");
+})();
+
+function apiUrl(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return `${BASE_URL}${normalized}`;
+}
+
+function clearSessionAndRedirect(): void {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  if (window.location.pathname !== "/login") {
+    window.location.href = "/login";
+  }
+}
 
 export interface User {
   id: number;
@@ -109,19 +133,27 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers["Content-Type"] = "application/json";
   }
 
-  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+  const url = apiUrl(path);
+  const method = options.method ?? "GET";
+
+  let res: Response;
+  try {
+    res = await fetch(url, { ...options, headers });
+  } catch (error) {
+    console.error(`[api] ${method} ${url} failed before a response`, error);
+    throw new Error("ارتباط با سرور برقرار نشد. اتصال اینترنت را بررسی کنید.", {
+      cause: error,
+    });
+  }
 
   if (res.status === 401) {
-    localStorage.removeItem("token");
-    localStorage.removeItem("user");
-    if (window.location.pathname !== "/login") {
-      window.location.href = "/login";
-    }
+    clearSessionAndRedirect();
     throw new Error("Unauthorized");
   }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "خطا در ارتباط" }));
+    console.error(`[api] ${method} ${url} -> ${res.status}`, err);
     throw new Error(typeof err.detail === "string" ? err.detail : "خطا");
   }
 
@@ -131,7 +163,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 // ---------- Auth ----------
 export async function login(username: string, code: string): Promise<LoginResponse> {
-  const res = await fetch(`${BASE_URL}/auth/login`, {
+  const res = await fetch(apiUrl("/auth/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, code }),
@@ -296,10 +328,97 @@ export async function unpinMessage(id: number): Promise<Message> {
   return request<Message>(`/messages/${id}/pin`, { method: "DELETE" });
 }
 
+export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+const UPLOAD_TIMEOUT_MS = 5 * 60 * 1000;
+
 export async function uploadFile(file: File): Promise<UploadResult> {
+  const endpoint = apiUrl("/uploads/");
+
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error("حجم فایل نباید بیشتر از ۲۵ مگابایت باشد.");
+  }
+
+  // Do NOT set Content-Type manually: the browser must add the multipart
+  // boundary. `Authorization` is required — FastAPI rejects anonymous uploads.
   const form = new FormData();
-  form.append("file", file);
-  return request<UploadResult>("/uploads/", { method: "POST", body: form });
+  form.append("file", file, file.name);
+
+  const token = getToken();
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  console.info("[upload] POST", endpoint, {
+    name: file.name,
+    type: file.type,
+    size: file.size,
+    authenticated: Boolean(token),
+  });
+
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: form,
+      signal: controller.signal,
+      credentials: "same-origin",
+    });
+
+    if (res.status === 401) {
+      clearSessionAndRedirect();
+      throw new Error("نشست شما منقضی شده است. دوباره وارد شوید.");
+    }
+
+    if (!res.ok) {
+      const raw = await res.text().catch(() => "");
+      let detail = "";
+      try {
+        const parsed = JSON.parse(raw) as { detail?: unknown };
+        if (typeof parsed.detail === "string") detail = parsed.detail;
+      } catch {
+        /* non-JSON body (e.g. an Nginx 413 HTML page) */
+      }
+      console.error("[upload] failed", {
+        endpoint,
+        status: res.status,
+        statusText: res.statusText,
+        body: raw.slice(0, 500),
+      });
+      if (res.status === 413) {
+        throw new Error(
+          "حجم فایل از حد مجاز سرور بیشتر است (حداکثر ۲۵ مگابایت)."
+        );
+      }
+      throw new Error(detail || `آپلود فایل ناموفق بود (HTTP ${res.status}).`);
+    }
+
+    const data = (await res.json()) as UploadResult;
+    console.info("[upload] ok", data);
+    return data;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      console.error("[upload] timed out", { endpoint, file: file.name });
+      throw new Error("آپلود فایل بیش از حد طول کشید. دوباره تلاش کنید.", {
+        cause: error,
+      });
+    }
+    if (error instanceof TypeError) {
+      console.error("[upload] network error (request never reached the API)", {
+        endpoint,
+        file: file.name,
+        error,
+      });
+      throw new Error(
+        "ارتباط با سرور برای آپلود برقرار نشد. احتمالاً حجم فایل از محدودیت پراکسی عبور کرده یا اتصال قطع شده است.",
+        { cause: error }
+      );
+    }
+    throw error instanceof Error ? error : new Error("آپلود فایل ناموفق بود");
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export function resolveMediaUrl(url: string | null | undefined): string {

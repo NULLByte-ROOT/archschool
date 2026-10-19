@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,8 +9,10 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
-        "http://0.0.0.0:5173",
-        " http://10.32.179.31:5173"
+        "http://localhost:6241",
+        "http://127.0.0.1:6241",
+        "https://archschool.vidxsepehr.ir",
+        "http://archschool.vidxsepehr.ir",
     ]
 
     SECRET_KEY: str = "change-me-in-production-please"
@@ -20,6 +23,18 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: str = "uploads"
     MAX_UPLOAD_MB: int = 25
+
+    @field_validator("CORS_ORIGINS")
+    @classmethod
+    def _normalize_origins(cls, origins: list[str]) -> list[str]:
+        """Strip whitespace/trailing slashes so an env entry like
+        `" https://example.com/"` still matches the browser's Origin header."""
+        cleaned: list[str] = []
+        for origin in origins:
+            value = origin.strip().rstrip("/")
+            if value and value not in cleaned:
+                cleaned.append(value)
+        return cleaned
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
