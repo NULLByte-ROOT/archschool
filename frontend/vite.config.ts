@@ -7,5 +7,13 @@ export default defineConfig({
   server: {
     host: '127.0.0.1',
     port: 5173,
+    // Same-origin WebSocket in dev, mirroring the nginx proxy in production.
+    proxy: {
+      '/api/ws': {
+        target: 'http://127.0.0.1:8000',
+        ws: true,
+        changeOrigin: true,
+      },
+    },
   },
 })

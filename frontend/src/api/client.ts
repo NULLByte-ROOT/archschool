@@ -269,12 +269,19 @@ export function resolveMediaUrl(url: string | null | undefined): string {
   if (!url) return "";
   if (/^https?:\/\//i.test(url)) return url;
   const api = new URL(BASE_URL, window.location.origin);
-  return new URL(url, api.origin).toString();
+  const mixedContent =
+    window.location.protocol === "https:" && api.protocol === "http:";
+  const origin = mixedContent ? window.location.origin : api.origin;
+  return new URL(url, origin).toString();
 }
 
+/**
+ * Builds the WebSocket URL from the current page, so it automatically uses
+ * `wss://` on HTTPS and `ws://` on HTTP, on localhost and in production.
+ */
 export function getWebSocketUrl(room: string): string {
-  const url = new URL(`${BASE_URL}/ws`, window.location.origin);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const url = new URL(`${protocol}//${window.location.host}/api/ws`);
   url.searchParams.set("token", getToken() ?? "");
   url.searchParams.set("room", room);
   return url.toString();
