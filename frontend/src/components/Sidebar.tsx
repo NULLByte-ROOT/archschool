@@ -8,6 +8,8 @@ import {
   X,
   Users,
   LogOut,
+  MessageCircle,
+  Trophy,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -72,6 +74,8 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
   const links = [
     { to: "/", label: "داشبورد", icon: LayoutDashboard },
     { to: "/assignments", label: "تکالیف و پروژه‌ها", icon: CheckSquare },
+    { to: "/chat", label: "گفتگوها", icon: MessageCircle },
+    { to: "/leaderboard", label: "جدول امتیازها", icon: Trophy },
     { to: "/settings", label: "تنظیمات", icon: Settings },
   ];
 

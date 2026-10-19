@@ -5,8 +5,49 @@ export interface User {
   username: string;
   is_admin: boolean;
   is_active: boolean;
+  points: number;
   created_at: string;
   code?: string;
+}
+
+export interface PublicUser {
+  id: number;
+  username: string;
+  is_admin: boolean;
+  points: number;
+}
+
+export interface TeamMember {
+  user: PublicUser;
+  completed: boolean;
+  is_self: boolean;
+}
+
+export interface Message {
+  id: number;
+  sender_id: number;
+  sender_username: string | null;
+  receiver_id: number | null;
+  assignment_id: number | null;
+  content: string;
+  file_url: string | null;
+  created_at: string;
+}
+
+export interface Attachment {
+  id: number;
+  assignment_id: number;
+  user_id: number;
+  user_username: string | null;
+  file_url: string;
+  file_name: string;
+  created_at: string;
+}
+
+export interface UploadResult {
+  url: string;
+  file_name: string;
+  size: number;
 }
 
 export interface Assignment {
@@ -40,7 +81,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...((options.headers as Record<string, string>) || {}),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
-  if (options.body && !headers["Content-Type"]) {
+  if (
+    options.body &&
+    !(options.body instanceof FormData) &&
+    !headers["Content-Type"]
+  ) {
     headers["Content-Type"] = "application/json";
   }
 
@@ -157,4 +202,80 @@ export async function updateAssignment(
 
 export async function deleteAssignment(id: number): Promise<void> {
   return request<void>(`/assignments/${id}`, { method: "DELETE" });
+}
+
+export async function fetchTeamStatus(assignmentId: number): Promise<TeamMember[]> {
+  return request<TeamMember[]>(`/assignments/${assignmentId}/team`);
+}
+
+export async function fetchAttachments(assignmentId: number): Promise<Attachment[]> {
+  return request<Attachment[]>(`/assignments/${assignmentId}/attachments`);
+}
+
+export async function uploadAssignmentFile(
+  assignmentId: number,
+  file: File
+): Promise<Attachment> {
+  const form = new FormData();
+  form.append("file", file);
+  return request<Attachment>(`/assignments/${assignmentId}/attachments`, {
+    method: "POST",
+    body: form,
+  });
+}
+
+// ---------- Team / leaderboard ----------
+export async function fetchTeam(): Promise<PublicUser[]> {
+  return request<PublicUser[]>("/users/team");
+}
+
+export async function fetchLeaderboard(): Promise<PublicUser[]> {
+  return request<PublicUser[]>("/users/leaderboard");
+}
+
+// ---------- Chat ----------
+export async function fetchMessages(params: {
+  scope: "global" | "private" | "assignment";
+  peerId?: number;
+  assignmentId?: number;
+  limit?: number;
+}): Promise<Message[]> {
+  const search = new URLSearchParams({ scope: params.scope });
+  if (params.peerId) search.set("peer_id", String(params.peerId));
+  if (params.assignmentId) search.set("assignment_id", String(params.assignmentId));
+  if (params.limit) search.set("limit", String(params.limit));
+  return request<Message[]>(`/messages/?${search.toString()}`);
+}
+
+export async function sendMessage(data: {
+  content?: string;
+  receiver_id?: number | null;
+  assignment_id?: number | null;
+  file_url?: string | null;
+}): Promise<Message> {
+  return request<Message>("/messages/", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function uploadFile(file: File): Promise<UploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  return request<UploadResult>("/uploads/", { method: "POST", body: form });
+}
+
+export function resolveMediaUrl(url: string | null | undefined): string {
+  if (!url) return "";
+  if (/^https?:\/\//i.test(url)) return url;
+  const api = new URL(BASE_URL, window.location.origin);
+  return new URL(url, api.origin).toString();
+}
+
+export function getWebSocketUrl(room: string): string {
+  const url = new URL(`${BASE_URL}/ws`, window.location.origin);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.searchParams.set("token", getToken() ?? "");
+  url.searchParams.set("room", room);
+  return url.toString();
 }

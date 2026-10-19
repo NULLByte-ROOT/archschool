@@ -30,6 +30,9 @@ services:
       - ./backend/.env
     environment:
       DATABASE_URL: postgresql://postgres:postgres@archschool_db:5432/archschool_db
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - archschool_uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -67,3 +70,5 @@ networks:
 volumes:
   archschool_db_data:
     name: archschool_db_data
+  archschool_uploads:
+    name: archschool_uploads

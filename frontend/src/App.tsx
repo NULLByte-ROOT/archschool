@@ -8,6 +8,8 @@ import SettingsPage from "./pages/SettingsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import LoginPage from "./pages/LoginPage";
 import UsersPage from "./pages/UsersPage";
+import ChatPage from "./pages/ChatPage";
+import LeaderboardPage from "./pages/LeaderboardPage";
 
 export default function App() {
   return (
@@ -20,6 +22,8 @@ export default function App() {
             <Route index element={<HomePage />} />
             <Route path="assignments" element={<AssignmentsPage />} />
             <Route path="assignments/:id" element={<AssignmentDetailPage />} />
+            <Route path="chat" element={<ChatPage />} />
+            <Route path="leaderboard" element={<LeaderboardPage />} />
             <Route path="settings" element={<SettingsPage />} />
 
             <Route element={<ProtectedRoute adminOnly />}>

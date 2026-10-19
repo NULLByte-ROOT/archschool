@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -9,19 +9,35 @@ import {
   Check,
   ClipboardList,
   Clock,
+  Download,
+  FileText,
   GraduationCap,
   Loader2,
+  MessageSquare,
+  Paperclip,
   Trash2,
+  UploadCloud,
   User,
+  Users,
+  X,
 } from "lucide-react";
-import { fetchAssignment, deleteAssignment, updateAssignment } from "../api/client";
-import type { Assignment } from "../api/client";
+import {
+  deleteAssignment,
+  fetchAssignment,
+  fetchAttachments,
+  fetchTeamStatus,
+  resolveMediaUrl,
+  updateAssignment,
+  uploadAssignmentFile,
+} from "../api/client";
+import type { Assignment, Attachment, TeamMember } from "../api/client";
+import Avatar from "../components/Avatar";
+import ChatRoom from "../components/ChatRoom";
 import Corners from "../components/Corners";
+import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
 import {
   SUBJECT_BY_ID,
-  TONE_BORDER,
-  TONE_GLOW,
   TONE_TEXT,
   categoryGroup,
   categoryItemLabel,
@@ -32,18 +48,50 @@ import {
   subjectName,
 } from "../lib/assignments";
 
+function fileIcon(name: string) {
+  if (/\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(name)) return "image";
+  if (/\.(zip|rar|7z)$/i.test(name)) return "archive";
+  return "file";
+}
+
 export default function AssignmentDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const assignmentId = Number(id);
+
+  if (!assignmentId) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-center">
+        <ClipboardList size={30} className="text-fg-500" />
+        <p className="text-sm text-fg-500">تکلیف پیدا نشد</p>
+      </div>
+    );
+  }
+
+  return <AssignmentView key={assignmentId} assignmentId={assignmentId} />;
+}
+
+function AssignmentView({ assignmentId }: { assignmentId: number }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const now = useNow(30_000);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [item, setItem] = useState<Assignment | null>(null);
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [teamsLoading, setTeamsLoading] = useState(true);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!id) return;
     let active = true;
-    fetchAssignment(Number(id))
+
+    fetchAssignment(assignmentId)
       .then((data) => {
         if (active) setItem(data);
       })
@@ -53,144 +101,478 @@ export default function AssignmentDetailPage() {
       .finally(() => {
         if (active) setLoading(false);
       });
+
+    fetchTeamStatus(assignmentId)
+      .then((data) => {
+        if (active) setTeam(data);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setTeamsLoading(false);
+      });
+
+    fetchAttachments(assignmentId)
+      .then((data) => {
+        if (active) setAttachments(data);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setAttachmentsLoading(false);
+      });
+
     return () => {
       active = false;
     };
-  }, [id]);
+  }, [assignmentId]);
+
+  const canManage = !!item && item.owner_id === user?.id;
 
   async function toggle() {
-    if (!item) return;
-    const updated = await updateAssignment(item.id, { completed: !item.completed });
-    setItem(updated);
+    if (!item || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await updateAssignment(item.id, {
+        completed: !item.completed,
+      });
+      setItem(updated);
+      setTeam((prev) =>
+        prev.map((member) =>
+          member.is_self ? { ...member, completed: updated.completed } : member
+        )
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "تغییر وضعیت ناموفق بود");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function remove() {
     if (!item) return;
-    await deleteAssignment(item.id);
-    navigate("/assignments");
+    if (!confirm("این تکلیف و پیوست‌هایش حذف شوند؟")) return;
+    setBusy(true);
+    try {
+      await deleteAssignment(item.id);
+      navigate("/assignments");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "حذف ناموفق بود");
+      setBusy(false);
+    }
   }
 
+  const uploadFiles = useCallback(
+    async (files: FileList | File[]) => {
+      if (!assignmentId || uploading) return;
+      const list = Array.from(files);
+      if (list.length === 0) return;
+      setUploading(true);
+      setError(null);
+      try {
+        for (const file of list) {
+          const attachment = await uploadAssignmentFile(assignmentId, file);
+          setAttachments((prev) => [attachment, ...prev]);
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "آپلود فایل ناموفق بود");
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [assignmentId, uploading]
+  );
+
+  const completedCount = team.filter((member) => member.completed).length;
+
   return (
-    <div className="mx-auto max-w-2xl">
-      <button
-        onClick={() => navigate(-1)}
-        className="mb-6 flex items-center gap-2 text-sm text-fg-500 transition hover:text-white"
-      >
-        <ArrowRight size={16} />
-        بازگشت
-      </button>
+    <div className="relative min-h-full">
+      {/* هدر شیشه‌ای */}
+      <header className="glass-top-highlight sticky top-0 z-30 border-b border-white/10 bg-black/55 backdrop-blur-2xl">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-3 py-3 sm:px-5">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="icon-btn shrink-0"
+            aria-label="بازگشت"
+          >
+            <ArrowRight size={17} />
+          </button>
+
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/[0.06]">
+            {item?.category === "exam" ? (
+              <GraduationCap size={18} className="text-white" />
+            ) : (
+              <ClipboardList size={18} className="text-white" />
+            )}
+          </span>
+
+          <div className="min-w-0 flex-1">
+            <h1
+              className={`truncate text-sm font-black sm:text-base ${
+                item?.completed ? "text-fg-500 line-through" : "text-white"
+              }`}
+            >
+              {item?.title ?? "جزئیات تکلیف"}
+            </h1>
+            <p className="mono flex items-center gap-2 truncate text-[9px] tracking-[0.16em] text-fg-500 uppercase">
+              <span>// ASSIGNMENT</span>
+              {item?.subject_id && (
+                <span className="hidden sm:inline">
+                  · {subjectName(item.subject_id, item.course)}
+                </span>
+              )}
+            </p>
+          </div>
+
+          {item && (
+            <span
+              className={`badge hidden sm:inline-flex ${
+                item.completed
+                  ? "border-success/30 bg-success/10 text-success"
+                  : TONE_TEXT[deadlineTone(item.due_date, now)]
+              }`}
+            >
+              {item.completed ? "انجام شد" : relativeDue(item.due_date, now)}
+            </span>
+          )}
+
+          {canManage && item && (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="button"
+                onClick={toggle}
+                disabled={busy}
+                className={`flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-semibold transition disabled:opacity-50 ${
+                  item.completed
+                    ? "border-white/15 bg-white/[0.04] text-fg-300 hover:text-white"
+                    : "border-success/40 bg-success/10 text-success hover:bg-success/15"
+                }`}
+              >
+                {busy ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Check size={13} strokeWidth={3} />
+                )}
+                <span className="hidden sm:inline">
+                  {item.completed ? "برگرداندن" : "انجام شد"}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={remove}
+                disabled={busy}
+                className="icon-btn hover:border-danger/40 hover:text-danger disabled:opacity-50"
+                aria-label="حذف تکلیف"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
 
       {loading ? (
-        <div className="panel relative flex items-center justify-center gap-2 p-16 text-sm text-fg-500">
-          <Corners />
-          <Loader2 size={16} className="animate-spin" />
-          در حال بارگذاری...
+        <div className="flex min-h-[60vh] items-center justify-center gap-2 text-sm text-fg-500">
+          <Loader2 size={18} className="animate-spin" />
+          در حال بارگذاری…
         </div>
       ) : notFound || !item ? (
-        <div className="panel relative flex flex-col items-center gap-3 p-16 text-center">
-          <Corners />
-          <ClipboardList size={28} className="text-fg-500" />
+        <div className="mx-auto flex max-w-2xl flex-col items-center gap-3 p-16 text-center">
+          <ClipboardList size={32} className="text-fg-500" />
           <p className="text-sm text-fg-500">تکلیف پیدا نشد</p>
+          <button onClick={() => navigate("/assignments")} className="btn-ghost mt-1">
+            بازگشت به تکالیف
+          </button>
         </div>
       ) : (
         (() => {
           const tone = deadlineTone(item.due_date, now);
           const group = categoryGroup(item.category);
-          const GroupIcon = group?.id === "exam" ? GraduationCap : ClipboardList;
           const subject = SUBJECT_BY_ID[item.subject_id];
           return (
             <motion.div
-              initial={{ opacity: 0, y: 24 }}
+              initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              className="mx-auto max-w-6xl px-3 py-5 sm:px-5 sm:py-7"
             >
-              <div
-                className={`panel noise relative overflow-hidden rounded-3xl border-2 p-6 sm:p-8 ${TONE_BORDER[tone]} ${TONE_GLOW[tone]}`}
-              >
-                <Corners />
+              {error && (
+                <p className="mb-4 rounded-xl border border-danger/25 bg-danger/10 px-3 py-2 text-[12px] text-danger">
+                  {error}
+                </p>
+              )}
 
-                <div className="mb-5 flex items-center gap-3">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/15 bg-white/[0.06]">
-                    <GroupIcon size={22} className="text-white" />
-                  </span>
-                  <div>
+              {/* اطلاعات اصلی */}
+              <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+                <section className="panel noise relative overflow-hidden rounded-3xl p-5 sm:p-6">
+                  <Corners />
+                  <div className="mb-4 flex flex-wrap items-center gap-2">
                     <span className="badge">{group?.label ?? "بدون دسته"}</span>
                     {item.subtype && (
-                      <p className="mono mt-1 text-[11px] tracking-wider text-fg-500">
+                      <span className="font-mono text-[10px] tracking-wider text-fg-500">
                         {categoryItemLabel(item.subtype)}
-                      </p>
+                      </span>
+                    )}
+                    {subject && (
+                      <span className="badge mr-auto">
+                        <BookOpen size={11} />
+                        {subject.nameEn}
+                      </span>
                     )}
                   </div>
-                  {item.completed && (
-                    <span className="badge ml-auto border-success/30 bg-success/10 text-success">
-                      انجام شد
-                    </span>
+
+                  <h2 className="text-2xl leading-9 font-black text-white sm:text-3xl">
+                    {item.title}
+                  </h2>
+
+                  <div className="mt-5 grid gap-2.5 sm:grid-cols-2">
+                    <InfoChip
+                      icon={<BookOpen size={15} />}
+                      label="درس"
+                      value={subjectName(item.subject_id, item.course) || "—"}
+                      sub={subject?.teacher}
+                    />
+                    <InfoChip
+                      icon={<Calendar size={15} />}
+                      label="مهلت"
+                      value={formatDue(item.due_date)}
+                      sub={relativeDue(item.due_date, now)}
+                      valueClass={TONE_TEXT[tone]}
+                    />
+                    <InfoChip
+                      icon={<User size={15} />}
+                      label="ثبت‌شده"
+                      value={parseDue(item.created_at).toLocaleDateString("fa-IR", {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    />
+                    <InfoChip
+                      icon={<Clock size={15} />}
+                      label="وضعیت"
+                      value={item.completed ? "انجام شده" : "در انتظار انجام"}
+                      valueClass={item.completed ? "text-success" : "text-white"}
+                    />
+                  </div>
+
+                  {item.description ? (
+                    <p className="mt-5 rounded-2xl border border-white/8 bg-white/[0.02] p-4 text-[13px] leading-7 whitespace-pre-wrap text-fg-300">
+                      {item.description}
+                    </p>
+                  ) : (
+                    <p className="mt-5 text-[12px] text-fg-500">توضیحی برای این تکلیف ثبت نشده.</p>
                   )}
+                </section>
+
+                <div className="flex flex-col gap-4">
+                  {/* وضعیت تیم */}
+                  <section className="panel relative overflow-hidden rounded-3xl p-5">
+                    <Corners />
+                    <div className="mb-4 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05]">
+                          <Users size={16} className="text-white" />
+                        </span>
+                        <div>
+                          <h3 className="text-sm font-bold text-white">وضعیت تیم</h3>
+                          <p className="mono text-[9px] tracking-widest text-fg-500">
+                            // TEAM STATUS
+                          </p>
+                        </div>
+                      </div>
+                      <span className="badge">
+                        {completedCount}/{team.length}
+                      </span>
+                    </div>
+
+                    {teamsLoading ? (
+                      <div className="flex items-center gap-2 py-6 text-[11px] text-fg-500">
+                        <Loader2 size={13} className="animate-spin" />
+                        در حال بارگذاری…
+                      </div>
+                    ) : team.length === 0 ? (
+                      <p className="py-4 text-[11px] text-fg-500">عضوی پیدا نشد.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-x-3 gap-y-4">
+                        {team.map((member) => (
+                          <div
+                            key={member.user.id}
+                            className="flex w-[58px] flex-col items-center gap-1.5"
+                            title={`${member.user.username} · ${member.completed ? "انجام شده" : "انجام نشده"}`}
+                          >
+                            <span className="relative">
+                              <Avatar name={member.user.username} size="md" />
+                              <span
+                                className={`absolute -bottom-1 -left-1 flex h-5 w-5 items-center justify-center rounded-full border-2 border-black ${
+                                  member.completed
+                                    ? "bg-success text-black"
+                                    : "bg-bg-400 text-fg-500"
+                                }`}
+                              >
+                                {member.completed ? (
+                                  <Check size={11} strokeWidth={4} />
+                                ) : (
+                                  <X size={11} strokeWidth={3} />
+                                )}
+                              </span>
+                              {member.is_self && (
+                                <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-white shadow-[0_0_8px_#fff]" />
+                              )}
+                            </span>
+                            <span
+                              className="w-full truncate text-center text-[10px] text-fg-300"
+                              dir="ltr"
+                            >
+                              {member.user.username}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  {/* پیوست‌ها */}
+                  <section className="panel relative overflow-hidden rounded-3xl p-5">
+                    <Corners />
+                    <div className="mb-4 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05]">
+                          <Paperclip size={16} className="text-white" />
+                        </span>
+                        <div>
+                          <h3 className="text-sm font-bold text-white">پیوست‌ها</h3>
+                          <p className="mono text-[9px] tracking-widest text-fg-500">
+                            // FILES
+                          </p>
+                        </div>
+                      </div>
+                      <span className="badge">{attachments.length}</span>
+                    </div>
+
+                    <div
+                      onDragEnter={(e) => {
+                        e.preventDefault();
+                        setDragActive(true);
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setDragActive(true);
+                      }}
+                      onDragLeave={(e) => {
+                        e.preventDefault();
+                        setDragActive(false);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragActive(false);
+                        uploadFiles(e.dataTransfer.files);
+                      }}
+                      onClick={() => fileInputRef.current?.click()}
+                      className={`group relative flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed px-4 py-6 text-center transition ${
+                        dragActive
+                          ? "border-white/70 bg-white/[0.08]"
+                          : "border-white/12 bg-white/[0.02] hover:border-white/30 hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => uploadFiles(e.target.files ?? [])}
+                      />
+                      <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.05] text-white">
+                        {uploading ? (
+                          <Loader2 size={18} className="animate-spin" />
+                        ) : (
+                          <UploadCloud size={18} />
+                        )}
+                      </span>
+                      <p className="text-[12px] font-semibold text-white">
+                        {uploading ? "در حال آپلود…" : "فایل را اینجا رها کن"}
+                      </p>
+                      <p className="text-[10px] text-fg-500">
+                        یا کلیک کن · حداکثر ۲۵ مگابایت
+                      </p>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {attachmentsLoading ? (
+                        <div className="flex items-center gap-2 py-3 text-[11px] text-fg-500">
+                          <Loader2 size={13} className="animate-spin" />
+                          در حال بارگذاری…
+                        </div>
+                      ) : attachments.length === 0 ? (
+                        <p className="py-2 text-center text-[11px] text-fg-500">
+                          هنوز فایلی پیوست نشده.
+                        </p>
+                      ) : (
+                        attachments.map((attachment) => {
+                          const kind = fileIcon(attachment.file_name);
+                          return (
+                            <a
+                              key={attachment.id}
+                              href={resolveMediaUrl(attachment.file_url)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="group flex items-center gap-2.5 rounded-xl border border-white/8 bg-white/[0.02] p-2.5 transition hover:border-white/20 hover:bg-white/[0.05]"
+                            >
+                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-fg-300">
+                                {kind === "image" ? (
+                                  <FileText size={15} />
+                                ) : kind === "archive" ? (
+                                  <Download size={15} />
+                                ) : (
+                                  <FileText size={15} />
+                                )}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-[11px] font-semibold text-fg-100" dir="ltr">
+                                  {attachment.file_name}
+                                </span>
+                                <span className="mt-0.5 block text-[9px] text-fg-500">
+                                  {attachment.user_username ?? "کاربر"} ·{" "}
+                                  {parseDue(attachment.created_at).toLocaleDateString("fa-IR")}
+                                </span>
+                              </span>
+                              <Download
+                                size={14}
+                                className="shrink-0 text-fg-500 transition group-hover:text-white"
+                              />
+                            </a>
+                          );
+                        })
+                      )}
+                    </div>
+                  </section>
                 </div>
-
-                <h1
-                  className={`text-2xl font-black leading-9 sm:text-3xl ${
-                    item.completed ? "text-fg-500 line-through" : "text-white"
-                  }`}
-                >
-                  {item.title}
-                </h1>
-
-                <div className="mt-6 grid gap-3 sm:grid-cols-2">
-                  <InfoRow
-                    icon={<BookOpen size={16} />}
-                    label="درس"
-                    value={subjectName(item.subject_id, item.course) || "—"}
-                    sub={subject?.nameEn}
-                  />
-                  <InfoRow
-                    icon={<User size={16} />}
-                    label="دبیر"
-                    value={subject?.teacher ?? "—"}
-                  />
-                  <InfoRow
-                    icon={<Calendar size={16} />}
-                    label="مهلت تحویل"
-                    value={formatDue(item.due_date)}
-                    sub={relativeDue(item.due_date, now)}
-                    valueClass={TONE_TEXT[tone]}
-                  />
-                  <InfoRow
-                    icon={<Clock size={16} />}
-                    label="ثبت‌شده"
-                    value={parseDue(item.created_at).toLocaleDateString("fa-IR", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
-                  />
-                </div>
-
-                {item.description && (
-                  <p className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-4 text-sm leading-7 text-fg-300">
-                    {item.description}
-                  </p>
-                )}
               </div>
 
-              <div className="mt-5 flex gap-3">
-                <button
-                  onClick={toggle}
-                  className={`btn-ghost flex-1 justify-center !py-3 ${
-                    item.completed ? "" : "!border-success/40 !text-success hover:!bg-success/10"
-                  }`}
-                >
-                  <Check size={16} strokeWidth={3} />
-                  {item.completed ? "برگردان به انجام‌نشده" : "علامت‌گذاری به‌عنوان انجام‌شده"}
-                </button>
-                <button
-                  onClick={remove}
-                  className="btn-ghost justify-center !py-3 !border-danger/30 !text-danger hover:!bg-danger/10"
-                >
-                  <Trash2 size={16} />
-                  حذف
-                </button>
-              </div>
+              {/* چت تکلیف */}
+              <section className="mt-5">
+                <div className="mb-3 flex items-center gap-2 px-1">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03]">
+                    <MessageSquare size={14} className="text-white" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">گفتگوی این تکلیف</h3>
+                    <p className="mono text-[9px] tracking-widest text-fg-500">
+                      // TASK COMMENTS · ONLY THIS ASSIGNMENT
+                    </p>
+                  </div>
+                </div>
+                <ChatRoom
+                  key={`assignment-${item.id}`}
+                  room={`assignment:${item.id}`}
+                  assignmentId={item.id}
+                  title="گفتگوی تکلیف"
+                  subtitle={item.title}
+                  compact
+                  headerIcon={<MessageSquare size={17} />}
+                />
+              </section>
             </motion.div>
           );
         })()
@@ -199,7 +581,7 @@ export default function AssignmentDetailPage() {
   );
 }
 
-function InfoRow({
+function InfoChip({
   icon,
   label,
   value,
@@ -213,14 +595,14 @@ function InfoRow({
   valueClass?: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05] text-fg-300">
+    <div className="flex items-center gap-2.5 rounded-xl border border-white/8 bg-white/[0.02] p-2.5">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-fg-300">
         {icon}
       </span>
       <div className="min-w-0">
         <p className="mono-label">{label}</p>
-        <p className={`truncate text-sm font-semibold ${valueClass}`}>{value}</p>
-        {sub && <p className="truncate text-[11px] text-fg-500">{sub}</p>}
+        <p className={`truncate text-[12px] font-semibold ${valueClass}`}>{value}</p>
+        {sub && <p className="truncate text-[10px] text-fg-500">{sub}</p>}
       </div>
     </div>
   );

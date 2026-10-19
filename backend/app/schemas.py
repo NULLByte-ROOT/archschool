@@ -22,8 +22,18 @@ class UserOut(UserBase):
     id: int
     is_admin: bool
     is_active: bool
+    points: int = 0
     created_at: datetime
     code: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class PublicUserOut(BaseModel):
+    id: int
+    username: str
+    is_admin: bool
+    points: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -72,3 +82,50 @@ class AssignmentOut(AssignmentBase):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ------------------------------------------------------------------
+#  چت، پیوست‌ها و امتیازها
+# ------------------------------------------------------------------
+class MessageCreate(BaseModel):
+    content: str = Field("", max_length=5000)
+    receiver_id: Optional[int] = None
+    assignment_id: Optional[int] = None
+    file_url: Optional[str] = Field(None, max_length=500)
+
+
+class MessageOut(BaseModel):
+    id: int
+    sender_id: int
+    sender_username: Optional[str] = None
+    receiver_id: Optional[int] = None
+    assignment_id: Optional[int] = None
+    content: str = ""
+    file_url: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AttachmentOut(BaseModel):
+    id: int
+    assignment_id: int
+    user_id: int
+    user_username: Optional[str] = None
+    file_url: str
+    file_name: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class UploadOut(BaseModel):
+    url: str
+    file_name: str
+    size: int
+
+
+class TeamMemberOut(BaseModel):
+    user: PublicUserOut
+    completed: bool
+    is_self: bool = False

@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     ADMIN_CODE: str = "ROOT01"
 
+    UPLOAD_DIR: str = "uploads"
+    MAX_UPLOAD_MB: int = 25
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

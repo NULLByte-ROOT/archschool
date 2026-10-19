@@ -8,6 +8,8 @@ import Particles from "./Particles";
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const immersive =
+    location.pathname === "/chat" || /^\/assignments\/[^/]+$/.test(location.pathname);
 
   return (
     <div className="relative flex h-screen overflow-hidden bg-black font-sans" dir="rtl">
@@ -76,7 +78,7 @@ export default function Layout() {
           transition={{ duration: 0.16, ease: "easeOut" }}
           className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         >
-          <div className="w-full p-4 md:p-8">
+          <div className={immersive ? "h-full w-full" : "w-full p-4 md:p-8"}>
             <Outlet />
           </div>
         </motion.div>
