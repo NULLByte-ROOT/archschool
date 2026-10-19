@@ -24,3 +24,11 @@ export const MOBILE_QUERY = "(max-width: 768px), (pointer: coarse)";
 export function useIsMobile(): boolean {
   return useMediaQuery(MOBILE_QUERY);
 }
+
+/** فقط بر اساس عرض صفحه‌نمایش (برای انتخاب چیدمان) */
+export const MOBILE_WIDTH_QUERY = "(max-width: 768px)";
+
+/** آیا عرض صفحه‌نمایش در محدوده‌ی موبایل است؟ */
+export function useIsMobileWidth(): boolean {
+  return useMediaQuery(MOBILE_WIDTH_QUERY);
+}

@@ -149,14 +149,14 @@ export default function LoginPage() {
         <div className="relative z-10 flex items-center gap-3">
           <img
             src="/logo.png"
-            alt="مدیریت تکالیف"
+            alt="ArchSchool"
             width={52}
             height={52}
             className="h-13 w-13 rounded-2xl border border-white/20 object-cover shadow-[0_0_35px_-8px_rgba(255,255,255,0.65)]"
           />
           <div dir="rtl">
-            <p className="text-sm font-bold text-white">مدیریت تکالیف</p>
-            <p className="mono text-[10px] tracking-[0.25em] text-zinc-500">HOMEWORK MANAGER</p>
+            <p className="text-sm font-bold text-white">ArchSchool</p>
+            <p className="mono text-[10px] tracking-[0.25em] text-zinc-500">ARCHSCHOOL</p>
           </div>
         </div>
 
@@ -211,13 +211,13 @@ export default function LoginPage() {
           <div className="mb-6 flex flex-col items-center gap-3 text-center md:hidden">
             <img
               src="/logo.png"
-              alt="مدیریت تکالیف"
+              alt="ArchSchool"
               width={64}
               height={64}
               className="h-16 w-16 rounded-2xl border border-white/20 object-cover shadow-[0_0_35px_-8px_rgba(255,255,255,0.6)]"
             />
             <div dir="rtl">
-              <h1 className="text-xl font-black text-white">مدیریت تکالیف</h1>
+              <h1 className="text-xl font-black text-white">ArchSchool</h1>
               <p className="mt-1 text-xs text-zinc-500">برای ادامه وارد شو</p>
             </div>
           </div>
@@ -227,13 +227,13 @@ export default function LoginPage() {
               <div className="mb-4 hidden items-center gap-2.5 md:flex">
                 <img
                   src="/logo.png"
-                  alt="مدیریت تکالیف"
+                  alt="ArchSchool"
                   width={36}
                   height={36}
                   className="h-9 w-9 rounded-xl border border-white/15 object-cover"
                 />
                 <span className="mono text-[10px] tracking-[0.2em] text-zinc-400">
-                  HOMEWORK MANAGER
+                  ARCHSCHOOL
                 </span>
               </div>
 

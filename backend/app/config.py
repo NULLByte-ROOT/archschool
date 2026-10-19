@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    APP_NAME: str = "Homework Manager API"
+    APP_NAME: str = "ArchSchool API"
     DATABASE_URL: str = "sqlite:///./homework.db"
 
     CORS_ORIGINS: list[str] = [

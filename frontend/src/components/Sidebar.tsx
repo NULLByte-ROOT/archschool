@@ -94,14 +94,14 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           >
             <img
               src="/logo.png"
-              alt="مدیریت تکالیف"
+              alt="ArchSchool"
               width={40}
               height={40}
               className="h-full w-full rounded-xl object-cover"
             />
           </motion.div>
           <div>
-            <h1 className="text-sm font-bold text-white">مدیریت تکالیف</h1>
+            <h1 className="text-sm font-bold text-white">ArchSchool</h1>
             <p className="mono text-[10px] tracking-widest text-fg-500">V0.1.0</p>
           </div>
         </div>

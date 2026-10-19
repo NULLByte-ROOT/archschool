@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
@@ -27,6 +27,7 @@ import {
 } from "../data";
 import type { Assignment } from "../api/client";
 import Corners from "./Corners";
+import { useIsMobileWidth } from "../hooks/useMediaQuery";
 import {
   TONE_BORDER,
   TONE_DOT,
@@ -36,7 +37,6 @@ import {
   categoryItemLabel,
   deadlineTone,
   formatDue,
-  parseDue,
   relativeDue,
   type DeadlineTone,
 } from "../lib/assignments";
@@ -57,22 +57,6 @@ function GroupIcon({ category, size = 15 }: { category?: string; size?: number }
   ) : (
     <ClipboardList size={size} className="text-white" />
   );
-}
-
-function groupAssignments(assignments: Assignment[]): Record<string, Assignment[]> {
-  const map: Record<string, Assignment[]> = {};
-  for (const a of assignments) {
-    if (!a.subject_id) continue;
-    (map[a.subject_id] ??= []).push(a);
-  }
-  for (const key of Object.keys(map)) {
-    map[key].sort((x, y) => {
-      const dx = x.due_date ? parseDue(x.due_date).getTime() : Infinity;
-      const dy = y.due_date ? parseDue(y.due_date).getTime() : Infinity;
-      return dx - dy;
-    });
-  }
-  return map;
 }
 
 // ------------------------------------------------------------------
@@ -202,7 +186,7 @@ function DesktopTimetable({ bySubject }: { bySubject: Record<string, Assignment[
   }
 
   return (
-    <div className="hidden overflow-x-auto pb-2 md:block">
+    <div className="overflow-x-auto pb-2">
       <div ref={containerRef} className="relative min-w-[900px]">
         <div
           className="grid gap-2.5"
@@ -492,6 +476,129 @@ function flattenDay(day: Day): MobileEntry[] {
   return out;
 }
 
+interface MobileDayRowProps {
+  day: Day;
+  entries: MobileEntry[];
+  count: number;
+  events: number;
+  tone: DeadlineTone;
+  isOpen: boolean;
+  bySubject: Record<string, Assignment[]>;
+  onToggle: (id: string) => void;
+  onSelect: (subject: Subject) => void;
+}
+
+const MobileDayRow = memo(function MobileDayRow({
+  day,
+  entries,
+  count,
+  events,
+  tone,
+  isOpen,
+  bySubject,
+  onToggle,
+  onSelect,
+}: MobileDayRowProps) {
+  return (
+    <div className="relative pr-12">
+      <span
+        className={`absolute right-[14px] top-6 z-10 grid h-4 w-4 place-items-center rounded-full border transition-colors ${
+          isOpen ? "border-white bg-white" : "border-white/40 bg-bg-100"
+        }`}
+      >
+        {isOpen && <span className="h-1.5 w-1.5 rounded-full bg-black" />}
+      </span>
+
+      <button
+        onClick={() => onToggle(day.id)}
+        className={`panel relative flex w-full items-center justify-between gap-3 p-4 text-right transition-colors ${
+          isOpen ? "border-white/25 bg-white/[0.05]" : "active:bg-white/[0.04]"
+        }`}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/15 bg-white/[0.06] text-lg font-black text-white">
+            {day.short}
+          </span>
+          <div className="min-w-0">
+            <p className="text-base font-bold text-white">{day.name}</p>
+            <p className="flex items-center gap-1.5 text-[11px] text-fg-500">
+              <span className="mono tabular-nums tracking-widest">
+                {String(count).padStart(2, "0")}
+              </span>
+              <span>درس</span>
+            </p>
+          </div>
+        </div>
+
+        {events > 0 && (
+          <span
+            className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.05] px-2 py-1"
+            title={`${events} رویداد`}
+          >
+            <span
+              className={`h-2 w-2 animate-pulse rounded-full ${TONE_DOT[tone]} ${EVENT_GLOW[tone]}`}
+            />
+            <span className="mono text-[10px] tabular-nums text-fg-200">{events}</span>
+          </span>
+        )}
+
+        <span
+          className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-white/12 bg-white/[0.04] text-fg-300 transition-transform duration-200 ${
+            isOpen ? "rotate-180" : ""
+          }`}
+        >
+          <ChevronDown size={16} />
+        </span>
+      </button>
+
+      {isOpen && (
+        <div className="space-y-2 pt-2">
+          {entries.map((entry, ei) =>
+            entry.subject ? (
+              <button
+                key={`${day.id}-${ei}`}
+                onClick={() => onSelect(entry.subject!)}
+                className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5 text-right transition-colors active:scale-[0.98] active:bg-white/[0.06]"
+              >
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/12 bg-white/[0.05]">
+                  <BookOpen size={16} className="text-white" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-bold text-white">{entry.subject.name}</p>
+                  <p className="flex items-center gap-1.5 truncate text-[11px] text-fg-500">
+                    <User size={11} className="shrink-0" />
+                    {entry.subject.teacher}
+                  </p>
+                </div>
+                {bySubject[entry.subject.id]?.length ? (
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${
+                      TONE_DOT[deadlineTone(bySubject[entry.subject.id][0].due_date)]
+                    }`}
+                  />
+                ) : null}
+                <span className="badge shrink-0">{entry.label}</span>
+                <ChevronLeft size={16} className="shrink-0 text-fg-500" />
+              </button>
+            ) : (
+              <div
+                key={`${day.id}-${ei}`}
+                className="flex items-center gap-3 rounded-2xl border border-dashed border-white/10 p-3.5"
+              >
+                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-dashed border-white/10 text-fg-500">
+                  <Clock size={16} />
+                </span>
+                <span className="text-sm text-fg-500">زنگ آزاد</span>
+                <span className="badge ml-auto shrink-0">{entry.label}</span>
+              </div>
+            )
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
 function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]> }) {
   const navigate = useNavigate();
   const [openDay, setOpenDay] = useState<string | null>(TIMETABLE[0]?.id ?? null);
@@ -537,129 +644,30 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
     [bySubject]
   );
 
+  const handleToggleDay = useCallback((id: string) => {
+    setOpenDay((current) => (current === id ? null : id));
+  }, []);
+
   return (
-    <div className="md:hidden">
+    <div>
       <div className="relative">
         <span className="pointer-events-none absolute bottom-6 right-[21px] top-8 w-px bg-gradient-to-b from-white/30 via-white/10 to-transparent" />
 
         <div className="space-y-3">
-          {days.map(({ day, entries, count, events, tone }) => {
-            const isOpen = openDay === day.id;
-
-            return (
-              <div key={day.id} className="relative pr-12">
-                <span
-                  className={`absolute right-[14px] top-6 z-10 grid h-4 w-4 place-items-center rounded-full border transition-colors ${
-                    isOpen ? "border-white bg-white" : "border-white/40 bg-bg-100"
-                  }`}
-                >
-                  {isOpen && <span className="h-1.5 w-1.5 rounded-full bg-black" />}
-                </span>
-
-                <button
-                  onClick={() => setOpenDay(isOpen ? null : day.id)}
-                  className={`panel relative flex w-full items-center justify-between gap-3 p-4 text-right transition-colors ${
-                    isOpen ? "border-white/25 bg-white/[0.05]" : "active:bg-white/[0.04]"
-                  }`}
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/15 bg-white/[0.06] text-lg font-black text-white">
-                      {day.short}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-base font-bold text-white">{day.name}</p>
-                      <p className="flex items-center gap-1.5 text-[11px] text-fg-500">
-                        <span className="mono tabular-nums tracking-widest">
-                          {String(count).padStart(2, "0")}
-                        </span>
-                        <span>درس</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  {events > 0 && (
-                    <span
-                      className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.05] px-2 py-1"
-                      title={`${events} رویداد`}
-                    >
-                      <span
-                        className={`h-2 w-2 animate-pulse rounded-full ${TONE_DOT[tone]} ${EVENT_GLOW[tone]}`}
-                      />
-                      <span className="mono text-[10px] tabular-nums text-fg-200">{events}</span>
-                    </span>
-                  )}
-
-                  <motion.span
-                    animate={{ rotate: isOpen ? 180 : 0 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 28 }}
-                    className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-white/12 bg-white/[0.04] text-fg-300"
-                  >
-                    <ChevronDown size={16} />
-                  </motion.span>
-                </button>
-
-                <AnimatePresence initial={false}>
-                  {isOpen && (
-                    <motion.div
-                      key="content"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.16, ease: "easeOut" }}
-                      className="overflow-hidden"
-                    >
-                      <div className="space-y-2 pt-2">
-                        {entries.map((entry, ei) =>
-                          entry.subject ? (
-                            <button
-                              key={`${day.id}-${ei}`}
-                              onClick={() => setSelected(entry.subject)}
-                              className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5 text-right transition-colors active:scale-[0.98] active:bg-white/[0.06]"
-                            >
-                              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/12 bg-white/[0.05]">
-                                <BookOpen size={16} className="text-white" />
-                              </span>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-bold text-white">
-                                  {entry.subject.name}
-                                </p>
-                                <p className="flex items-center gap-1.5 truncate text-[11px] text-fg-500">
-                                  <User size={11} className="shrink-0" />
-                                  {entry.subject.teacher}
-                                </p>
-                              </div>
-                              {bySubject[entry.subject.id]?.length ? (
-                                <span
-                                  className={`h-2 w-2 shrink-0 rounded-full ${
-                                    TONE_DOT[
-                                      deadlineTone(bySubject[entry.subject.id][0].due_date)
-                                    ]
-                                  }`}
-                                />
-                              ) : null}
-                              <span className="badge shrink-0">{entry.label}</span>
-                              <ChevronLeft size={16} className="shrink-0 text-fg-500" />
-                            </button>
-                          ) : (
-                            <div
-                              key={`${day.id}-${ei}`}
-                              className="flex items-center gap-3 rounded-2xl border border-dashed border-white/10 p-3.5"
-                            >
-                              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-dashed border-white/10 text-fg-500">
-                                <Clock size={16} />
-                              </span>
-                              <span className="text-sm text-fg-500">زنگ آزاد</span>
-                              <span className="badge ml-auto shrink-0">{entry.label}</span>
-                            </div>
-                          )
-                        )}
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            );
-          })}
+          {days.map(({ day, entries, count, events, tone }) => (
+            <MobileDayRow
+              key={day.id}
+              day={day}
+              entries={entries}
+              count={count}
+              events={events}
+              tone={tone}
+              isOpen={openDay === day.id}
+              bySubject={bySubject}
+              onToggle={handleToggleDay}
+              onSelect={setSelected}
+            />
+          ))}
         </div>
       </div>
 
@@ -801,12 +809,15 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
 // ------------------------------------------------------------------
 //  انتخاب دسکتاپ / موبایل
 // ------------------------------------------------------------------
-export default function Timetable({ assignments = [] }: { assignments?: Assignment[] }) {
-  const bySubject = useMemo(() => groupAssignments(assignments), [assignments]);
-  return (
-    <>
-      <DesktopTimetable bySubject={bySubject} />
-      <MobileTimetable bySubject={bySubject} />
-    </>
+export default function Timetable({
+  bySubject,
+}: {
+  bySubject: Record<string, Assignment[]>;
+}) {
+  const isMobile = useIsMobileWidth();
+  return isMobile ? (
+    <MobileTimetable bySubject={bySubject} />
+  ) : (
+    <DesktopTimetable bySubject={bySubject} />
   );
 }

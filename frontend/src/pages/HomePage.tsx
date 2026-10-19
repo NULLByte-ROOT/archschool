@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { CalendarDays, Clock } from "lucide-react";
 import { fetchAssignments } from "../api/client";
 import type { Assignment } from "../api/client";
 import Corners from "../components/Corners";
 import Timetable from "../components/Timetable";
+import TomorrowSchedule from "../components/TomorrowSchedule";
 import { useNow } from "../hooks/useNow";
-import { jalaliTime, jalaliToday } from "../lib/assignments";
+import { groupAssignmentsBySubject, jalaliTime, jalaliToday } from "../lib/assignments";
 
 export default function HomePage() {
   const [items, setItems] = useState<Assignment[]>([]);
@@ -16,6 +17,7 @@ export default function HomePage() {
     fetchAssignments().then(setItems).catch(console.error);
   }, []);
 
+  const bySubject = useMemo(() => groupAssignmentsBySubject(items), [items]);
   const today = jalaliToday(now);
   const time = jalaliTime(now);
 
@@ -70,8 +72,11 @@ export default function HomePage() {
           <span className="badge">شنبه تا چهارشنبه</span>
         </div>
 
-        <Timetable assignments={items} />
+        <Timetable bySubject={bySubject} />
       </motion.section>
+
+      {/* برنامه‌ی پیش‌رو */}
+      <TomorrowSchedule bySubject={bySubject} now={now} />
     </div>
   );
 }

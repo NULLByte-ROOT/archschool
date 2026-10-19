@@ -45,27 +45,27 @@ export default function Layout() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <main className="relative z-10 flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="z-20 flex shrink-0 items-center gap-3 border-b border-white/5 bg-black/80 px-4 py-3 md:hidden">
+        <header className="z-20 flex w-full max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-white/5 bg-black/80 px-4 py-3 md:hidden">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="icon-btn"
+            className="icon-btn shrink-0"
             aria-label="باز کردن منو"
             aria-expanded={sidebarOpen}
           >
             <Menu size={18} />
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/15 bg-white/5">
               <img
                 src="/logo.png"
-                alt="مدیریت تکالیف"
+                alt="ArchSchool"
                 width={28}
                 height={28}
                 className="h-full w-full rounded-xl object-cover"
               />
             </span>
-            <span className="text-sm font-bold text-white">مدیریت تکالیف</span>
+            <span className="truncate text-sm font-bold text-white">ArchSchool</span>
           </div>
         </header>
 

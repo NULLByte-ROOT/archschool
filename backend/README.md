@@ -1,6 +1,6 @@
-# backend
+# ArchSchool Backend
 
-A project created with FastAPI CLI.
+FastAPI + SQLAlchemy API for ArchSchool.
 
 ## Quick Start
 

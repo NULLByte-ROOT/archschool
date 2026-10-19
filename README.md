@@ -1,75 +1,49 @@
-# React + TypeScript + Vite
+# ArchSchool
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+ArchSchool is a school homework & timetable manager. It tracks assignments,
+exams and projects, and shows the weekly class schedule with upcoming work
+highlighted per subject.
 
-Currently, two official plugins are available:
+- **Frontend:** React 19 + TypeScript + Vite + Tailwind CSS v4 + Framer Motion
+- **Backend:** FastAPI + SQLAlchemy + Pydantic (SQLite for local dev, PostgreSQL in Docker)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Structure
 
 ```
-
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+backend/   FastAPI app (app/models.py, app/schemas.py, app/routers/)
+frontend/  React app (src/components, src/pages, src/lib)
 ```
+
+## Local development
+
+### Backend
+
+```bash
+cd backend
+python -m venv .venv
+.venv/Scripts/activate      # Windows
+pip install -r requirements.txt   # or use uv with pyproject.toml
+uvicorn app.main:app --reload --port 8000
+```
+
+Copy `backend/.env.example` to `backend/.env` and adjust values as needed.
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The API base URL is read from `VITE_API_URL` (see `frontend/.env.example`),
+defaulting to `http://localhost:8000/api`.
+
+## Production
+
+```bash
+docker compose up -d --build
+```
+
+The backend expects PostgreSQL; connection settings live in
+`backend/.env` and are overridden by `docker-compose.yml`.

@@ -1,4 +1,12 @@
-import { SUBJECTS, TIMETABLE, type Subject } from "../data";
+import {
+  SUBJECTS,
+  TIMETABLE,
+  PERIOD_COUNT,
+  PERIOD_LABELS,
+  type Day,
+  type Subject,
+} from "../data";
+import type { Assignment } from "../api/client";
 
 // ------------------------------------------------------------------
 //  دسته‌بندی موضوع تکلیف
@@ -69,6 +77,82 @@ export const SUBJECT_BY_ID: Record<string, Subject> = Object.fromEntries(
 
 export function subjectName(id: string, fallback = ""): string {
   return SUBJECT_BY_ID[id]?.name ?? fallback;
+}
+
+// ------------------------------------------------------------------
+//  گروه‌بندی تکالیف بر اساس درس
+// ------------------------------------------------------------------
+export function groupAssignmentsBySubject(
+  assignments: Assignment[]
+): Record<string, Assignment[]> {
+  const map: Record<string, Assignment[]> = {};
+  for (const a of assignments) {
+    if (!a.subject_id) continue;
+    (map[a.subject_id] ??= []).push(a);
+  }
+  for (const key of Object.keys(map)) {
+    map[key].sort((x, y) => {
+      const dx = x.due_date ? parseDue(x.due_date).getTime() : Infinity;
+      const dy = y.due_date ? parseDue(y.due_date).getTime() : Infinity;
+      return dx - dy;
+    });
+  }
+  return map;
+}
+
+// ------------------------------------------------------------------
+//  برنامه‌ی روز و منطق هوشمند «روز بعد»
+// ------------------------------------------------------------------
+export interface DayEntry {
+  subject: Subject;
+  period: string;
+}
+
+/** دروس یک روز به‌ترتیب زنگ‌ها */
+export function dayEntries(day: Day): DayEntry[] {
+  const out: DayEntry[] = [];
+  let period = 0;
+  for (const cell of day.cells) {
+    const label = cell.span === PERIOD_COUNT ? "تمام زنگ‌ها" : PERIOD_LABELS[period] ?? "";
+    if (cell.kind === "class") {
+      out.push({ subject: cell.subject, period: label });
+    } else if (cell.kind === "multi") {
+      for (const subject of cell.subjects) out.push({ subject, period: label });
+    }
+    period += cell.span;
+  }
+  return out;
+}
+
+/** ساعت پایان مدرسه (۱۴:۰۰) به دقیقه */
+export const SCHOOL_END_MINUTES = 14 * 60;
+
+export interface ScheduleTarget {
+  /** اندیس روز در TIMETABLE (۰ = شنبه) */
+  dayIndex: number;
+  /** آیا هدف، روز بعد است؟ */
+  isTomorrow: boolean;
+  /** آیا ساعت از پایان مدرسه گذشته است؟ */
+  isAfterSchool: boolean;
+}
+
+/**
+ * منطق هوشمند «برنامه‌ی پیش‌رو»:
+ * - بعد از ساعت ۱۴:۰۰ برنامه‌ی روز تقویمی بعد نمایش داده می‌شود.
+ * - قبل از آن برنامه‌ی امروز نمایش داده می‌شود.
+ */
+export function scheduleTarget(now: number = Date.now()): ScheduleTarget {
+  const base = new Date(now);
+  const minutes = base.getHours() * 60 + base.getMinutes();
+  const isAfterSchool = minutes >= SCHOOL_END_MINUTES;
+  const today = todayIndex(base);
+  const dayIndex = isAfterSchool ? (today + 1) % 7 : today;
+  return { dayIndex, isTomorrow: isAfterSchool, isAfterSchool };
+}
+
+/** روزِ برنامه با اندیس؛ خارج از روزهای مدرسه undefined است */
+export function dayAtIndex(index: number): Day | undefined {
+  return index >= 0 && index < TIMETABLE.length ? TIMETABLE[index] : undefined;
 }
 
 // ------------------------------------------------------------------

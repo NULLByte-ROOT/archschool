@@ -25,6 +25,7 @@ import Corners from "../components/Corners";
 import Dropdown from "../components/Dropdown";
 import AddAssignmentModal from "../components/AddAssignmentModal";
 import { useNow } from "../hooks/useNow";
+import { useIsMobileWidth } from "../hooks/useMediaQuery";
 import {
   SUBJECT_LIST,
   TONE_BORDER,
@@ -82,6 +83,7 @@ interface ItemProps {
   view: View;
   index: number;
   now: number;
+  layoutEnabled: boolean;
   onOpen: (id: number) => void;
   onToggle: (item: Assignment) => void;
   onDelete: (item: Assignment) => void;
@@ -93,6 +95,7 @@ const AssignmentItem = memo(function AssignmentItem({
   view,
   index,
   now,
+  layoutEnabled,
   onOpen,
   onToggle,
   onDelete,
@@ -103,7 +106,7 @@ const AssignmentItem = memo(function AssignmentItem({
   const GroupIcon = group?.id === "exam" ? GraduationCap : ClipboardList;
 
   const motionProps = {
-    layout: true,
+    layout: layoutEnabled,
     initial: { opacity: 0, y: 16 },
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, scale: 0.96 },
@@ -270,6 +273,7 @@ const AssignmentItem = memo(function AssignmentItem({
 export default function AssignmentsPage() {
   const navigate = useNavigate();
   const now = useNow(30_000);
+  const isMobileWidth = useIsMobileWidth();
   const [items, setItems] = useState<Assignment[]>(() => listCache.get(cacheKey("all")) ?? []);
   const [status, setStatus] = useState<Status>("all");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -568,6 +572,7 @@ export default function AssignmentsPage() {
                 view={view}
                 index={i}
                 now={now}
+                layoutEnabled={!isMobileWidth}
                 onOpen={handleOpen}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
