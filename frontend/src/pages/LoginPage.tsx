@@ -1,70 +1,42 @@
-import { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { User, KeyRound, BookOpen, Shield, ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
-import { useIsMobile } from '../hooks/useMediaQuery';
+import { useEffect, useRef, useState } from "react";
+import type { ClipboardEvent, FormEvent, KeyboardEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { User, KeyRound, Shield, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
 
-export default function VercelWhiteLoginOTP() {
+export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const [username, setUsername] = useState('');
-  const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
+  const [username, setUsername] = useState("");
+  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
   const [showCode, setShowCode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tilt, setTilt] = useState({ x: 0, y: 0, glareX: 50, glareY: 50, isHovering: false });
 
-  const cardRef = useRef<HTMLDivElement>(null);
   const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
-  const isTouch = useIsMobile();
 
-  // 🎨 تم سفید خالص
-  const config = {
-    glowColor: '#ffffff',
-    accentColor: '#ffffff',
-    cardOpacity: 75,
-    cardBlur: 24,
-    borderRadius: 16,
-    tiltIntensity: 14,
-    show3DCore: true,
-    coreShape: 'prism', // 'prism' | 'cube' | 'rings'
-    coreSpeed: 12,
-    borderBeam: true,
-    spotlightCursor: true,
-    badgeText: 'login to Homework Manager',
-    title: 'Welcome',
-    subtitle: 'یوزر نیم و کد لاگین که بهتون ارسال شده رو وارد کنید',
-    userLabel: 'USERNAME',
-    userPlaceholder: 'arsi_dev',
-    codeLabel: 'ACCESS CODE',
-    submitText: 'Login',
-    footerNote: 'DEVELOPED BY SEPEHR',
-  };
+  useEffect(() => {
+    const previous = {
+      overflow: document.body.style.overflow,
+      margin: document.body.style.margin,
+      height: document.body.style.height,
+      width: document.body.style.width,
+    };
+    document.body.style.overflow = "hidden";
+    document.body.style.margin = "0";
+    document.body.style.height = "100vh";
+    document.body.style.width = "100vw";
+    return () => {
+      document.body.style.overflow = previous.overflow;
+      document.body.style.margin = previous.margin;
+      document.body.style.height = previous.height;
+      document.body.style.width = previous.width;
+    };
+  }, []);
 
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isTouch || !cardRef.current) return;
-    const rect = cardRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-
-    const rotateX = ((y - centerY) / centerY) * -config.tiltIntensity;
-    const rotateY = ((x - centerX) / centerX) * config.tiltIntensity;
-    const glareX = (x / rect.width) * 100;
-    const glareY = (y / rect.height) * 100;
-
-    setTilt({ x: rotateX, y: rotateY, glareX, glareY, isHovering: true });
-  };
-
-  const handleMouseLeave = () => {
-    setTilt({ x: 0, y: 0, glareX: 50, glareY: 50, isHovering: false });
-  };
-
-  // ✅ هندلر ۶ خانه کد
   const handleDigitChange = (index: number, val: string) => {
-    const clean = val.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    const clean = val.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
     const next = [...otpDigits];
     next[index] = clean.slice(-1);
     setOtpDigits(next);
@@ -74,366 +46,315 @@ export default function VercelWhiteLoginOTP() {
     }
   };
 
-  const handleDigitKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+  const handleDigitKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !otpDigits[index] && index > 0) {
       otpRefs.current[index - 1]?.focus();
     }
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+  const handlePaste = (e: ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 6);
+    const pasted = e.clipboardData
+      .getData("text")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toUpperCase()
+      .slice(0, 6);
     if (!pasted) return;
-    const next = ['', '', '', '', '', ''];
-    pasted.split('').forEach((ch, i) => { next[i] = ch; });
+    const next = ["", "", "", "", "", ""];
+    pasted.split("").forEach((ch, i) => {
+      next[i] = ch;
+    });
     setOtpDigits(next);
     const lastIndex = Math.min(pasted.length, 5);
     otpRefs.current[lastIndex]?.focus();
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const code = otpDigits.join('');
+    const code = otpDigits.join("");
     if (!username.trim() || code.length < 6 || loading) return;
     setLoading(true);
     setError(null);
     try {
       await login(username.trim(), code);
-      navigate('/');
+      navigate("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'خطا در ورود');
+      setError(err instanceof Error ? err.message : "خطا در ورود");
     } finally {
       setLoading(false);
     }
   };
 
+  const canSubmit = !loading && username.trim().length > 0 && otpDigits.join("").length === 6;
+
   return (
     <div
       dir="ltr"
-      className="min-h-screen bg-black text-white flex items-center justify-center p-4 relative overflow-hidden"
+      className="relative flex h-[100dvh] w-screen overflow-hidden bg-black text-white"
       style={{ fontFamily: "'Vazirmatn', system-ui, sans-serif" }}
     >
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
-        .font-mono-tech { font-family: 'JetBrains Mono', monospace; }
-        .preserve-3d { transform-style: preserve-3d; }
-
-        @keyframes spin3D {
-          0% { transform: rotateX(22deg) rotateY(0deg) rotateZ(0deg); }
-          100% { transform: rotateX(22deg) rotateY(360deg) rotateZ(360deg); }
+        @keyframes loginDrift {
+          0%, 100% { transform: translate3d(0, 0, 0); }
+          50% { transform: translate3d(0, -14px, 0); }
         }
-        @keyframes spinReverse3D {
-          0% { transform: rotateX(-35deg) rotateY(360deg); }
-          100% { transform: rotateX(-35deg) rotateY(0deg); }
-        }
-        @keyframes floatPulse {
-          0%, 100% { transform: translateY(0px) scale(1); }
-          50% { transform: translateY(-8px) scale(1.04); }
-        }
-        @keyframes borderBeamSpin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-
-        .cube-scene { width: 56px; height: 56px; perspective: 400px; }
-        .cube-3d {
-          width: 100%; height: 100%; position: relative;
-          transform-style: preserve-3d;
-          animation: spin3D ${config.coreSpeed}s linear infinite;
-        }
-        .cube-face {
-          position: absolute; width: 56px; height: 56px;
-          border: 1.5px solid #ffffff;
-          background: rgba(255,255,255,0.08);
-          box-shadow: 0 0 15px rgba(255,255,255,0.25), inset 0 0 10px rgba(255,255,255,0.15);
-        }
-        .face-front  { transform: rotateY(  0deg) translateZ(28px); }
-        .face-right  { transform: rotateY( 90deg) translateZ(28px); }
-        .face-back   { transform: rotateY(180deg) translateZ(28px); }
-        .face-left   { transform: rotateY(-90deg) translateZ(28px); }
-        .face-top    { transform: rotateX( 90deg) translateZ(28px); }
-        .face-bottom { transform: rotateX(-90deg) translateZ(28px); }
-
-        /* مخفی کردن فلش‌های input number */
-        input[type=password]::-ms-reveal,
-        input[type=password]::-ms-clear { display: none; }
+        .login-drift { animation: loginDrift 7s ease-in-out infinite; }
+        .login-drift-slow { animation: loginDrift 11s ease-in-out infinite; }
       `}</style>
 
-      {/* پس‌زمینه شبکه */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundSize: '48px 48px',
-          backgroundImage: `
-            linear-gradient(to right, rgba(255,255,255,0.055) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(255,255,255,0.055) 1px, transparent 1px)
-          `,
-          maskImage: 'radial-gradient(circle at center, black 30%, transparent 80%)',
-          WebkitMaskImage: 'radial-gradient(circle at center, black 30%, transparent 80%)',
-        }}
-      />
-
-      {/* کف پرسپکتیو */}
-      <div
-        className="absolute inset-x-0 bottom-0 h-72 pointer-events-none opacity-30"
-        style={{
-          backgroundImage: `linear-gradient(to right, rgba(255,255,255,0.2) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.2) 1px, transparent 1px)`,
-          backgroundSize: '40px 40px',
-          transform: 'perspective(450px) rotateX(68deg) translateY(80px) scale(1.4)',
-          transformOrigin: 'bottom center',
-          maskImage: 'linear-gradient(to top, rgba(0,0,0,1), transparent)',
-          WebkitMaskImage: 'linear-gradient(to top, rgba(0,0,0,1), transparent)',
-        }}
-      />
-
-      {/* هاله سفید */}
-      {!isTouch && (
-        <div className="w-[420px] h-[420px] rounded-full blur-[135px] opacity-25 absolute -top-24 pointer-events-none bg-white" />
-      )}
-
-      {/* کارت */}
-      <div
-        ref={cardRef}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-        style={{
-          transform: isTouch
-            ? undefined
-            : `perspective(1200px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
-          transition: tilt.isHovering ? 'transform 0.08s ease-out' : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
-          borderRadius: `${config.borderRadius}px`,
-          transformStyle: 'preserve-3d',
-        }}
-        className="preserve-3d relative z-10 w-full max-w-[430px] p-[1.5px] group"
-      >
-        {/* Border Beam سفید */}
-        {config.borderBeam && !isTouch && (
-          <div
-            className="absolute inset-0 overflow-hidden pointer-events-none"
-            style={{ borderRadius: `${config.borderRadius}px` }}
-          >
-            <div
-              className="w-[200%] h-[200%] -top-1/2 -left-1/2 absolute opacity-70 group-hover:opacity-100 transition-opacity duration-500"
-              style={{
-                background: `conic-gradient(from 0deg, transparent 70%, #ffffff 88%, #ffffff 100%)`,
-                animation: 'borderBeamSpin 6s linear infinite',
-              }}
-            />
-          </div>
-        )}
-
-        {/* کارت شیشه‌ای */}
+      {/* ===== برندینگ دسکتاپ ===== */}
+      <aside className="relative hidden h-full w-[54%] shrink-0 flex-col justify-between overflow-hidden border-r border-white/10 bg-[#050507] p-10 md:flex lg:w-[56%] lg:p-14">
+        {/* شبکه */}
         <div
+          className="pointer-events-none absolute inset-0 opacity-60"
           style={{
-            backgroundColor: isTouch ? 'rgba(6, 6, 10, 0.95)' : `rgba(6, 6, 10, ${config.cardOpacity / 100})`,
-            backdropFilter: isTouch ? 'none' : `blur(${config.cardBlur}px)`,
-            WebkitBackdropFilter: isTouch ? 'none' : `blur(${config.cardBlur}px)`,
-            borderRadius: `${Math.max(0, config.borderRadius - 1)}px`,
-            boxShadow: `0 30px 60px -15px rgba(0,0,0,0.85), 0 0 40px -10px rgba(255,255,255,0.25)`,
+            backgroundSize: "52px 52px",
+            backgroundImage: `
+              linear-gradient(to right, rgba(255,255,255,0.055) 1px, transparent 1px),
+              linear-gradient(to bottom, rgba(255,255,255,0.055) 1px, transparent 1px)
+            `,
+            maskImage: "radial-gradient(circle at 30% 30%, black 10%, transparent 72%)",
+            WebkitMaskImage: "radial-gradient(circle at 30% 30%, black 10%, transparent 72%)",
           }}
-          className="preserve-3d relative w-full p-7 sm:p-9 border border-white/10"
-        >
-          {/* Spotlight سفید */}
-          {config.spotlightCursor && !isTouch && (
-            <div
-              className="pointer-events-none absolute inset-0 transition-opacity duration-300"
+        />
+
+        {/* هاله‌ها */}
+        <div className="pointer-events-none absolute -top-32 -left-24 h-[420px] w-[420px] rounded-full bg-white/[0.06] blur-[120px]" />
+        <div className="pointer-events-none absolute right-[-10%] bottom-[-15%] h-[380px] w-[380px] rounded-full bg-white/[0.04] blur-[110px]" />
+
+        {/* ذرات تزئینی */}
+        <div className="pointer-events-none absolute inset-0">
+          {[
+            { top: "18%", left: "22%", size: 5, delay: "0s" },
+            { top: "32%", left: "68%", size: 3, delay: "1.2s" },
+            { top: "58%", left: "38%", size: 4, delay: "2.4s" },
+            { top: "72%", left: "78%", size: 3, delay: "0.8s" },
+            { top: "44%", left: "12%", size: 3, delay: "3.1s" },
+            { top: "84%", left: "50%", size: 4, delay: "1.8s" },
+          ].map((dot) => (
+            <span
+              key={`${dot.top}-${dot.left}`}
+              className="login-drift absolute rounded-full bg-white/70 shadow-[0_0_12px_rgba(255,255,255,0.8)]"
               style={{
-                opacity: tilt.isHovering ? 1 : 0,
-                borderRadius: `${Math.max(0, config.borderRadius - 1)}px`,
-                background: `radial-gradient(380px circle at ${tilt.glareX}% ${tilt.glareY}%, rgba(255,255,255,0.12), transparent 65%)`,
+                top: dot.top,
+                left: dot.left,
+                width: dot.size,
+                height: dot.size,
+                animationDelay: dot.delay,
               }}
             />
-          )}
+          ))}
+        </div>
 
-          {/* کراس‌هیرها */}
-          <span className="absolute top-3 right-3 w-2 h-2 border-t border-r border-white/30 pointer-events-none" />
-          <span className="absolute top-3 left-3 w-2 h-2 border-t border-l border-white/30 pointer-events-none" />
-          <span className="absolute bottom-3 right-3 w-2 h-2 border-b border-r border-white/30 pointer-events-none" />
-          <span className="absolute bottom-3 left-3 w-2 h-2 border-b border-l border-white/30 pointer-events-none" />
-
-          {/* ===== هولوگرام ===== */}
-          {config.show3DCore && (
-            <div className="flex justify-center mb-6" style={{ transform: 'translateZ(50px)' }}>
-              {config.coreShape === 'prism' && (
-                <div
-                  className="relative w-16 h-16 flex items-center justify-center"
-                  style={isTouch ? undefined : { animation: 'floatPulse 4s ease-in-out infinite' }}
-                >
-                  {!isTouch && <div className="absolute inset-0 rounded-full blur-xl opacity-60 bg-white" />}
-                  <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-b from-white/20 to-white/[0.03] border border-white/40 flex items-center justify-center shadow-2xl backdrop-blur-md">
-                    <BookOpen className="w-7 h-7 text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.9)]" />
-                  </div>
-                </div>
-              )}
-
-              {config.coreShape === 'cube' && (
-                <div className="cube-scene my-1">
-                  <div className="cube-3d">
-                    <div className="cube-face face-front" />
-                    <div className="cube-face face-back" />
-                    <div className="cube-face face-right" />
-                    <div className="cube-face face-left" />
-                    <div className="cube-face face-top" />
-                    <div className="cube-face face-bottom" />
-                  </div>
-                </div>
-              )}
-
-              {config.coreShape === 'rings' && (
-                <div className="relative w-16 h-16 flex items-center justify-center preserve-3d">
-                  <div
-                    className="w-16 h-16 rounded-full border-2 border-dashed absolute border-white"
-                    style={{ animation: `spin3D ${config.coreSpeed}s linear infinite` }}
-                  />
-                  <div
-                    className="w-11 h-11 rounded-full border border-white/80 absolute"
-                    style={{ animation: `spinReverse3D ${Math.max(4, config.coreSpeed - 4)}s linear infinite` }}
-                  />
-                  <div className="w-3 h-3 rounded-full bg-white shadow-[0_0_15px_#fff]" />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ===== هدر ===== */}
-          <div className="text-center mb-7 relative" style={{ transform: 'translateZ(35px)' }}>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-[10px] font-mono-tech tracking-widest text-zinc-300 mb-3">
-              <span className="w-1.5 h-1.5 rounded-full animate-pulse bg-white" />
-              <span>{config.badgeText}</span>
-            </div>
-
-            <h1 className="text-2xl sm:text-3xl font-black tracking-tight bg-gradient-to-b from-white via-white to-zinc-400 bg-clip-text text-transparent">
-              {config.title}
-            </h1>
-
-            <p className="text-xs text-zinc-400 mt-2 leading-relaxed">{config.subtitle}</p>
-          </div>
-
-          {/* ===== فرم ===== */}
-          <form className="space-y-5 relative" style={{ transform: 'translateZ(25px)' }} onSubmit={handleSubmit}>
-            {/* Username */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-mono-tech font-semibold tracking-wider text-zinc-300 uppercase flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-white" />
-                  <span>{config.userLabel}</span>
-                </label>
-                <span className="text-[10px] font-mono-tech text-zinc-500">ID // REQUIRED</span>
-              </div>
-
-              <div className="relative">
-                <input
-                  type="text"
-                  dir="ltr"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder={config.userPlaceholder}
-                  className="w-full px-4 py-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.05] focus:bg-black/80 border border-white/10 focus:border-white/60 text-white font-mono-tech text-sm outline-none transition-all placeholder:text-zinc-600"
-                  style={{
-                    boxShadow: username ? `0 0 20px -8px #ffffff` : 'none',
-                  }}
-                />
-                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-mono-tech text-zinc-500 pointer-events-none">
-                  @
-                </span>
-              </div>
-            </div>
-
-            {/* ✅ Access Code - 6 خانه مجزا */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-mono-tech font-semibold tracking-wider text-zinc-300 uppercase flex items-center gap-1.5">
-                  <KeyRound className="w-3.5 h-3.5 text-white" />
-                  <span>{config.codeLabel}</span>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={() => setShowCode(!showCode)}
-                  className="text-[11px] font-mono-tech text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer transition"
-                >
-                  {showCode ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                  <span>{showCode ? 'HIDE' : 'SHOW'}</span>
-                </button>
-              </div>
-
-              <div dir="ltr" className="grid grid-cols-6 gap-2" onPaste={handlePaste}>
-                {otpDigits.map((digit, idx) => (
-                  <input
-                    key={idx}
-                    ref={(el) => { otpRefs.current[idx] = el; }}
-                    type={showCode ? 'text' : 'password'}
-                    inputMode="text"
-                    autoComplete="one-time-code"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => handleDigitChange(idx, e.target.value)}
-                    onKeyDown={(e) => handleDigitKeyDown(idx, e)}
-                    placeholder="•"
-                    className="h-12 text-center font-mono-tech text-base font-bold rounded-xl bg-white/[0.03] hover:bg-white/[0.06] focus:bg-black border border-white/10 focus:border-white text-white outline-none transition-all focus:scale-105 focus:-translate-y-0.5 placeholder:text-zinc-700"
-                    style={{
-                      borderColor: digit ? 'rgba(255,255,255,0.55)' : undefined,
-                      boxShadow: digit ? '0 0 15px -4px rgba(255,255,255,0.5)' : 'none',
-                    }}
-                  />
-                ))}
-              </div>
-
-              <p className="text-[10px] font-mono-tech text-zinc-500 mt-2 text-center">
-                در صورت داشتن کد کامل، آن را Paste کنید
-              </p>
-            </div>
-
-            {/* خطا */}
-            {error && (
-              <p
-                dir="rtl"
-                className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300"
-              >
-                {error}
-              </p>
-            )}
-
-            {/* دکمه */}
-            <div className="pt-2" style={{ transform: 'translateZ(15px)' }}>
-              <button
-                type="submit"
-                disabled={loading || username.trim().length === 0 || otpDigits.join('').length < 6}
-                style={{
-                  backgroundColor: '#ffffff',
-                  color: '#000000',
-                  boxShadow: `0 0 30px -5px rgba(255,255,255,0.6)`,
-                }}
-                className="w-full py-3.5 px-6 rounded-xl font-extrabold text-xs sm:text-sm transition-all transform active:scale-[0.98] hover:bg-zinc-100 flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>{config.submitText}</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-
-          {/* فوتر */}
-          <div
-            dir="ltr"
-            className="mt-7 pt-4 border-t border-white/10 flex items-center justify-center text-[10px] text-zinc-500 font-mono-tech tracking-wider uppercase"
-            style={{ transform: 'translateZ(20px)' }}
-          >
-            <span className="flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5 text-white shrink-0" />
-              <span className="text-zinc-400">{config.footerNote}</span>
-            </span>
+        <div className="relative z-10 flex items-center gap-3">
+          <img
+            src="/logo.png"
+            alt="مدیریت تکالیف"
+            width={52}
+            height={52}
+            className="h-13 w-13 rounded-2xl border border-white/20 object-cover shadow-[0_0_35px_-8px_rgba(255,255,255,0.65)]"
+          />
+          <div dir="rtl">
+            <p className="text-sm font-bold text-white">مدیریت تکالیف</p>
+            <p className="mono text-[10px] tracking-[0.25em] text-zinc-500">HOMEWORK MANAGER</p>
           </div>
         </div>
-      </div>
+
+        <div dir="rtl" className="relative z-10 max-w-xl">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/[0.04] px-3 py-1.5">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white shadow-[0_0_8px_#fff]" />
+            <span className="mono text-[10px] tracking-[0.2em] text-zinc-300">
+              SMART SCHOOL WORKSPACE
+            </span>
+          </div>
+
+          <h1 className="mt-6 text-4xl font-black leading-[1.35] tracking-tight lg:text-5xl">
+            تکالیفت رو
+            <span className="block text-zinc-400">منظم نگه دار.</span>
+          </h1>
+
+          <p className="mt-5 max-w-md text-sm leading-7 text-zinc-400">
+            همه تکالیف، امتحان‌ها و برنامه هفتگی کلاس در یک‌جا. سریع ببین چه کاری مانده و همیشه
+            یک قدم جلوتر باش.
+          </p>
+
+          <div className="mt-9 grid max-w-md grid-cols-2 gap-3">
+            <div className="login-drift-slow rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-2xl font-black text-white">01</p>
+              <p className="mt-1 text-xs text-zinc-400">برنامه هفتگی یکجا</p>
+            </div>
+            <div className="login-drift rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-2xl font-black text-white">02</p>
+              <p className="mt-1 text-xs text-zinc-400">یادآوری مهلت‌ها</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative z-10 flex items-center gap-2 text-zinc-500">
+          <Shield size={14} />
+          <span className="mono text-[10px] tracking-[0.18em]">DEVELOPED BY SEPEHR</span>
+        </div>
+      </aside>
+
+      {/* ===== فرم ===== */}
+      <main className="relative flex h-full w-full min-w-0 flex-1 items-center justify-center overflow-hidden px-5 py-6 sm:px-8 md:px-10 lg:px-14">
+        <div
+          className="pointer-events-none absolute inset-0 hidden md:block"
+          style={{
+            background:
+              "radial-gradient(circle at 50% 0%, rgba(255,255,255,0.06), transparent 60%)",
+          }}
+        />
+
+        <div className="relative z-10 w-full max-w-[430px]">
+          {/* لوگو و عنوان موبایل */}
+          <div className="mb-6 flex flex-col items-center gap-3 text-center md:hidden">
+            <img
+              src="/logo.png"
+              alt="مدیریت تکالیف"
+              width={64}
+              height={64}
+              className="h-16 w-16 rounded-2xl border border-white/20 object-cover shadow-[0_0_35px_-8px_rgba(255,255,255,0.6)]"
+            />
+            <div dir="rtl">
+              <h1 className="text-xl font-black text-white">مدیریت تکالیف</h1>
+              <p className="mt-1 text-xs text-zinc-500">برای ادامه وارد شو</p>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-transparent bg-transparent p-0 shadow-none md:border-white/10 md:bg-[#07070a]/95 md:p-9 md:shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)]">
+            <div className="mb-7">
+              <div className="mb-4 hidden items-center gap-2.5 md:flex">
+                <img
+                  src="/logo.png"
+                  alt="مدیریت تکالیف"
+                  width={36}
+                  height={36}
+                  className="h-9 w-9 rounded-xl border border-white/15 object-cover"
+                />
+                <span className="mono text-[10px] tracking-[0.2em] text-zinc-400">
+                  HOMEWORK MANAGER
+                </span>
+              </div>
+
+              <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Welcome</h2>
+              <p dir="rtl" className="mt-2 text-xs leading-6 text-zinc-400">
+                یوزر نیم و کد لاگین که بهتون ارسال شده رو وارد کنید
+              </p>
+            </div>
+
+            <form className="space-y-5" onSubmit={handleSubmit}>
+              {/* نام کاربری */}
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
+                    <User className="h-3.5 w-3.5 text-white" />
+                    <span>USERNAME</span>
+                  </label>
+                  <span className="mono text-[10px] text-zinc-500">ID // REQUIRED</span>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    dir="ltr"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="arsi_dev"
+                    autoComplete="username"
+                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 font-mono text-sm text-white outline-none transition-all placeholder:text-zinc-600 hover:bg-white/[0.05] focus:border-white/60 focus:bg-black/80"
+                  />
+                  <span className="mono pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-zinc-500">
+                    @
+                  </span>
+                </div>
+              </div>
+
+              {/* کد دسترسی */}
+              <div>
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
+                    <KeyRound className="h-3.5 w-3.5 text-white" />
+                    <span>ACCESS CODE</span>
+                  </label>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCode(!showCode)}
+                    className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
+                  >
+                    {showCode ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                    <span>{showCode ? "HIDE" : "SHOW"}</span>
+                  </button>
+                </div>
+
+                <div dir="ltr" className="grid grid-cols-6 gap-1.5 sm:gap-2" onPaste={handlePaste}>
+                  {otpDigits.map((digit, idx) => (
+                    <input
+                      key={idx}
+                      ref={(el) => {
+                        otpRefs.current[idx] = el;
+                      }}
+                      type={showCode ? "text" : "password"}
+                      inputMode="text"
+                      autoComplete="one-time-code"
+                      maxLength={1}
+                      value={digit}
+                      onChange={(e) => handleDigitChange(idx, e.target.value)}
+                      onKeyDown={(e) => handleDigitKeyDown(idx, e)}
+                      placeholder="•"
+                      className="h-11 rounded-xl border border-white/10 bg-white/[0.03] text-center font-mono text-base font-bold text-white outline-none transition-all placeholder:text-zinc-700 hover:bg-white/[0.06] focus:-translate-y-0.5 focus:scale-105 focus:border-white focus:bg-black sm:h-12"
+                    />
+                  ))}
+                </div>
+
+                <p className="mono mt-2 text-center text-[10px] text-zinc-500" dir="rtl">
+                  در صورت داشتن کد کامل، آن را Paste کنید
+                </p>
+              </div>
+
+              {error && (
+                <p
+                  dir="rtl"
+                  className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300"
+                >
+                  {error}
+                </p>
+              )}
+
+              <div className="pt-1">
+                <button
+                  type="submit"
+                  disabled={!canSubmit}
+                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-xs font-extrabold text-black shadow-[0_0_30px_-5px_rgba(255,255,255,0.6)] transition-all hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Login</span>
+                      <ArrowRight className="h-4 w-4" />
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+
+            <div
+              dir="ltr"
+              className="mono mt-7 flex items-center justify-center border-t border-white/10 pt-4 text-[10px] tracking-[0.18em] text-zinc-500"
+            >
+              <span className="flex items-center gap-1.5">
+                <Shield className="h-3.5 w-3.5 shrink-0 text-white" />
+                <span className="text-zinc-400">DEVELOPED BY SEPEHR</span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Menu, GraduationCap } from "lucide-react";
+import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import Particles from "./Particles";
 
@@ -56,8 +56,14 @@ export default function Layout() {
             <Menu size={18} />
           </button>
           <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/15 bg-white/5">
-              <GraduationCap size={15} className="text-white" />
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/15 bg-white/5">
+              <img
+                src="/logo.png"
+                alt="مدیریت تکالیف"
+                width={28}
+                height={28}
+                className="h-full w-full rounded-xl object-cover"
+              />
             </span>
             <span className="text-sm font-bold text-white">مدیریت تکالیف</span>
           </div>

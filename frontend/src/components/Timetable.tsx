@@ -38,6 +38,7 @@ import {
   formatDue,
   parseDue,
   relativeDue,
+  type DeadlineTone,
 } from "../lib/assignments";
 
 interface HoverState {
@@ -471,6 +472,12 @@ interface MobileEntry {
   dual?: boolean;
 }
 
+const EVENT_GLOW: Record<DeadlineTone, string> = {
+  red: "shadow-[0_0_10px_rgba(239,68,68,0.9)]",
+  yellow: "shadow-[0_0_10px_rgba(234,179,8,0.85)]",
+  none: "",
+};
+
 function flattenDay(day: Day): MobileEntry[] {
   const out: MobileEntry[] = [];
   let p = 0;
@@ -501,16 +508,43 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
 
   const list = selected ? bySubject[selected.id] ?? [] : [];
 
+  const days = useMemo(
+    () =>
+      TIMETABLE.map((day) => {
+        const entries = flattenDay(day);
+        let events = 0;
+        let tone: DeadlineTone = "none";
+
+        for (const entry of entries) {
+          if (!entry.subject) continue;
+          const subjectAssignments = bySubject[entry.subject.id] ?? [];
+          events += subjectAssignments.length;
+          if (subjectAssignments.length) {
+            const t = deadlineTone(subjectAssignments[0].due_date);
+            if (t === "red") tone = "red";
+            else if (t === "yellow" && tone === "none") tone = "yellow";
+          }
+        }
+
+        return {
+          day,
+          entries,
+          count: entries.filter((e) => e.subject).length,
+          events,
+          tone,
+        };
+      }),
+    [bySubject]
+  );
+
   return (
     <div className="md:hidden">
       <div className="relative">
         <span className="pointer-events-none absolute bottom-6 right-[21px] top-8 w-px bg-gradient-to-b from-white/30 via-white/10 to-transparent" />
 
         <div className="space-y-3">
-          {TIMETABLE.map((day) => {
+          {days.map(({ day, entries, count, events, tone }) => {
             const isOpen = openDay === day.id;
-            const entries = flattenDay(day);
-            const count = entries.filter((e) => e.subject).length;
 
             return (
               <div key={day.id} className="relative pr-12">
@@ -542,6 +576,19 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
                       </p>
                     </div>
                   </div>
+
+                  {events > 0 && (
+                    <span
+                      className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.05] px-2 py-1"
+                      title={`${events} رویداد`}
+                    >
+                      <span
+                        className={`h-2 w-2 animate-pulse rounded-full ${TONE_DOT[tone]} ${EVENT_GLOW[tone]}`}
+                      />
+                      <span className="mono text-[10px] tabular-nums text-fg-200">{events}</span>
+                    </span>
+                  )}
+
                   <motion.span
                     animate={{ rotate: isOpen ? 180 : 0 }}
                     transition={{ type: "spring", stiffness: 400, damping: 28 }}
@@ -555,11 +602,10 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
                   {isOpen && (
                     <motion.div
                       key="content"
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: "auto", opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: "easeOut" }}
-                      style={{ willChange: "height, opacity" }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.16, ease: "easeOut" }}
                       className="overflow-hidden"
                     >
                       <div className="space-y-2 pt-2">

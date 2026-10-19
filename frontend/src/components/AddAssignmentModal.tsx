@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookOpen, ClipboardList, Loader2, PenLine, Plus, X } from "lucide-react";
-import { createAssignment } from "../api/client";
+import { BookOpen, ClipboardList, Loader2, Pencil, PenLine, Plus, X } from "lucide-react";
+import { createAssignment, updateAssignment } from "../api/client";
+import type { Assignment } from "../api/client";
 import Dropdown from "./Dropdown";
 import DueDatePicker from "./DueDatePicker";
 import Corners from "./Corners";
@@ -18,23 +19,43 @@ export default function AddAssignmentModal({
   open,
   onClose,
   onSaved,
+  assignment = null,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
+  assignment?: Assignment | null;
 }) {
   return createPortal(
-    <AnimatePresence>{open && <AssignmentForm onClose={onClose} onSaved={onSaved} />}</AnimatePresence>,
+    <AnimatePresence>
+      {open && (
+        <AssignmentForm
+          key={assignment?.id ?? "new"}
+          assignment={assignment}
+          onClose={onClose}
+          onSaved={onSaved}
+        />
+      )}
+    </AnimatePresence>,
     document.body
   );
 }
 
-function AssignmentForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [groupId, setGroupId] = useState<string | null>(null);
-  const [subtype, setSubtype] = useState<string | null>(null);
-  const [subjectId, setSubjectId] = useState<string | null>(null);
-  const [due, setDue] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
+function AssignmentForm({
+  onClose,
+  onSaved,
+  assignment,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+  assignment: Assignment | null;
+}) {
+  const isEdit = !!assignment;
+  const [groupId, setGroupId] = useState<string | null>(assignment?.category || null);
+  const [subtype, setSubtype] = useState<string | null>(assignment?.subtype || null);
+  const [subjectId, setSubjectId] = useState<string | null>(assignment?.subject_id || null);
+  const [due, setDue] = useState<string | null>(assignment?.due_date ?? null);
+  const [title, setTitle] = useState(assignment?.title ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,15 +104,19 @@ function AssignmentForm({ onClose, onSaved }: { onClose: () => void; onSaved: ()
     setSaving(true);
     setError(null);
     try {
-      await createAssignment({
+      const payload = {
         title: title.trim() || autoTitle || categoryItemLabel(subtype),
         course: subjectName(subjectId),
         subject_id: subjectId,
         category: groupId,
         subtype,
         due_date: due,
-        priority: groupId === "exam" ? 3 : 2,
-      });
+      };
+      if (assignment) {
+        await updateAssignment(assignment.id, payload);
+      } else {
+        await createAssignment(payload);
+      }
       onSaved();
       onClose();
     } catch (e) {
@@ -124,11 +149,15 @@ function AssignmentForm({ onClose, onSaved }: { onClose: () => void; onSaved: ()
         <div className="mb-6 flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/15 bg-white/[0.06] shadow-inner">
-              <Plus size={20} className="text-white" />
+              {isEdit ? <Pencil size={19} className="text-white" /> : <Plus size={20} className="text-white" />}
             </span>
             <div>
-              <h2 className="text-lg font-black text-white">افزودن تکلیف</h2>
-              <p className="mono text-[10px] tracking-widest text-fg-500">// NEW ASSIGNMENT</p>
+              <h2 className="text-lg font-black text-white">
+                {isEdit ? "ویرایش تکلیف" : "افزودن تکلیف"}
+              </h2>
+              <p className="mono text-[10px] tracking-widest text-fg-500">
+                {isEdit ? "// EDIT ASSIGNMENT" : "// NEW ASSIGNMENT"}
+              </p>
             </div>
           </div>
           <button onClick={onClose} aria-label="بستن" className="icon-btn shrink-0">
@@ -218,8 +247,8 @@ function AssignmentForm({ onClose, onSaved }: { onClose: () => void; onSaved: ()
               </>
             ) : (
               <>
-                <Plus size={15} />
-                ثبت تکلیف
+                {isEdit ? <Pencil size={15} /> : <Plus size={15} />}
+                {isEdit ? "ذخیره تغییرات" : "ثبت تکلیف"}
               </>
             )}
           </button>

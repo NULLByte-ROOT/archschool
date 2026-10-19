@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   CheckSquare,
   Settings,
-  GraduationCap,
   X,
   Users,
   LogOut,
@@ -91,9 +90,15 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           <motion.div
             whileHover={{ rotate: 8, scale: 1.05 }}
             transition={{ type: "spring", stiffness: 300, damping: 15 }}
-            className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-white/30 bg-gradient-to-b from-white/20 to-white/[0.03] shadow-[0_0_20px_-6px_rgba(255,255,255,0.6)]"
+            className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/30 bg-white/5 shadow-[0_0_20px_-6px_rgba(255,255,255,0.6)]"
           >
-            <GraduationCap size={20} className="text-white" />
+            <img
+              src="/logo.png"
+              alt="مدیریت تکالیف"
+              width={40}
+              height={40}
+              className="h-full w-full rounded-xl object-cover"
+            />
           </motion.div>
           <div>
             <h1 className="text-sm font-bold text-white">مدیریت تکالیف</h1>

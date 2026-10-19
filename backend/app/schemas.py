@@ -48,7 +48,6 @@ class AssignmentBase(BaseModel):
     subject_id: str = ""
     due_date: Optional[datetime] = None
     completed: bool = False
-    priority: int = Field(2, ge=1, le=3)
 
 
 class AssignmentCreate(AssignmentBase):
@@ -64,7 +63,6 @@ class AssignmentUpdate(BaseModel):
     subject_id: Optional[str] = None
     due_date: Optional[datetime] = None
     completed: Optional[bool] = None
-    priority: Optional[int] = Field(None, ge=1, le=3)
 
 
 class AssignmentOut(AssignmentBase):

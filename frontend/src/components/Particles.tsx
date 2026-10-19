@@ -13,9 +13,11 @@ export default function Particles({ count = 40 }: { count?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouse = useRef({ x: -1000, y: -1000 });
   const isMobile = useIsMobile();
+  const isNarrow = typeof window !== "undefined" && window.innerWidth < 768;
+  const disabled = isMobile || isNarrow;
 
   useEffect(() => {
-    if (isMobile) return;
+    if (disabled) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -128,9 +130,9 @@ export default function Particles({ count = 40 }: { count?: number }) {
       window.removeEventListener("mousemove", handleMouse);
       window.removeEventListener("mouseleave", handleLeave);
     };
-  }, [count, isMobile]);
+  }, [count, disabled]);
 
-  if (isMobile) return null;
+  if (disabled) return null;
 
   return (
     <canvas

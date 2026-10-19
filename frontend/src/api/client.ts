@@ -19,7 +19,6 @@ export interface Assignment {
   subject_id: string;
   due_date: string | null;
   completed: boolean;
-  priority: number;
   owner_id: number | null;
   created_at: string;
   updated_at: string;
@@ -135,7 +134,6 @@ export async function createAssignment(data: {
   subject_id?: string;
   due_date?: string | null;
   completed?: boolean;
-  priority?: number;
 }): Promise<Assignment> {
   return request<Assignment>("/assignments/", {
     method: "POST",

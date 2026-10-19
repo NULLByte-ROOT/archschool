@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
@@ -13,6 +13,7 @@ import {
   GraduationCap,
   LayoutGrid,
   List,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -39,15 +40,9 @@ import {
   subjectName,
 } from "../lib/assignments";
 
-const priorityMeta: Record<number, { label: string; className: string }> = {
-  1: { label: "کم", className: "border-white/15 bg-white/5 text-fg-300" },
-  2: { label: "متوسط", className: "border-warning/30 bg-warning/10 text-warning" },
-  3: { label: "زیاد", className: "border-danger/30 bg-danger/10 text-danger" },
-};
-
 type Status = "all" | "active" | "done";
 type View = "grid" | "list";
-type Sort = "newest" | "oldest" | "deadline" | "priority";
+type Sort = "newest" | "oldest" | "deadline";
 
 const STATUS_FILTERS: { key: Status; label: string }[] = [
   { key: "all", label: "همه" },
@@ -66,7 +61,6 @@ const SORT_OPTIONS = [
   { value: "newest", label: "جدیدترین" },
   { value: "oldest", label: "قدیمی‌ترین" },
   { value: "deadline", label: "نزدیک‌ترین مهلت" },
-  { value: "priority", label: "بالاترین اولویت" },
 ];
 
 const VIEW_BUTTONS: { key: View; label: string; icon: LucideIcon }[] = [
@@ -88,16 +82,25 @@ interface ItemProps {
   view: View;
   index: number;
   now: number;
-  onOpen: () => void;
-  onToggle: () => void;
-  onDelete: () => void;
+  onOpen: (id: number) => void;
+  onToggle: (item: Assignment) => void;
+  onDelete: (item: Assignment) => void;
+  onEdit: (item: Assignment) => void;
 }
 
-function AssignmentItem({ item, view, index, now, onOpen, onToggle, onDelete }: ItemProps) {
+const AssignmentItem = memo(function AssignmentItem({
+  item,
+  view,
+  index,
+  now,
+  onOpen,
+  onToggle,
+  onDelete,
+  onEdit,
+}: ItemProps) {
   const tone = deadlineTone(item.due_date, now);
   const group = categoryGroup(item.category);
   const GroupIcon = group?.id === "exam" ? GraduationCap : ClipboardList;
-  const prio = priorityMeta[item.priority] ?? priorityMeta[1];
 
   const motionProps = {
     layout: true,
@@ -109,14 +112,14 @@ function AssignmentItem({ item, view, index, now, onOpen, onToggle, onDelete }: 
       ease: [0.16, 1, 0.3, 1] as const,
       delay: Math.min(index * 0.015, 0.12),
     },
-    onClick: onOpen,
+    onClick: () => onOpen(item.id),
   };
 
   const toggle = (
     <button
       onClick={(e) => {
         e.stopPropagation();
-        onToggle();
+        onToggle(item);
       }}
       className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition ${
         item.completed
@@ -129,23 +132,31 @@ function AssignmentItem({ item, view, index, now, onOpen, onToggle, onDelete }: 
     </button>
   );
 
+  const editBtn = (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onEdit(item);
+      }}
+      className="icon-btn hover:border-white/40 hover:text-white"
+      title="ویرایش"
+      aria-label="ویرایش تکلیف"
+    >
+      <Pencil size={14} />
+    </button>
+  );
+
   const removeBtn = (
     <button
       onClick={(e) => {
         e.stopPropagation();
-        onDelete();
+        onDelete(item);
       }}
       className="icon-btn ml-auto hover:border-danger/40 hover:text-danger"
       title="حذف"
     >
       <Trash2 size={14} />
     </button>
-  );
-
-  const prioBadge = (
-    <span className={`mono shrink-0 rounded-md border px-2 py-0.5 text-[9px] tracking-wider ${prio.className}`}>
-      {prio.label}
-    </span>
   );
 
   if (view === "list") {
@@ -170,7 +181,6 @@ function AssignmentItem({ item, view, index, now, onOpen, onToggle, onDelete }: 
             >
               {item.title}
             </h3>
-            {prioBadge}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
             <span className="text-fg-500">
@@ -193,6 +203,7 @@ function AssignmentItem({ item, view, index, now, onOpen, onToggle, onDelete }: 
 
         <div className="flex shrink-0 items-center gap-2">
           {toggle}
+          {editBtn}
           {removeBtn}
           <span className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-500 transition group-hover:bg-white/[0.06] group-hover:text-white">
             <ChevronLeft size={16} />
@@ -220,7 +231,6 @@ function AssignmentItem({ item, view, index, now, onOpen, onToggle, onDelete }: 
             {item.subtype && <span className="text-fg-500"> · {categoryItemLabel(item.subtype)}</span>}
           </p>
         </div>
-        {prioBadge}
       </div>
 
       <h3
@@ -247,6 +257,7 @@ function AssignmentItem({ item, view, index, now, onOpen, onToggle, onDelete }: 
 
       <div className="flex items-center gap-2 border-t border-white/8 pt-3 pr-2">
         {toggle}
+        {editBtn}
         {removeBtn}
         <span className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-500 transition group-hover:bg-white/[0.06] group-hover:text-white">
           <ChevronLeft size={16} />
@@ -254,7 +265,7 @@ function AssignmentItem({ item, view, index, now, onOpen, onToggle, onDelete }: 
       </div>
     </motion.div>
   );
-}
+});
 
 export default function AssignmentsPage() {
   const navigate = useNavigate();
@@ -269,6 +280,7 @@ export default function AssignmentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<Assignment | null>(null);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -314,7 +326,6 @@ export default function AssignmentsPage() {
             newest: "جدیدترین ابتدا",
             oldest: "قدیمی‌ترین ابتدا",
             deadline: "نزدیک‌ترین ددلاین",
-            priority: "بالاترین اولویت",
           };
           return { ...o, label: labels[o.value] ?? o.label };
         }),
@@ -333,11 +344,35 @@ export default function AssignmentsPage() {
     sorted.sort((a, b) => {
       if (sort === "newest") return parseDue(b.created_at).getTime() - parseDue(a.created_at).getTime();
       if (sort === "oldest") return parseDue(a.created_at).getTime() - parseDue(b.created_at).getTime();
-      if (sort === "deadline") return assignDeadline(a) - assignDeadline(b);
-      return b.priority - a.priority || assignDeadline(a) - assignDeadline(b);
+      return (
+        assignDeadline(a) - assignDeadline(b) ||
+        parseDue(b.created_at).getTime() - parseDue(a.created_at).getTime()
+      );
     });
     return sorted;
   }, [items, categoryFilter, subjectFilter, sort]);
+
+  const openCreate = useCallback(() => {
+    setEditing(null);
+    setModalOpen(true);
+  }, []);
+
+  const openEdit = useCallback((item: Assignment) => {
+    setEditing(item);
+    setModalOpen(true);
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setModalOpen(false);
+    setEditing(null);
+  }, []);
+
+  const handleOpen = useCallback((id: number) => navigate(`/assignments/${id}`), [navigate]);
+  const handleToggle = useCallback(
+    (item: Assignment) => updateAssignment(item.id, { completed: !item.completed }).then(reload),
+    [reload]
+  );
+  const handleDelete = useCallback((item: Assignment) => deleteAssignment(item.id).then(reload), [reload]);
 
   return (
     <div>
@@ -349,7 +384,7 @@ export default function AssignmentsPage() {
           <motion.button
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
-            onClick={() => setModalOpen(true)}
+            onClick={openCreate}
             className="group relative flex items-center gap-2.5 overflow-hidden rounded-2xl border border-white/70 bg-white px-5 py-3 text-sm font-black text-black shadow-[0_0_35px_-8px_rgba(255,255,255,0.85)] transition-colors hover:bg-white/90"
           >
             <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-black text-white">
@@ -511,7 +546,7 @@ export default function AssignmentsPage() {
             {items.length === 0 ? "هنوز تکلیفی ثبت نشده" : "تکلیفی با این فیلترها پیدا نشد"}
           </p>
           {items.length === 0 && (
-            <button onClick={() => setModalOpen(true)} className="btn-ghost mt-1">
+            <button onClick={openCreate} className="btn-ghost mt-1">
               <Plus size={14} />
               افزودن اولین تکلیف
             </button>
@@ -533,16 +568,22 @@ export default function AssignmentsPage() {
                 view={view}
                 index={i}
                 now={now}
-                onOpen={() => navigate(`/assignments/${item.id}`)}
-                onToggle={() => updateAssignment(item.id, { completed: !item.completed }).then(reload)}
-                onDelete={() => deleteAssignment(item.id).then(reload)}
+                onOpen={handleOpen}
+                onToggle={handleToggle}
+                onDelete={handleDelete}
+                onEdit={openEdit}
               />
             ))}
           </AnimatePresence>
         </motion.div>
       )}
 
-      <AddAssignmentModal open={modalOpen} onClose={() => setModalOpen(false)} onSaved={reload} />
+      <AddAssignmentModal
+        open={modalOpen}
+        onClose={closeModal}
+        onSaved={reload}
+        assignment={editing}
+      />
     </div>
   );
 }

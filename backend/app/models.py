@@ -30,7 +30,6 @@ class Assignment(Base):
     subject_id = Column(String(40), default="", index=True)
     due_date = Column(DateTime, nullable=True)
     completed = Column(Boolean, default=False, index=True)
-    priority = Column(Integer, default=2)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
