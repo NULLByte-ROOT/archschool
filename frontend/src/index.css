@@ -302,7 +302,7 @@
   background: #2b5278;
 }
 .bubble-other {
-  background: #1f2b36;
+  background: #182533;
 }
 
 .bubble-tail-own::after,
@@ -314,14 +314,54 @@
   height: 14px;
 }
 .bubble-tail-own::after {
-  left: -7px;
+  right: -7px;
   background: #2b5278;
-  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  clip-path: polygon(0 0, 0 100%, 100% 100%);
 }
 .bubble-tail-other::after {
-  right: -7px;
-  background: #1f2b36;
-  clip-path: polygon(0 0, 0 100%, 100% 100%);
+  left: -7px;
+  background: #182533;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
+/* اسکرول‌بار نازک و نامرئی تا زمان هاور (سبک تلگرام) */
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.chat-scroll:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+.chat-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 9999px;
+}
+.chat-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+@keyframes msg-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  60% {
+    transform: translateY(0) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.msg-pop {
+  animation: msg-pop 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @keyframes chat-enter {

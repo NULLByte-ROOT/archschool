@@ -12,6 +12,26 @@ from ..ws_manager import manager
 router = APIRouter()
 
 
+def _room_filter(message: models.Message):
+    if message.assignment_id is not None:
+        return models.Message.assignment_id == message.assignment_id
+    if message.receiver_id is not None:
+        return or_(
+            and_(
+                models.Message.sender_id == message.sender_id,
+                models.Message.receiver_id == message.receiver_id,
+            ),
+            and_(
+                models.Message.sender_id == message.receiver_id,
+                models.Message.receiver_id == message.sender_id,
+            ),
+        )
+    return and_(
+        models.Message.receiver_id.is_(None),
+        models.Message.assignment_id.is_(None),
+    )
+
+
 @router.get("/overview", response_model=schemas.ChatOverview)
 def chat_overview(
     db: Session = Depends(get_db),
@@ -142,16 +162,78 @@ async def create_message(
     room = chat.room_from_message(current.id, data.receiver_id, data.assignment_id)
     room_fields = chat.resolve_room(db, room, current.id)
 
+    reply_to_id = chat.validate_reply(
+        db,
+        data.reply_to_id,
+        current.id,
+        room_fields["receiver_id"],
+        room_fields["assignment_id"],
+    )
+
     message = models.Message(
         sender_id=current.id,
         receiver_id=room_fields["receiver_id"],
         assignment_id=room_fields["assignment_id"],
         content=content,
         file_url=data.file_url,
+        reply_to_id=reply_to_id,
     )
     db.add(message)
     db.commit()
     db.refresh(message)
 
     await manager.broadcast_message(room, chat.message_payload(message))
+    return message
+
+
+@router.delete("/{message_id}", status_code=204)
+async def delete_message(
+    message_id: int,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    message = chat.load_visible_message(db, message_id, current.id)
+    if message.sender_id != current.id and not current.is_admin:
+        raise HTTPException(
+            status_code=403, detail="فقط فرستنده می‌تواند پیام را حذف کند"
+        )
+    room = chat.message_room(message)
+    db.delete(message)
+    db.commit()
+    await manager.broadcast(room, {"type": "delete", "data": {"id": message_id}})
+    return None
+
+
+@router.post("/{message_id}/pin", response_model=schemas.MessageOut)
+async def pin_message(
+    message_id: int,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    message = chat.load_visible_message(db, message_id, current.id)
+    room = chat.message_room(message)
+    db.query(models.Message).filter(_room_filter(message)).update(
+        {"is_pinned": False}, synchronize_session=False
+    )
+    message.is_pinned = True
+    db.commit()
+    db.refresh(message)
+    payload = chat.message_payload(message)
+    await manager.broadcast(room, {"type": "pin", "data": payload})
+    return message
+
+
+@router.delete("/{message_id}/pin", response_model=schemas.MessageOut)
+async def unpin_message(
+    message_id: int,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    message = chat.load_visible_message(db, message_id, current.id)
+    room = chat.message_room(message)
+    message.is_pinned = False
+    db.commit()
+    db.refresh(message)
+    payload = chat.message_payload(message)
+    await manager.broadcast(room, {"type": "pin", "data": payload})
     return message

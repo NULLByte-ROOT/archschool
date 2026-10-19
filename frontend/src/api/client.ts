@@ -23,6 +23,14 @@ export interface TeamMember {
   is_self: boolean;
 }
 
+export interface ReplyPreview {
+  id: number;
+  sender_id: number;
+  sender_username: string | null;
+  content: string;
+  file_url: string | null;
+}
+
 export interface Message {
   id: number;
   sender_id: number;
@@ -31,6 +39,8 @@ export interface Message {
   assignment_id: number | null;
   content: string;
   file_url: string | null;
+  reply_to: ReplyPreview | null;
+  is_pinned: boolean;
   created_at: string;
 }
 
@@ -266,11 +276,24 @@ export async function sendMessage(data: {
   receiver_id?: number | null;
   assignment_id?: number | null;
   file_url?: string | null;
+  reply_to_id?: number | null;
 }): Promise<Message> {
   return request<Message>("/messages/", {
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function deleteMessage(id: number): Promise<void> {
+  return request<void>(`/messages/${id}`, { method: "DELETE" });
+}
+
+export async function pinMessage(id: number): Promise<Message> {
+  return request<Message>(`/messages/${id}/pin`, { method: "POST" });
+}
+
+export async function unpinMessage(id: number): Promise<Message> {
+  return request<Message>(`/messages/${id}/pin`, { method: "DELETE" });
 }
 
 export async function uploadFile(file: File): Promise<UploadResult> {

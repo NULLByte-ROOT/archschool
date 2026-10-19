@@ -101,8 +101,18 @@ class Message(Base):
     )
     content = Column(Text, default="", nullable=False)
     file_url = Column(String(500), nullable=True)
+    reply_to_id = Column(
+        Integer,
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    is_pinned = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
+    reply_to = relationship("Message", remote_side=[id], foreign_keys=[reply_to_id])
     sender = relationship(
         "User",
         foreign_keys=[sender_id],

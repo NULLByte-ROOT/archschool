@@ -70,6 +70,12 @@ async def chat_socket(websocket: WebSocket):
             if file_url is not None and not isinstance(file_url, str):
                 file_url = None
 
+            reply_to_id = data.get("reply_to_id")
+            if isinstance(reply_to_id, str) and reply_to_id.isdigit():
+                reply_to_id = int(reply_to_id)
+            if not isinstance(reply_to_id, int):
+                reply_to_id = None
+
             try:
                 chat.validate_file_url(file_url)
             except HTTPException as exc:
@@ -100,12 +106,25 @@ async def chat_socket(websocket: WebSocket):
                     continue
 
             with SessionLocal() as db:
+                try:
+                    resolved_reply = chat.validate_reply(
+                        db,
+                        reply_to_id,
+                        user.id,
+                        room_fields["receiver_id"],
+                        room_fields["assignment_id"],
+                    )
+                except HTTPException as exc:
+                    await manager.send_error(websocket, exc.detail)
+                    continue
+
                 message = models.Message(
                     sender_id=user.id,
                     receiver_id=room_fields["receiver_id"],
                     assignment_id=room_fields["assignment_id"],
                     content=content,
                     file_url=file_url,
+                    reply_to_id=resolved_reply,
                 )
                 db.add(message)
                 db.commit()

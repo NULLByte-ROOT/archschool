@@ -62,6 +62,57 @@ def resolve_room(db: Session, room: str, user_id: int) -> dict:
     raise HTTPException(status_code=400, detail="اتاق گفتگو نامعتبر است")
 
 
+def message_room(message: models.Message) -> str:
+    if message.assignment_id:
+        return f"assignment:{message.assignment_id}"
+    if message.receiver_id:
+        return dm_room(message.sender_id, message.receiver_id)
+    return "global"
+
+
+def load_visible_message(
+    db: Session, message_id: int, user_id: int
+) -> models.Message:
+    """Fetch a message the given user is allowed to see."""
+    message = (
+        db.query(models.Message).filter(models.Message.id == message_id).first()
+    )
+    if not message:
+        raise HTTPException(status_code=404, detail="پیام پیدا نشد")
+    if message.assignment_id is not None:
+        return message
+    if message.receiver_id is None:
+        return message
+    if user_id not in (message.sender_id, message.receiver_id):
+        raise HTTPException(status_code=403, detail="دسترسی به این پیام مجاز نیست")
+    return message
+
+
+def validate_reply(
+    db: Session,
+    reply_to_id: int | None,
+    user_id: int,
+    receiver_id: int | None,
+    assignment_id: int | None,
+) -> int | None:
+    if not reply_to_id:
+        return None
+    parent = (
+        db.query(models.Message).filter(models.Message.id == reply_to_id).first()
+    )
+    if not parent:
+        raise HTTPException(status_code=404, detail="پیام مورد پاسخ پیدا نشد")
+    if assignment_id is not None:
+        if parent.assignment_id != assignment_id:
+            raise HTTPException(status_code=400, detail="پاسخ به پیام نامعتبر است")
+    elif receiver_id is not None:
+        if {parent.sender_id, parent.receiver_id} != {user_id, receiver_id}:
+            raise HTTPException(status_code=400, detail="پاسخ به پیام نامعتبر است")
+    elif parent.receiver_id is not None or parent.assignment_id is not None:
+        raise HTTPException(status_code=400, detail="پاسخ به پیام نامعتبر است")
+    return parent.id
+
+
 def validate_file_url(file_url: str | None) -> None:
     if file_url and not file_url.startswith("/api/media/"):
         raise HTTPException(status_code=400, detail="آدرس فایل نامعتبر است")

@@ -7,30 +7,88 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
+  Check,
+  ChevronDown,
   ChevronRight,
+  Copy,
+  CornerUpLeft,
   FileText,
+  Forward,
+  Globe2,
   Loader2,
   MessageCircle,
+  MoreVertical,
   Paperclip,
+  Pin,
+  PinOff,
+  Search,
   Send,
-  Wifi,
-  WifiOff,
+  Smile,
+  Trash2,
+  X,
 } from "lucide-react";
 import {
+  deleteMessage,
   fetchMessages,
+  fetchTeam,
+  pinMessage,
   resolveMediaUrl,
   sendMessage,
+  unpinMessage,
   uploadFile,
 } from "../api/client";
-import type { Message } from "../api/client";
+import type { Message, PublicUser } from "../api/client";
 import { useAuth } from "../contexts/AuthContext";
 import { useChatSocket } from "../hooks/useChatSocket";
+import type { ChatSocketEvent } from "../hooks/useChatSocket";
 import { chatDayLabel, chatTime } from "../lib/chat";
 import Avatar from "./Avatar";
 
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp)(\?|$)/i;
+const EMOJIS = [
+  "😀", "😂", "🥹", "😍", "😎", "🤔", "😴", "🤯",
+  "👍", "🙏", "👏", "🔥", "💯", "🎉", "❤️", "✅",
+  "📚", "📝", "✏️", "📐", "🎨", "⏰", "☕", "🚀",
+];
+
+interface MenuState {
+  x: number;
+  y: number;
+  message: Message;
+}
+
+function previewText(
+  message: { content?: string | null; file_url?: string | null } | null | undefined
+) {
+  if (!message) return "";
+  if (message.content) return message.content;
+  if (message.file_url) return "📎 فایل ضمیمه";
+  return "";
+}
+
+function useOutside<T extends HTMLElement>(
+  ref: RefObject<T | null>,
+  onOutside: () => void,
+  active: boolean
+) {
+  useEffect(() => {
+    if (!active) return;
+    function handle(event: MouseEvent | TouchEvent) {
+      if (ref.current && !ref.current.contains(event.target as Node)) {
+        onOutside();
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    document.addEventListener("touchstart", handle);
+    return () => {
+      document.removeEventListener("mousedown", handle);
+      document.removeEventListener("touchstart", handle);
+    };
+  }, [ref, onOutside, active]);
+}
 
 const MessageBubble = memo(function MessageBubble({
   message,
@@ -38,82 +96,204 @@ const MessageBubble = memo(function MessageBubble({
   showTail,
   showName,
   animate,
+  highlighted,
+  onContext,
+  onReply,
+  onPressStart,
+  onPressEnd,
 }: {
   message: Message;
   own: boolean;
   showTail: boolean;
   showName: boolean;
-  animate: boolean;
+  animate: "pop" | "in" | null;
+  highlighted: boolean;
+  onContext: (message: Message, x: number, y: number) => void;
+  onReply: (message: Message) => void;
+  onPressStart: (message: Message, x: number, y: number) => void;
+  onPressEnd: () => void;
 }) {
   const media = resolveMediaUrl(message.file_url);
   const isImage = !!message.file_url && IMAGE_RE.test(message.file_url);
   const name = message.sender_username || "کاربر";
 
   return (
-    <div className={`flex w-full items-end ${own ? "justify-end" : "justify-start"}`}>
-      {!own && (
-        <span className="w-7 shrink-0 self-end">
-          {showName && <Avatar name={name} size="xs" />}
-        </span>
+    <div
+      className={`relative min-w-0 select-none rounded-2xl px-2.5 py-1.5 transition-shadow ${
+        own
+          ? "max-w-[84%] bubble-own rounded-br-sm text-white sm:max-w-[72%]"
+          : "max-w-[78%] bubble-other rounded-bl-sm text-fg-100 sm:max-w-[68%]"
+      } ${showTail ? (own ? "bubble-tail-own" : "bubble-tail-other") : ""} ${
+        animate === "pop" ? "msg-pop" : animate === "in" ? "msg-in" : ""
+      } ${highlighted ? "ring-2 ring-[#3390ec]" : ""}`}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onContext(message, event.clientX, event.clientY);
+      }}
+      onTouchStart={(event) => {
+        const touch = event.touches[0];
+        onPressStart(message, touch.clientX, touch.clientY);
+      }}
+      onTouchEnd={onPressEnd}
+      onTouchMove={onPressEnd}
+      onTouchCancel={onPressEnd}
+    >
+      {/* اکشن‌های هاور (دسکتاپ) */}
+      <div
+        className={`absolute top-1/2 hidden -translate-y-1/2 items-center gap-0.5 rounded-full border border-white/10 bg-[#1c2733] px-1 py-0.5 shadow-lg md:flex ${
+          own ? "-left-16" : "-right-16"
+        } opacity-0 transition group-hover:opacity-100`}
+      >
+        <button
+          type="button"
+          onClick={() => onReply(message)}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white"
+          title="پاسخ"
+        >
+          <CornerUpLeft size={15} />
+        </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            const rect = event.currentTarget.getBoundingClientRect();
+            onContext(message, rect.left - 160, rect.bottom + 4);
+          }}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white"
+          title="گزینه‌های بیشتر"
+        >
+          <ChevronDown size={15} />
+        </button>
+      </div>
+
+      {!own && showName && (
+        <p className="mb-0.5 text-[12px] font-bold text-[#6cb2ea]">{name}</p>
       )}
 
-      <div
-        className={`relative max-w-[84%] min-w-0 rounded-2xl px-3 py-1.5 sm:max-w-[74%] ${
-          own
-            ? "bubble-own rounded-bl-md text-white"
-            : "bubble-other rounded-br-md text-fg-100"
-        } ${showTail ? (own ? "bubble-tail-own" : "bubble-tail-other") : ""} ${
-          animate ? "msg-in" : ""
-        }`}
-      >
-        {!own && showName && (
-          <p className="mb-0.5 text-[11px] font-bold text-[#7cb8e8]">{name}</p>
-        )}
-
-        {message.file_url && isImage && (
-          <a href={media} target="_blank" rel="noreferrer" className="mb-1 block">
-            <img
-              src={media}
-              alt=""
-              loading="lazy"
-              decoding="async"
-              className="max-h-72 w-full rounded-xl object-cover"
-            />
-          </a>
-        )}
-
-        {message.file_url && !isImage && (
-          <a
-            href={media}
-            target="_blank"
-            rel="noreferrer"
-            className="mb-1 flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-2.5 py-2 text-[12px] font-medium text-fg-100"
-          >
-            <FileText size={16} className="shrink-0 opacity-70" />
-            <span className="truncate" dir="ltr">
-              {message.file_url.split("/").pop() || "فایل"}
-            </span>
-          </a>
-        )}
-
-        {message.content && (
-          <p className="text-[13.5px] leading-6 whitespace-pre-wrap break-words">
-            {message.content}
+      {message.reply_to && (
+        <div className="mb-1 overflow-hidden rounded-md border-r-2 border-[#4fa3e3] bg-black/20 py-1 pr-2 pl-1.5">
+          <p className="text-[11px] font-bold text-[#6cb2ea]">
+            {message.reply_to.sender_username || "کاربر"}
           </p>
-        )}
+          <p className="truncate text-[11px] text-fg-300">
+            {previewText(message.reply_to)}
+          </p>
+        </div>
+      )}
 
-        <span
-          className={`mt-0.5 block text-left font-mono text-[9px] tabular-nums ${
-            own ? "text-white/55" : "text-fg-500"
-          }`}
-          dir="ltr"
+      {message.file_url && isImage && (
+        <a href={media} target="_blank" rel="noreferrer" className="mb-1 block">
+          <img
+            src={media}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="max-h-72 w-full rounded-lg object-cover"
+          />
+        </a>
+      )}
+
+      {message.file_url && !isImage && (
+        <a
+          href={media}
+          target="_blank"
+          rel="noreferrer"
+          className="mb-1 flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-2.5 py-2 text-[12px] font-medium text-fg-100"
         >
-          {chatTime(message.created_at)}
-        </span>
-      </div>
+          <FileText size={16} className="shrink-0 opacity-70" />
+          <span className="truncate" dir="ltr">
+            {message.file_url.split("/").pop() || "فایل"}
+          </span>
+        </a>
+      )}
+
+      {message.content && (
+        <p className="pr-12 text-[14.5px] leading-relaxed whitespace-pre-wrap break-words">
+          {message.content}
+        </p>
+      )}
+
+      <span
+        className={`absolute bottom-1 right-2 flex items-center gap-0.5 font-mono text-[10px] tabular-nums ${
+          own ? "text-white/55" : "text-fg-500"
+        } ${message.file_url ? "rounded bg-black/40 px-1" : ""}`}
+        dir="ltr"
+      >
+        {chatTime(message.created_at)}
+        {own && <Check size={11} className="-mr-0.5" />}
+      </span>
     </div>
   );
 });
+
+function ContextMenu({
+  menu,
+  own,
+  onClose,
+  onReply,
+  onCopy,
+  onForward,
+  onPin,
+  onDelete,
+}: {
+  menu: MenuState;
+  own: boolean;
+  onClose: () => void;
+  onReply: () => void;
+  onCopy: () => void;
+  onForward: () => void;
+  onPin: () => void;
+  onDelete: () => void;
+}) {
+  const width = 200;
+  const height = own ? 5 * 40 + 12 : 4 * 40 + 12;
+  const left = Math.min(Math.max(8, menu.x), window.innerWidth - width - 8);
+  const top = Math.min(Math.max(8, menu.y), window.innerHeight - height - 8);
+
+  const item =
+    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-fg-100 transition hover:bg-white/[0.07]";
+  const icon = "h-4 w-4 shrink-0 text-fg-500";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.94 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.12, ease: "easeOut" }}
+      style={{ top, left, width, transformOrigin: "top right" }}
+      className="fixed z-50 rounded-xl border border-white/10 bg-[#1c2733] p-1.5 shadow-2xl md:bg-[#1c2733]/95 md:backdrop-blur-xl"
+    >
+      <button type="button" className={item} onClick={onReply}>
+        <CornerUpLeft className={icon} /> پاسخ
+      </button>
+      <button type="button" className={item} onClick={onCopy}>
+        <Copy className={icon} /> کپی متن
+      </button>
+      <button type="button" className={item} onClick={onForward}>
+        <Forward className={icon} /> ارسال به…
+      </button>
+      <button type="button" className={item} onClick={onPin}>
+        {menu.message.is_pinned ? (
+          <PinOff className={icon} />
+        ) : (
+          <Pin className={icon} />
+        )}
+        {menu.message.is_pinned ? "برداشتن سنجاق" : "سنجاق"}
+      </button>
+      {own && (
+        <button
+          type="button"
+          className={`${item} text-danger hover:bg-danger/10`}
+          onClick={() => {
+            onDelete();
+            onClose();
+          }}
+        >
+          <Trash2 className="h-4 w-4 shrink-0 text-danger" /> حذف
+        </button>
+      )}
+    </motion.div>
+  );
+}
 
 export default function ChatRoom({
   room,
@@ -143,12 +323,33 @@ export default function ChatRoom({
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [forwardFor, setForwardFor] = useState<Message | null>(null);
+  const [forwardTeam, setForwardTeam] = useState<PublicUser[]>([]);
+
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const toastTimer = useRef<number | undefined>(undefined);
+  const pressTimer = useRef<number | undefined>(undefined);
   const nearBottomRef = useRef(true);
   const initialScrollRef = useRef(true);
 
   const scope = assignmentId ? "assignment" : peerId ? "private" : "global";
+
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 1800);
+  }, []);
 
   const appendMessage = useCallback((message: Message) => {
     setMessages((prev) =>
@@ -156,7 +357,24 @@ export default function ChatRoom({
     );
   }, []);
 
-  const { connected, send } = useChatSocket(room, appendMessage);
+  const handleEvent = useCallback((event: ChatSocketEvent) => {
+    if (event.type === "delete") {
+      const id = (event.data as { id?: number } | undefined)?.id;
+      if (id) setMessages((prev) => prev.filter((item) => item.id !== id));
+    } else if (event.type === "pin") {
+      const data = event.data as Message | undefined;
+      if (!data) return;
+      setMessages((prev) =>
+        prev.map((item) => {
+          if (item.id === data.id) return { ...item, is_pinned: data.is_pinned };
+          if (data.is_pinned) return { ...item, is_pinned: false };
+          return item;
+        })
+      );
+    }
+  }, []);
+
+  const { connected, send } = useChatSocket(room, appendMessage, handleEvent);
 
   useEffect(() => {
     let active = true;
@@ -175,7 +393,6 @@ export default function ChatRoom({
     };
   }, [scope, peerId, assignmentId, room]);
 
-  // اسکرول: بار اول بدون انیمیشن، بعد از آن نرم
   useEffect(() => {
     if (loading) return;
     const el = scrollerRef.current;
@@ -189,6 +406,46 @@ export default function ChatRoom({
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
   }, [messages, loading]);
+
+  // بستن منوی سه‌نقطه با کلیک بیرون
+  useOutside(moreRef, () => setMoreOpen(false), moreOpen);
+
+  // بستن منوی کانتکست با Escape / اسکرول
+  useEffect(() => {
+    if (!menu) return;
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setMenu(null);
+    }
+    function handleScroll() {
+      setMenu(null);
+    }
+    document.addEventListener("keydown", handleKey);
+    window.addEventListener("wheel", handleScroll, { passive: true });
+    window.addEventListener("touchmove", handleScroll, { passive: true });
+    return () => {
+      document.removeEventListener("keydown", handleKey);
+      window.removeEventListener("wheel", handleScroll);
+      window.removeEventListener("touchmove", handleScroll);
+    };
+  }, [menu]);
+
+  // اولین نتیجه جستجو (محاسبه‌شده، بدون setState در افکت)
+  const highlightId = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    if (!needle) return null;
+    const match = messages.find((message) =>
+      message.content.toLowerCase().includes(needle)
+    );
+    return match?.id ?? null;
+  }, [searchQuery, messages]);
+
+  // پرش به نتیجه جستجو (فقط به‌روزرسانی DOM)
+  useEffect(() => {
+    if (!highlightId) return;
+    document
+      .getElementById(`msg-${highlightId}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [highlightId]);
 
   const items = useMemo(() => {
     return messages.map((message, index) => {
@@ -205,10 +462,20 @@ export default function ChatRoom({
         showTail: firstOfGroup,
         showName: firstOfGroup && !own,
         day: dayChanged ? chatDayLabel(message.created_at) : null,
-        animate: index === messages.length - 1,
+        animate:
+          index === messages.length - 1
+            ? own
+              ? ("pop" as const)
+              : ("in" as const)
+            : null,
       };
     });
   }, [messages, user?.id]);
+
+  const pinned = useMemo(
+    () => messages.find((message) => message.is_pinned) ?? null,
+    [messages]
+  );
 
   const payloadBase = useMemo(
     () =>
@@ -220,10 +487,41 @@ export default function ChatRoom({
     [assignmentId, peerId]
   );
 
-  async function deliver(payload: { content: string; file_url?: string }) {
-    if (send({ type: "message", ...payloadBase, ...payload })) return;
-    const message = await sendMessage({ ...payloadBase, ...payload });
-    appendMessage(message);
+  const handlePressStart = useCallback(
+    (message: Message, x: number, y: number) => {
+      window.clearTimeout(pressTimer.current);
+      pressTimer.current = window.setTimeout(() => {
+        setMenu({ message, x, y });
+        if (typeof navigator.vibrate === "function") navigator.vibrate(12);
+      }, 450);
+    },
+    []
+  );
+
+  const handlePressEnd = useCallback(() => {
+    window.clearTimeout(pressTimer.current);
+  }, []);
+
+  const openMenu = useCallback((message: Message, x: number, y: number) => {
+    setMenu({ message, x, y });
+  }, []);
+
+  const startReply = useCallback((message: Message) => {
+    setReplyTo(message);
+    setMenu(null);
+    textareaRef.current?.focus();
+  }, []);
+
+  async function deliver(payload: { content: string; file_url?: string | null }) {
+    const body = {
+      ...payloadBase,
+      ...payload,
+      reply_to_id: replyTo?.id ?? null,
+    };
+    if (!send({ type: "message", ...body })) {
+      const message = await sendMessage(body);
+      appendMessage(message);
+    }
   }
 
   async function handleSend() {
@@ -232,13 +530,18 @@ export default function ChatRoom({
     setText("");
     setError(null);
     setSending(true);
+    setEmojiOpen(false);
+    const reply = replyTo;
+    setReplyTo(null);
     try {
       await deliver({ content });
     } catch (e) {
       setText(content);
+      setReplyTo(reply);
       setError(e instanceof Error ? e.message : "ارسال پیام ناموفق بود");
     } finally {
       setSending(false);
+      nearBottomRef.current = true;
     }
   }
 
@@ -249,11 +552,85 @@ export default function ChatRoom({
     try {
       const uploaded = await uploadFile(file);
       await deliver({ content: "", file_url: uploaded.url });
+      setReplyTo(null);
+      nearBottomRef.current = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "آپلود فایل ناموفق بود");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function handleCopy(message: Message) {
+    setMenu(null);
+    const value = message.content || resolveMediaUrl(message.file_url);
+    try {
+      await navigator.clipboard.writeText(value);
+      showToast("متن کپی شد");
+    } catch {
+      showToast("کپی ناموفق بود");
+    }
+  }
+
+  async function handlePin(message: Message) {
+    setMenu(null);
+    try {
+      if (message.is_pinned) {
+        await unpinMessage(message.id);
+        setMessages((prev) =>
+          prev.map((item) =>
+            item.id === message.id ? { ...item, is_pinned: false } : item
+          )
+        );
+      } else {
+        await pinMessage(message.id);
+        setMessages((prev) =>
+          prev.map((item) =>
+            item.id === message.id
+              ? { ...item, is_pinned: true }
+              : { ...item, is_pinned: false }
+          )
+        );
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "سنجاق ناموفق بود");
+    }
+  }
+
+  async function handleDelete(message: Message) {
+    try {
+      await deleteMessage(message.id);
+      setMessages((prev) => prev.filter((item) => item.id !== message.id));
+      showToast("پیام حذف شد");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "حذف ناموفق بود");
+    }
+  }
+
+  function openForward(message: Message) {
+    setMenu(null);
+    setForwardFor(message);
+    if (forwardTeam.length === 0) {
+      fetchTeam()
+        .then(setForwardTeam)
+        .catch(() => setForwardTeam([]));
+    }
+  }
+
+  async function forwardTo(peer: number | null) {
+    if (!forwardFor) return;
+    try {
+      await sendMessage({
+        content: forwardFor.content,
+        file_url: forwardFor.file_url ?? undefined,
+        receiver_id: peer,
+      });
+      showToast("ارسال شد");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "ارسال ناموفق بود");
+    } finally {
+      setForwardFor(null);
     }
   }
 
@@ -266,7 +643,7 @@ export default function ChatRoom({
       }`}
     >
       {/* هدر */}
-      <header className="relative z-10 flex shrink-0 items-center gap-2 border-b border-white/10 bg-black px-2 py-2 sm:px-4 md:bg-black/50 md:backdrop-blur-xl">
+      <header className="relative z-20 flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#17212b] px-2 py-2 sm:px-3 md:bg-black/50 md:backdrop-blur-xl">
         {onBack && (
           <button
             type="button"
@@ -281,41 +658,128 @@ export default function ChatRoom({
         {avatarName ? (
           <Avatar name={avatarName} size="sm" />
         ) : (
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white/[0.05] text-white">
-            {headerIcon ?? <MessageCircle size={17} />}
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white/[0.05] text-white">
+            {headerIcon ?? <MessageCircle size={18} />}
           </span>
         )}
 
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-[15px] font-bold text-white">{title}</h2>
-          <p className="flex items-center gap-1.5 truncate text-[10px] text-fg-500">
+          <p className="flex items-center gap-1.5 truncate text-[11px]">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                connected ? "bg-success shadow-[0_0_8px_#34d399]" : "bg-fg-500"
+                connected ? "bg-[#4dcd5e]" : "bg-fg-500"
               }`}
             />
-            {connected ? "آنلاین" : "در حال اتصال…"}
-            {subtitle && <span className="truncate">· {subtitle}</span>}
+            <span className={connected ? "text-[#4dcd5e]" : "text-fg-500"}>
+              {connected ? "آنلاین" : "در حال اتصال…"}
+            </span>
+            {subtitle && <span className="truncate text-fg-500">· {subtitle}</span>}
           </p>
         </div>
 
-        <span className="hidden items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 font-mono text-[9px] text-fg-500 sm:flex">
-          {connected ? <Wifi size={11} /> : <WifiOff size={11} />}
-          {messages.length} MSG
-        </span>
+        <button
+          type="button"
+          onClick={() => {
+            setSearchOpen((value) => !value);
+            setMoreOpen(false);
+          }}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white"
+          aria-label="جستجو"
+        >
+          <Search size={18} />
+        </button>
+
+        <div className="relative" ref={moreRef}>
+          <button
+            type="button"
+            onClick={() => setMoreOpen((value) => !value)}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white"
+            aria-label="گزینه‌های بیشتر"
+          >
+            <MoreVertical size={18} />
+          </button>
+          <AnimatePresence>
+            {moreOpen && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.94 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.12 }}
+                className="absolute top-11 left-0 z-40 w-44 rounded-xl border border-white/10 bg-[#1c2733] p-1.5 shadow-2xl md:bg-[#1c2733]/95 md:backdrop-blur-xl"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchOpen(true);
+                    setMoreOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-fg-100 transition hover:bg-white/[0.07]"
+                >
+                  <Search size={15} className="text-fg-500" /> جستجو در گفتگو
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMessages([]);
+                    setMoreOpen(false);
+                    showToast("نمایش گفتگو پاک شد");
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-danger transition hover:bg-danger/10"
+                >
+                  <Trash2 size={15} /> پاک کردن نمایش
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </header>
+
+      {searchOpen && (
+        <div className="relative z-10 shrink-0 border-b border-white/10 bg-[#17212b] px-3 py-2">
+          <input
+            autoFocus
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="جستجو در پیام‌ها…"
+            className="input h-9 w-full text-[16px] md:text-[12px]"
+          />
+        </div>
+      )}
+
+      {pinned && (
+        <button
+          type="button"
+          onClick={() =>
+            document
+              .getElementById(`msg-${pinned.id}`)
+              ?.scrollIntoView({ behavior: "smooth", block: "center" })
+          }
+          className="relative z-10 flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#1c2733] px-3 py-2 text-right transition hover:bg-white/[0.04]"
+        >
+          <Pin size={14} className="shrink-0 rotate-45 text-[#6cb2ea]" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[10px] font-bold text-[#6cb2ea]">
+              پیام سنجاق‌شده
+            </span>
+            <span className="block truncate text-[11px] text-fg-300">
+              {previewText(pinned)}
+            </span>
+          </span>
+        </button>
+      )}
 
       {/* پیام‌ها */}
       <div
         ref={scrollerRef}
-        onScroll={(e) => {
-          const el = e.currentTarget;
+        onScroll={(event) => {
+          const el = event.currentTarget;
           nearBottomRef.current =
-            el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+            el.scrollHeight - el.scrollTop - el.clientHeight < 160;
         }}
-        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch]"
+        className="chat-scroll relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch]"
       >
-        <div className="pointer-events-none absolute inset-0 grid-bg opacity-[0.1]" />
+        <div className="pointer-events-none absolute inset-0 grid-bg opacity-[0.08]" />
 
         {loading ? (
           <div className="relative flex h-full items-center justify-center gap-2 text-xs text-fg-500">
@@ -329,7 +793,7 @@ export default function ChatRoom({
             </span>
             <p className="text-sm font-semibold text-fg-300">هنوز پیامی نیست</p>
             <p className="max-w-[240px] text-[11px] leading-5 text-fg-500">
-              اولین پیام را بفرست تا گفتگو شروع شود.
+              اولین پیام را بفرست یا روی یک پیام نگه دار تا گزینه‌ها باز شود.
             </p>
           </div>
         ) : (
@@ -337,17 +801,36 @@ export default function ChatRoom({
             {items.map((item) => (
               <Fragment key={item.message.id}>
                 {item.day && (
-                  <div className="sticky top-1 z-10 mx-auto w-fit rounded-full bg-black/75 px-3 py-1 text-[10px] font-semibold text-fg-300">
+                  <div className="sticky top-1 z-10 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[10px] font-semibold text-fg-300">
                     {item.day}
                   </div>
                 )}
-                <MessageBubble
-                  message={item.message}
-                  own={item.own}
-                  showTail={item.showTail}
-                  showName={item.showName}
-                  animate={item.animate}
-                />
+                <div
+                  id={`msg-${item.message.id}`}
+                  className={`group flex w-full items-end ${
+                    item.own ? "justify-start" : "justify-end"
+                  }`}
+                >
+                  <MessageBubble
+                    message={item.message}
+                    own={item.own}
+                    showTail={item.showTail}
+                    showName={item.showName}
+                    animate={item.animate}
+                    highlighted={highlightId === item.message.id}
+                    onContext={openMenu}
+                    onReply={startReply}
+                    onPressStart={handlePressStart}
+                    onPressEnd={handlePressEnd}
+                  />
+                  {!item.own && (
+                    <span className="w-9 shrink-0 self-end">
+                      {item.showName && (
+                        <Avatar name={item.message.sender_username ?? "کاربر"} size="xs" />
+                      )}
+                    </span>
+                  )}
+                </div>
               </Fragment>
             ))}
           </div>
@@ -355,11 +838,34 @@ export default function ChatRoom({
       </div>
 
       {/* ورودی */}
-      <div className="pb-safe shrink-0 border-t border-white/10 bg-black px-2 pt-2 sm:px-3 md:bg-black/55">
+      <div
+        ref={composerRef}
+        className="pb-safe relative z-10 shrink-0 border-t border-white/10 bg-[#17212b] px-2 pt-2 sm:px-3 md:bg-black/55"
+      >
         {error && (
           <p className="mb-2 rounded-lg border border-danger/25 bg-danger/10 px-2.5 py-1.5 text-[11px] text-danger">
             {error}
           </p>
+        )}
+
+        {replyTo && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border-r-2 border-[#4fa3e3] bg-white/[0.04] px-2.5 py-1.5">
+            <CornerUpLeft size={15} className="shrink-0 text-[#6cb2ea]" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold text-[#6cb2ea]">
+                پاسخ به {replyTo.sender_username || "کاربر"}
+              </p>
+              <p className="truncate text-[11px] text-fg-500">{previewText(replyTo)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:bg-white/10"
+              aria-label="بستن پاسخ"
+            >
+              <X size={16} />
+            </button>
+          </div>
         )}
 
         <div className="flex items-end gap-1.5 pb-2">
@@ -367,52 +873,203 @@ export default function ChatRoom({
             ref={fileInputRef}
             type="file"
             className="hidden"
-            onChange={(e) => handleFile(e.target.files?.[0])}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-300 transition active:bg-white/10 disabled:opacity-50"
-            title="پیوست فایل"
-            aria-label="پیوست فایل"
-          >
-            {uploading ? (
-              <Loader2 size={20} className="animate-spin" />
-            ) : (
-              <Paperclip size={21} />
-            )}
-          </button>
-
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
-            rows={1}
-            placeholder="پیامت را بنویس…"
-            className="input max-h-28 min-h-11 min-w-0 flex-1 resize-none rounded-full py-3 text-base leading-5 md:max-h-32 md:min-h-10 md:text-[13px]"
+            onChange={(event) => handleFile(event.target.files?.[0])}
           />
 
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!text.trim() || sending}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#2b5278] text-white transition active:scale-95 disabled:bg-white/10 disabled:text-fg-500"
-            aria-label="ارسال"
-          >
-            {sending ? (
-              <Loader2 size={18} className="animate-spin" />
-            ) : (
-              <Send size={18} className="-scale-x-100" />
-            )}
-          </button>
+          <div className="relative flex min-w-0 flex-1 items-end rounded-full border border-white/10 bg-white/[0.04] px-1">
+            <button
+              type="button"
+              onClick={() => setEmojiOpen((value) => !value)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:text-white"
+              aria-label="ایموجی"
+            >
+              <Smile size={20} />
+            </button>
+            <textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  handleSend();
+                }
+              }}
+              rows={1}
+              placeholder="پیامت را بنویس…"
+              className="max-h-28 min-h-11 min-w-0 flex-1 resize-none rounded-full bg-transparent py-3 pr-2 text-base leading-5 text-white outline-none placeholder:text-fg-500 md:max-h-32 md:text-[13.5px]"
+            />
+
+            <AnimatePresence>
+              {emojiOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 8 }}
+                  transition={{ duration: 0.14 }}
+                  className="absolute bottom-full left-0 mb-2 grid w-64 grid-cols-8 gap-0.5 rounded-xl border border-white/10 bg-[#1c2733] p-2 shadow-2xl md:bg-[#1c2733]/95 md:backdrop-blur-xl"
+                >
+                  {EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => {
+                        setText((value) => value + emoji);
+                        textareaRef.current?.focus();
+                      }}
+                      className="flex h-7 w-7 items-center justify-center rounded-lg text-lg transition hover:bg-white/10"
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {text.trim() ? (
+            <button
+              type="button"
+              onClick={handleSend}
+              disabled={sending}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#3390ec] text-white transition active:scale-95 disabled:opacity-60"
+              aria-label="ارسال"
+            >
+              {sending ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Send size={19} className="-scale-x-100" />
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+              title="پیوست فایل"
+              aria-label="پیوست فایل"
+            >
+              {uploading ? (
+                <Loader2 size={20} className="animate-spin" />
+              ) : (
+                <Paperclip size={21} />
+              )}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* منوی کانتکست */}
+      <AnimatePresence>
+        {menu && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.1 }}
+              className="fixed inset-0 z-40"
+              onMouseDown={() => setMenu(null)}
+              onTouchStart={() => setMenu(null)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                setMenu(null);
+              }}
+            />
+            <ContextMenu
+              menu={menu}
+              own={menu.message.sender_id === user?.id}
+              onClose={() => setMenu(null)}
+              onReply={() => startReply(menu.message)}
+              onCopy={() => handleCopy(menu.message)}
+              onForward={() => openForward(menu.message)}
+              onPin={() => handlePin(menu.message)}
+              onDelete={() => handleDelete(menu.message)}
+            />
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* انتخاب مخاطب برای ارسال */}
+      <AnimatePresence>
+        {forwardFor && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14 }}
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+            onClick={() => setForwardFor(null)}
+          >
+            <motion.div
+              initial={{ y: 40, scale: 0.98 }}
+              animate={{ y: 0, scale: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 320, damping: 30 }}
+              onClick={(event) => event.stopPropagation()}
+              className="max-h-[70dvh] w-full max-w-sm overflow-hidden rounded-t-2xl border border-white/10 bg-[#1c2733] sm:rounded-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                <h3 className="text-sm font-bold text-white">ارسال به…</h3>
+                <button
+                  type="button"
+                  onClick={() => setForwardFor(null)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-fg-500 hover:bg-white/10"
+                  aria-label="بستن"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="chat-scroll max-h-[52dvh] overflow-y-auto p-1.5">
+                <button
+                  type="button"
+                  onClick={() => forwardTo(null)}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-right transition hover:bg-white/[0.06]"
+                >
+                  <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-gradient-to-br from-white/20 to-white/[0.03]">
+                    <Globe2 size={18} className="text-white" />
+                  </span>
+                  <span className="text-[13px] font-semibold text-white">گروه عمومی</span>
+                </button>
+                {forwardTeam
+                  .filter((member) => member.id !== user?.id)
+                  .map((member) => (
+                    <button
+                      key={member.id}
+                      type="button"
+                      onClick={() => forwardTo(member.id)}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-right transition hover:bg-white/[0.06]"
+                    >
+                      <Avatar name={member.username} size="sm" />
+                      <span
+                        className="truncate text-[13px] font-semibold text-white"
+                        dir="ltr"
+                      >
+                        {member.username}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* توست */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.18 }}
+            className="pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full bg-black/85 px-4 py-2 text-[12px] font-medium text-white shadow-lg"
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </section>
   );
 }

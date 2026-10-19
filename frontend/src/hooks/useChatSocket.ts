@@ -2,17 +2,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Message } from "../api/client";
 import { getWebSocketUrl } from "../api/client";
 
+export interface ChatSocketEvent {
+  type: string;
+  data?: unknown;
+}
+
 export function useChatSocket(
   room: string,
-  onMessage: (message: Message) => void
+  onMessage: (message: Message) => void,
+  onEvent?: (event: ChatSocketEvent) => void
 ) {
   const [connected, setConnected] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
+  const onEventRef = useRef(onEvent);
 
   useEffect(() => {
     onMessageRef.current = onMessage;
   }, [onMessage]);
+
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   useEffect(() => {
     let closed = false;
@@ -63,6 +74,8 @@ export function useChatSocket(
           const payload = JSON.parse(event.data);
           if (payload?.type === "message" && payload.data) {
             onMessageRef.current(payload.data as Message);
+          } else if (payload?.type && payload.type !== "pong") {
+            onEventRef.current?.(payload as ChatSocketEvent);
           }
         } catch {
           // ignore malformed frames

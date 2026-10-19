@@ -31,6 +31,10 @@ def _ensure_columns() -> None:
             "subject_id": "VARCHAR(40) DEFAULT ''",
             "points_awarded": "BOOLEAN NOT NULL DEFAULT FALSE",
         },
+        "messages": {
+            "reply_to_id": "INTEGER REFERENCES messages(id) ON DELETE SET NULL",
+            "is_pinned": "BOOLEAN NOT NULL DEFAULT FALSE",
+        },
     }
 
     for table, columns in wanted.items():

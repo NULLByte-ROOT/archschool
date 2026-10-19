@@ -92,6 +92,17 @@ class MessageCreate(BaseModel):
     receiver_id: Optional[int] = None
     assignment_id: Optional[int] = None
     file_url: Optional[str] = Field(None, max_length=500)
+    reply_to_id: Optional[int] = None
+
+
+class ReplyPreview(BaseModel):
+    id: int
+    sender_id: int
+    sender_username: Optional[str] = None
+    content: str = ""
+    file_url: Optional[str] = None
+
+    model_config = {"from_attributes": True}
 
 
 class MessageOut(BaseModel):
@@ -102,6 +113,8 @@ class MessageOut(BaseModel):
     assignment_id: Optional[int] = None
     content: str = ""
     file_url: Optional[str] = None
+    reply_to: Optional[ReplyPreview] = None
+    is_pinned: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
