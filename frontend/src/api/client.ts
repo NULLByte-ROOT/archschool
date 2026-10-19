@@ -50,6 +50,16 @@ export interface UploadResult {
   size: number;
 }
 
+export interface DirectPreview {
+  peer_id: number;
+  message: Message;
+}
+
+export interface ChatOverview {
+  global_message: Message | null;
+  directs: DirectPreview[];
+}
+
 export interface Assignment {
   id: number;
   title: string;
@@ -234,6 +244,10 @@ export async function fetchLeaderboard(): Promise<PublicUser[]> {
 }
 
 // ---------- Chat ----------
+export async function fetchChatOverview(signal?: AbortSignal): Promise<ChatOverview> {
+  return request<ChatOverview>("/messages/overview", { signal });
+}
+
 export async function fetchMessages(params: {
   scope: "global" | "private" | "assignment";
   peerId?: number;

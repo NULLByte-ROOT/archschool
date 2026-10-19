@@ -107,6 +107,16 @@ class MessageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DirectPreview(BaseModel):
+    peer_id: int
+    message: MessageOut
+
+
+class ChatOverview(BaseModel):
+    global_message: Optional[MessageOut] = None
+    directs: list[DirectPreview] = []
+
+
 class AttachmentOut(BaseModel):
     id: int
     assignment_id: int

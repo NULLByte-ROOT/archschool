@@ -1,8 +1,15 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
-import { motion } from "framer-motion";
 import {
-  ArrowRight,
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import type { ReactNode } from "react";
+import {
+  ChevronRight,
   FileText,
   Loader2,
   MessageCircle,
@@ -20,63 +27,57 @@ import {
 import type { Message } from "../api/client";
 import { useAuth } from "../contexts/AuthContext";
 import { useChatSocket } from "../hooks/useChatSocket";
+import { chatDayLabel, chatTime } from "../lib/chat";
 import Avatar from "./Avatar";
 
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp)(\?|$)/i;
 
-function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString("fa-IR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-const ChatBubble = memo(function ChatBubble({
+const MessageBubble = memo(function MessageBubble({
   message,
   own,
-  showAvatar,
+  showTail,
   showName,
+  animate,
 }: {
   message: Message;
   own: boolean;
-  showAvatar: boolean;
+  showTail: boolean;
   showName: boolean;
+  animate: boolean;
 }) {
   const media = resolveMediaUrl(message.file_url);
   const isImage = !!message.file_url && IMAGE_RE.test(message.file_url);
   const name = message.sender_username || "کاربر";
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.18, ease: "easeOut" }}
-      className={`flex w-full items-end gap-2 ${own ? "justify-end" : "justify-start"}`}
-    >
+    <div className={`flex w-full items-end ${own ? "justify-end" : "justify-start"}`}>
       {!own && (
-        <span className="w-8 shrink-0">
-          {showAvatar && <Avatar name={name} size="xs" />}
+        <span className="w-7 shrink-0 self-end">
+          {showName && <Avatar name={name} size="xs" />}
         </span>
       )}
 
       <div
-        className={`relative max-w-[82%] overflow-hidden rounded-2xl border px-3 py-2 sm:max-w-[72%] ${
+        className={`relative max-w-[84%] min-w-0 rounded-2xl px-3 py-1.5 sm:max-w-[74%] ${
           own
-            ? "rounded-bl-md border-white/20 bg-gradient-to-br from-white to-white/85 text-black shadow-[0_10px_30px_-16px_rgba(255,255,255,0.75)]"
-            : "rounded-br-md border-white/10 bg-white/[0.055] text-fg-100"
+            ? "bubble-own rounded-bl-md text-white"
+            : "bubble-other rounded-br-md text-fg-100"
+        } ${showTail ? (own ? "bubble-tail-own" : "bubble-tail-other") : ""} ${
+          animate ? "msg-in" : ""
         }`}
       >
         {!own && showName && (
-          <p className="mb-1 text-[11px] font-bold text-white/80">{name}</p>
+          <p className="mb-0.5 text-[11px] font-bold text-[#7cb8e8]">{name}</p>
         )}
 
         {message.file_url && isImage && (
-          <a href={media} target="_blank" rel="noreferrer" className="mb-1.5 block">
+          <a href={media} target="_blank" rel="noreferrer" className="mb-1 block">
             <img
               src={media}
               alt=""
               loading="lazy"
-              className="max-h-72 w-full rounded-xl border border-black/10 object-cover"
+              decoding="async"
+              className="max-h-72 w-full rounded-xl object-cover"
             />
           </a>
         )}
@@ -86,11 +87,7 @@ const ChatBubble = memo(function ChatBubble({
             href={media}
             target="_blank"
             rel="noreferrer"
-            className={`mb-1.5 flex items-center gap-2 rounded-xl border px-2.5 py-2 text-[12px] font-medium ${
-              own
-                ? "border-black/10 bg-black/[0.05] text-black"
-                : "border-white/10 bg-white/[0.04] text-fg-100"
-            }`}
+            className="mb-1 flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-2.5 py-2 text-[12px] font-medium text-fg-100"
           >
             <FileText size={16} className="shrink-0 opacity-70" />
             <span className="truncate" dir="ltr">
@@ -100,21 +97,21 @@ const ChatBubble = memo(function ChatBubble({
         )}
 
         {message.content && (
-          <p className="whitespace-pre-wrap break-words text-[13px] leading-6">
+          <p className="text-[13.5px] leading-6 whitespace-pre-wrap break-words">
             {message.content}
           </p>
         )}
 
         <span
-          className={`mt-1 block text-left font-mono text-[9px] tabular-nums ${
-            own ? "text-black/45" : "text-fg-500"
+          className={`mt-0.5 block text-left font-mono text-[9px] tabular-nums ${
+            own ? "text-white/55" : "text-fg-500"
           }`}
           dir="ltr"
         >
-          {formatTime(message.created_at)}
+          {chatTime(message.created_at)}
         </span>
       </div>
-    </motion.div>
+    </div>
   );
 });
 
@@ -149,6 +146,7 @@ export default function ChatRoom({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nearBottomRef = useRef(true);
+  const initialScrollRef = useRef(true);
 
   const scope = assignmentId ? "assignment" : peerId ? "private" : "global";
 
@@ -177,16 +175,40 @@ export default function ChatRoom({
     };
   }, [scope, peerId, assignmentId, room]);
 
+  // اسکرول: بار اول بدون انیمیشن، بعد از آن نرم
   useEffect(() => {
     if (loading) return;
     const el = scrollerRef.current;
     if (!el) return;
+    if (initialScrollRef.current) {
+      el.scrollTop = el.scrollHeight;
+      initialScrollRef.current = false;
+      return;
+    }
     if (nearBottomRef.current) {
-      requestAnimationFrame(() => {
-        el.scrollTop = el.scrollHeight;
-      });
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     }
   }, [messages, loading]);
+
+  const items = useMemo(() => {
+    return messages.map((message, index) => {
+      const previous = messages[index - 1];
+      const dayChanged =
+        !previous ||
+        chatDayLabel(previous.created_at) !== chatDayLabel(message.created_at);
+      const firstOfGroup =
+        !previous || previous.sender_id !== message.sender_id || dayChanged;
+      const own = message.sender_id === user?.id;
+      return {
+        message,
+        own,
+        showTail: firstOfGroup,
+        showName: firstOfGroup && !own,
+        day: dayChanged ? chatDayLabel(message.created_at) : null,
+        animate: index === messages.length - 1,
+      };
+    });
+  }, [messages, user?.id]);
 
   const payloadBase = useMemo(
     () =>
@@ -237,33 +259,35 @@ export default function ChatRoom({
 
   return (
     <section
-      className={`glass relative flex min-h-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-black/40 ${
-        compact ? "h-[460px] sm:h-[540px]" : "h-full"
+      className={`relative flex min-h-0 w-full flex-col overflow-hidden bg-black ${
+        compact
+          ? "h-[460px] rounded-3xl border border-white/10 sm:h-[540px]"
+          : "h-full rounded-none border-0 md:rounded-3xl md:border md:border-white/10 md:bg-black/40"
       }`}
     >
       {/* هدر */}
-      <header className="glass-top-highlight relative z-10 flex shrink-0 items-center gap-3 border-b border-white/10 bg-black/50 px-3 py-3 backdrop-blur-xl sm:px-4">
+      <header className="relative z-10 flex shrink-0 items-center gap-2 border-b border-white/10 bg-black px-2 py-2 sm:px-4 md:bg-black/50 md:backdrop-blur-xl">
         {onBack && (
           <button
             type="button"
             onClick={onBack}
-            className="icon-btn shrink-0 md:hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-300 transition active:bg-white/10 md:hidden"
             aria-label="بازگشت"
           >
-            <ArrowRight size={17} />
+            <ChevronRight size={22} />
           </button>
         )}
 
         {avatarName ? (
           <Avatar name={avatarName} size="sm" />
         ) : (
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05] text-white">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white/[0.05] text-white">
             {headerIcon ?? <MessageCircle size={17} />}
           </span>
         )}
 
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-sm font-bold text-white">{title}</h2>
+          <h2 className="truncate text-[15px] font-bold text-white">{title}</h2>
           <p className="flex items-center gap-1.5 truncate text-[10px] text-fg-500">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
@@ -287,11 +311,11 @@ export default function ChatRoom({
         onScroll={(e) => {
           const el = e.currentTarget;
           nearBottomRef.current =
-            el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+            el.scrollHeight - el.scrollTop - el.clientHeight < 140;
         }}
-        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4"
+        className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch]"
       >
-        <div className="pointer-events-none absolute inset-0 grid-bg opacity-[0.12]" />
+        <div className="pointer-events-none absolute inset-0 grid-bg opacity-[0.1]" />
 
         {loading ? (
           <div className="relative flex h-full items-center justify-center gap-2 text-xs text-fg-500">
@@ -300,7 +324,7 @@ export default function ChatRoom({
           </div>
         ) : messages.length === 0 ? (
           <div className="relative flex h-full flex-col items-center justify-center gap-2 text-center">
-            <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03]">
+            <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.03]">
               <MessageCircle size={22} className="text-fg-500" />
             </span>
             <p className="text-sm font-semibold text-fg-300">هنوز پیامی نیست</p>
@@ -309,35 +333,36 @@ export default function ChatRoom({
             </p>
           </div>
         ) : (
-          <div className="relative flex flex-col gap-2.5">
-            {messages.map((message, index) => {
-              const previous = messages[index - 1];
-              const own = message.sender_id === user?.id;
-              const showAvatar =
-                !previous || previous.sender_id !== message.sender_id;
-              return (
-                <ChatBubble
-                  key={message.id}
-                  message={message}
-                  own={own}
-                  showAvatar={showAvatar}
-                  showName={showAvatar}
+          <div className="relative flex flex-col gap-1">
+            {items.map((item) => (
+              <Fragment key={item.message.id}>
+                {item.day && (
+                  <div className="sticky top-1 z-10 mx-auto w-fit rounded-full bg-black/75 px-3 py-1 text-[10px] font-semibold text-fg-300">
+                    {item.day}
+                  </div>
+                )}
+                <MessageBubble
+                  message={item.message}
+                  own={item.own}
+                  showTail={item.showTail}
+                  showName={item.showName}
+                  animate={item.animate}
                 />
-              );
-            })}
+              </Fragment>
+            ))}
           </div>
         )}
       </div>
 
       {/* ورودی */}
-      <div className="shrink-0 border-t border-white/10 bg-black/55 p-2.5 sm:p-3">
+      <div className="pb-safe shrink-0 border-t border-white/10 bg-black px-2 pt-2 sm:px-3 md:bg-black/55">
         {error && (
           <p className="mb-2 rounded-lg border border-danger/25 bg-danger/10 px-2.5 py-1.5 text-[11px] text-danger">
             {error}
           </p>
         )}
 
-        <div className="flex items-end gap-2">
+        <div className="flex items-end gap-1.5 pb-2">
           <input
             ref={fileInputRef}
             type="file"
@@ -348,11 +373,15 @@ export default function ChatRoom({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="icon-btn h-10 w-10 shrink-0 disabled:opacity-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-300 transition active:bg-white/10 disabled:opacity-50"
             title="پیوست فایل"
             aria-label="پیوست فایل"
           >
-            {uploading ? <Loader2 size={16} className="animate-spin" /> : <Paperclip size={17} />}
+            {uploading ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : (
+              <Paperclip size={21} />
+            )}
           </button>
 
           <textarea
@@ -366,20 +395,20 @@ export default function ChatRoom({
             }}
             rows={1}
             placeholder="پیامت را بنویس…"
-            className="input max-h-32 min-h-10 flex-1 resize-none py-2.5 leading-5"
+            className="input max-h-28 min-h-11 min-w-0 flex-1 resize-none rounded-full py-3 text-base leading-5 md:max-h-32 md:min-h-10 md:text-[13px]"
           />
 
           <button
             type="button"
             onClick={handleSend}
             disabled={!text.trim() || sending}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-black shadow-[0_0_24px_-8px_rgba(255,255,255,0.9)] transition hover:bg-white/90 disabled:opacity-40 disabled:shadow-none"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#2b5278] text-white transition active:scale-95 disabled:bg-white/10 disabled:text-fg-500"
             aria-label="ارسال"
           >
             {sending ? (
-              <Loader2 size={16} className="animate-spin" />
+              <Loader2 size={18} className="animate-spin" />
             ) : (
-              <Send size={16} className="-scale-x-100" />
+              <Send size={18} className="-scale-x-100" />
             )}
           </button>
         </div>

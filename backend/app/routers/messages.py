@@ -12,6 +12,63 @@ from ..ws_manager import manager
 router = APIRouter()
 
 
+@router.get("/overview", response_model=schemas.ChatOverview)
+def chat_overview(
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    latest_global = (
+        db.query(models.Message)
+        .filter(
+            models.Message.receiver_id.is_(None),
+            models.Message.assignment_id.is_(None),
+        )
+        .order_by(models.Message.created_at.desc(), models.Message.id.desc())
+        .first()
+    )
+
+    rows = (
+        db.query(models.Message)
+        .filter(
+            models.Message.receiver_id.isnot(None),
+            or_(
+                models.Message.sender_id == current.id,
+                models.Message.receiver_id == current.id,
+            ),
+        )
+        .order_by(models.Message.created_at.desc(), models.Message.id.desc())
+        .limit(500)
+        .all()
+    )
+
+    seen: set[int] = set()
+    directs: list[schemas.DirectPreview] = []
+    for message in rows:
+        peer_id = (
+            message.receiver_id
+            if message.sender_id == current.id
+            else message.sender_id
+        )
+        if not peer_id or peer_id in seen:
+            continue
+        seen.add(peer_id)
+        directs.append(
+            schemas.DirectPreview(
+                peer_id=peer_id,
+                message=schemas.MessageOut.model_validate(message),
+            )
+        )
+
+    return schemas.ChatOverview(
+        global_message=(
+            schemas.MessageOut.model_validate(latest_global)
+            if latest_global
+            else None
+        ),
+        directs=directs,
+    )
+
+
 @router.get("/", response_model=list[schemas.MessageOut])
 def list_messages(
     scope: Literal["global", "private", "assignment"] = Query("global"),

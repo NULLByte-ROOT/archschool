@@ -177,7 +177,7 @@ export default function Sidebar({
   return (
     <>
       {/* سایدبار دسکتاپ */}
-      <aside className="hidden h-screen w-64 shrink-0 flex-col overflow-hidden border-l border-white/5 bg-black/70 md:flex">
+      <aside className="hidden h-dvh w-64 shrink-0 flex-col overflow-hidden border-l border-white/5 bg-black/70 md:flex">
         <SidebarContent />
       </aside>
 

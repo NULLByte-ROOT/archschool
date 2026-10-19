@@ -12,7 +12,7 @@ export default function Layout() {
     location.pathname === "/chat" || /^\/assignments\/[^/]+$/.test(location.pathname);
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-black font-sans" dir="rtl">
+    <div className="relative flex h-dvh overflow-hidden bg-black font-sans" dir="rtl">
       {/* پس‌زمینه شبکه */}
       <div
         className="pointer-events-none fixed inset-0 z-0 grid-bg"

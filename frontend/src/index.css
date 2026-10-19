@@ -70,7 +70,7 @@
   }
 
   #root {
-    min-height: 100vh;
+    min-height: 100dvh;
   }
 
   ::selection {
@@ -293,6 +293,67 @@
   pointer-events: none;
   opacity: 0.03;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='0.9'/%3E%3C/filter%3E%3Crect width='100' height='100' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ------------------------------------------------------------------
+   حباب‌های چت به سبک تلگرام
+------------------------------------------------------------------ */
+.bubble-own {
+  background: #2b5278;
+}
+.bubble-other {
+  background: #1f2b36;
+}
+
+.bubble-tail-own::after,
+.bubble-tail-other::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 8px;
+  height: 14px;
+}
+.bubble-tail-own::after {
+  left: -7px;
+  background: #2b5278;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+.bubble-tail-other::after {
+  right: -7px;
+  background: #1f2b36;
+  clip-path: polygon(0 0, 0 100%, 100% 100%);
+}
+
+@keyframes chat-enter {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+.chat-enter {
+  animation: chat-enter 0.2s ease-out;
+}
+
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.msg-in {
+  animation: msg-in 0.16s ease-out;
+}
+
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* ------------------------------------------------------------------
