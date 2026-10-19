@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useIsMobile } from "../hooks/useMediaQuery";
 
 interface Particle {
   x: number;
@@ -11,8 +12,10 @@ interface Particle {
 export default function Particles({ count = 40 }: { count?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mouse = useRef({ x: -1000, y: -1000 });
+  const isMobile = useIsMobile();
 
   useEffect(() => {
+    if (isMobile) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -125,7 +128,9 @@ export default function Particles({ count = 40 }: { count?: number }) {
       window.removeEventListener("mousemove", handleMouse);
       window.removeEventListener("mouseleave", handleLeave);
     };
-  }, [count]);
+  }, [count, isMobile]);
+
+  if (isMobile) return null;
 
   return (
     <canvas

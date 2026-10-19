@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import type { ReactNode } from "react";
 import type { HTMLMotionProps } from "framer-motion";
+import { useIsMobile } from "../hooks/useMediaQuery";
 
 interface TiltCardProps extends HTMLMotionProps<"div"> {
   children: ReactNode;
@@ -18,6 +19,7 @@ export default function TiltCard({
   ...rest
 }: TiltCardProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const isTouch = useIsMobile();
 
   const mx = useMotionValue(0.5);
   const my = useMotionValue(0.5);
@@ -34,6 +36,7 @@ export default function TiltCard({
   const glareY = useTransform(sy, [0, 1], ["0%", "100%"]);
 
   function handleMove(e: React.MouseEvent<HTMLDivElement>) {
+    if (isTouch) return;
     const el = ref.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -51,20 +54,25 @@ export default function TiltCard({
       ref={ref}
       onMouseMove={handleMove}
       onMouseLeave={handleLeave}
-      style={{
-        rotateX,
-        rotateY,
-        transformStyle: "preserve-3d",
-        perspective: 1200,
-      }}
-      whileHover={{ scale: 1.015 }}
+      // روی موبایل/لمسی افکت سه‌بعدی کاملاً غیرفعال می‌شود
+      style={
+        isTouch
+          ? undefined
+          : {
+              rotateX,
+              rotateY,
+              transformStyle: "preserve-3d",
+              perspective: 1200,
+            }
+      }
+      whileHover={isTouch ? undefined : { scale: 1.015 }}
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
       className={`relative ${className}`}
       {...rest}
     >
       {children}
 
-      {glare && (
+      {glare && !isTouch && (
         <motion.div
           aria-hidden
           className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-300 group-hover:opacity-100"

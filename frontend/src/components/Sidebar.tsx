@@ -1,5 +1,6 @@
+import { createPortal } from "react-dom";
 import { NavLink, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutDashboard,
   CheckSquare,
@@ -171,27 +172,38 @@ export default function Sidebar({
         <SidebarContent />
       </aside>
 
-      {/* Drawer موبایل */}
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            onClick={onClose}
-            className="fixed inset-0 z-40 bg-black/80 md:hidden"
-          />
-          <motion.aside
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 30, stiffness: 300 }}
-            className="fixed right-0 top-0 z-50 flex h-screen w-72 flex-col overflow-hidden border-l border-white/10 bg-black/95 md:hidden"
-          >
-            <SidebarContent onClose={onClose} />
-          </motion.aside>
-        </>
+      {/* Drawer موبایل — از راست باز می‌شود (rtl) */}
+      {createPortal(
+        <AnimatePresence>
+          {isOpen && (
+            <div className="fixed inset-0 z-[120] md:hidden" dir="rtl">
+              {/* پرده تاریک پشت منو */}
+              <motion.div
+                key="backdrop"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                onClick={onClose}
+                aria-hidden
+                className="absolute inset-0 bg-black/80"
+              />
+
+              <motion.aside
+                key="drawer"
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", damping: 30, stiffness: 300 }}
+                className="absolute right-0 top-0 flex h-full w-72 max-w-[85vw] flex-col overflow-hidden border-l border-white/10 bg-black/95"
+                style={{ willChange: "transform" }}
+              >
+                <SidebarContent onClose={onClose} />
+              </motion.aside>
+            </div>
+          )}
+        </AnimatePresence>,
+        document.body
       )}
     </>
   );

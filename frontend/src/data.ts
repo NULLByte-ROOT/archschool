@@ -69,10 +69,10 @@ export const TIMETABLE: Day[] = [
     name: "دوشنبه",
     short: "د",
     cells: [
-      { kind: "multi", span: 1, subjects: [S.arabic, S.entrepreneurship] },
+      { kind: "class", span: 1, subject: S.arabic },
+      { kind: "class", span: 1, subject: S.entrepreneurship },
       { kind: "class", span: 1, subject: S.history },
       { kind: "class", span: 1, subject: S.english },
-      { kind: "free", span: 1 },
     ],
   },
   {

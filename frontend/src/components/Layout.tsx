@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Menu, GraduationCap } from "lucide-react";
 import Sidebar from "./Sidebar";
+import Particles from "./Particles";
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -38,11 +39,20 @@ export default function Layout() {
         }}
       />
 
+      {/* ذرات پس‌زمینه — فقط دسکتاپ (در موبایل غیرفعال می‌شود) */}
+      <Particles count={40} />
+
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <main className="relative z-10 flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <header className="z-20 flex shrink-0 items-center gap-3 border-b border-white/5 bg-black/80 px-4 py-3 md:hidden">
-          <button onClick={() => setSidebarOpen(true)} className="icon-btn">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="icon-btn"
+            aria-label="باز کردن منو"
+            aria-expanded={sidebarOpen}
+          >
             <Menu size={18} />
           </button>
           <div className="flex items-center gap-2">

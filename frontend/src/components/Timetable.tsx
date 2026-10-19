@@ -507,19 +507,13 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
         <span className="pointer-events-none absolute bottom-6 right-[21px] top-8 w-px bg-gradient-to-b from-white/30 via-white/10 to-transparent" />
 
         <div className="space-y-3">
-          {TIMETABLE.map((day, di) => {
+          {TIMETABLE.map((day) => {
             const isOpen = openDay === day.id;
             const entries = flattenDay(day);
             const count = entries.filter((e) => e.subject).length;
 
             return (
-              <motion.div
-                key={day.id}
-                initial={{ opacity: 0, x: 24 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: di * 0.06, duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
-                className="relative pr-12"
-              >
+              <div key={day.id} className="relative pr-12">
                 <span
                   className={`absolute right-[14px] top-6 z-10 grid h-4 w-4 place-items-center rounded-full border transition-colors ${
                     isOpen ? "border-white bg-white" : "border-white/40 bg-bg-100"
@@ -564,17 +558,15 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: "auto", opacity: 1 }}
                       exit={{ height: 0, opacity: 0 }}
-                      transition={{ type: "spring", stiffness: 380, damping: 34 }}
+                      transition={{ duration: 0.2, ease: "easeOut" }}
+                      style={{ willChange: "height, opacity" }}
                       className="overflow-hidden"
                     >
                       <div className="space-y-2 pt-2">
                         {entries.map((entry, ei) =>
                           entry.subject ? (
-                            <motion.button
+                            <button
                               key={`${day.id}-${ei}`}
-                              initial={{ opacity: 0, y: 12 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ delay: ei * 0.04, duration: 0.3 }}
                               onClick={() => setSelected(entry.subject)}
                               className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5 text-right transition-colors active:scale-[0.98] active:bg-white/[0.06]"
                             >
@@ -601,7 +593,7 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
                               ) : null}
                               <span className="badge shrink-0">{entry.label}</span>
                               <ChevronLeft size={16} className="shrink-0 text-fg-500" />
-                            </motion.button>
+                            </button>
                           ) : (
                             <div
                               key={`${day.id}-${ei}`}
@@ -619,7 +611,7 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </motion.div>
+              </div>
             );
           })}
         </div>

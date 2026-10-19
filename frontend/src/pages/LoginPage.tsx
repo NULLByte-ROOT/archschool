@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { User, KeyRound, BookOpen, Shield, ArrowRight, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useIsMobile } from '../hooks/useMediaQuery';
 
 export default function VercelWhiteLoginOTP() {
   const { login } = useAuth();
@@ -16,6 +17,7 @@ export default function VercelWhiteLoginOTP() {
 
   const cardRef = useRef<HTMLDivElement>(null);
   const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const isTouch = useIsMobile();
 
   // 🎨 تم سفید خالص
   const config = {
@@ -41,7 +43,7 @@ export default function VercelWhiteLoginOTP() {
   };
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!cardRef.current) return;
+    if (isTouch || !cardRef.current) return;
     const rect = cardRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -185,7 +187,9 @@ export default function VercelWhiteLoginOTP() {
       />
 
       {/* هاله سفید */}
-      <div className="w-[420px] h-[420px] rounded-full blur-[135px] opacity-25 absolute -top-24 pointer-events-none bg-white" />
+      {!isTouch && (
+        <div className="w-[420px] h-[420px] rounded-full blur-[135px] opacity-25 absolute -top-24 pointer-events-none bg-white" />
+      )}
 
       {/* کارت */}
       <div
@@ -193,7 +197,9 @@ export default function VercelWhiteLoginOTP() {
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
         style={{
-          transform: `perspective(1200px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
+          transform: isTouch
+            ? undefined
+            : `perspective(1200px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
           transition: tilt.isHovering ? 'transform 0.08s ease-out' : 'transform 0.55s cubic-bezier(0.22, 1, 0.36, 1)',
           borderRadius: `${config.borderRadius}px`,
           transformStyle: 'preserve-3d',
@@ -201,7 +207,7 @@ export default function VercelWhiteLoginOTP() {
         className="preserve-3d relative z-10 w-full max-w-[430px] p-[1.5px] group"
       >
         {/* Border Beam سفید */}
-        {config.borderBeam && (
+        {config.borderBeam && !isTouch && (
           <div
             className="absolute inset-0 overflow-hidden pointer-events-none"
             style={{ borderRadius: `${config.borderRadius}px` }}
@@ -219,16 +225,16 @@ export default function VercelWhiteLoginOTP() {
         {/* کارت شیشه‌ای */}
         <div
           style={{
-            backgroundColor: `rgba(6, 6, 10, ${config.cardOpacity / 100})`,
-            backdropFilter: `blur(${config.cardBlur}px)`,
-            WebkitBackdropFilter: `blur(${config.cardBlur}px)`,
+            backgroundColor: isTouch ? 'rgba(6, 6, 10, 0.95)' : `rgba(6, 6, 10, ${config.cardOpacity / 100})`,
+            backdropFilter: isTouch ? 'none' : `blur(${config.cardBlur}px)`,
+            WebkitBackdropFilter: isTouch ? 'none' : `blur(${config.cardBlur}px)`,
             borderRadius: `${Math.max(0, config.borderRadius - 1)}px`,
             boxShadow: `0 30px 60px -15px rgba(0,0,0,0.85), 0 0 40px -10px rgba(255,255,255,0.25)`,
           }}
           className="preserve-3d relative w-full p-7 sm:p-9 border border-white/10"
         >
           {/* Spotlight سفید */}
-          {config.spotlightCursor && (
+          {config.spotlightCursor && !isTouch && (
             <div
               className="pointer-events-none absolute inset-0 transition-opacity duration-300"
               style={{
@@ -251,9 +257,9 @@ export default function VercelWhiteLoginOTP() {
               {config.coreShape === 'prism' && (
                 <div
                   className="relative w-16 h-16 flex items-center justify-center"
-                  style={{ animation: 'floatPulse 4s ease-in-out infinite' }}
+                  style={isTouch ? undefined : { animation: 'floatPulse 4s ease-in-out infinite' }}
                 >
-                  <div className="absolute inset-0 rounded-full blur-xl opacity-60 bg-white" />
+                  {!isTouch && <div className="absolute inset-0 rounded-full blur-xl opacity-60 bg-white" />}
                   <div className="relative w-14 h-14 rounded-2xl bg-gradient-to-b from-white/20 to-white/[0.03] border border-white/40 flex items-center justify-center shadow-2xl backdrop-blur-md">
                     <BookOpen className="w-7 h-7 text-white drop-shadow-[0_0_12px_rgba(255,255,255,0.9)]" />
                   </div>
