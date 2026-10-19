@@ -73,6 +73,7 @@ export interface Attachment {
   assignment_id: number;
   user_id: number;
   user_username: string | null;
+  uploader?: PublicUser | null;
   file_url: string;
   file_name: string;
   created_at: string;
@@ -269,11 +270,31 @@ export async function uploadAssignmentFile(
   file: File
 ): Promise<Attachment> {
   const form = new FormData();
-  form.append("file", file);
-  return request<Attachment>(`/assignments/${assignmentId}/attachments`, {
-    method: "POST",
-    body: form,
+  form.append("file", file, file.name);
+  console.info("[assignment upload] POST", `/assignments/${assignmentId}/attachments`, {
+    name: file.name,
+    type: file.type,
+    size: file.size,
   });
+  try {
+    return await request<Attachment>(`/assignments/${assignmentId}/attachments`, {
+      method: "POST",
+      body: form,
+    });
+  } catch (error) {
+    console.error("[assignment upload] failed", {
+      assignmentId,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      error,
+    });
+    throw error;
+  }
+}
+
+export async function deleteAttachment(attachmentId: number): Promise<void> {
+  return request<void>(`/attachments/${attachmentId}`, { method: "DELETE" });
 }
 
 // ---------- Team / leaderboard ----------

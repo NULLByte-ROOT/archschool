@@ -9,6 +9,7 @@ function hueFor(name: string) {
 }
 
 const avatarSizes = {
+  xxs: "h-4 w-4 text-[8px]",
   xs: "h-8 w-8 text-[11px]",
   sm: "h-9 w-9 text-xs",
   md: "h-11 w-11 text-sm",

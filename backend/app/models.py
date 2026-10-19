@@ -160,3 +160,7 @@ class Attachment(Base):
     @property
     def user_username(self) -> str | None:
         return self.user.username if self.user else None
+
+    @property
+    def uploader(self) -> "User | None":
+        return self.user

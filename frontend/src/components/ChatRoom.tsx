@@ -47,7 +47,8 @@ import type { ChatSocketEvent } from "../hooks/useChatSocket";
 import { chatDayLabel, chatTime } from "../lib/chat";
 import Avatar from "./Avatar";
 
-const IMAGE_RE = /\.(png|jpe?g|gif|webp|avif|bmp)(\?|$)/i;
+const IMAGE_RE = /\.(png|jpe?g|jfif|gif|webp|avif|bmp)(\?|$)/i;
+const UPLOAD_ACCEPT = "image/*,video/*,application/pdf";
 const EMOJIS = [
   "😀", "😂", "🥹", "😍", "😎", "🤔", "😴", "🤯",
   "👍", "🙏", "👏", "🔥", "💯", "🎉", "❤️", "✅",
@@ -115,6 +116,8 @@ const MessageBubble = memo(function MessageBubble({
 }) {
   const media = resolveMediaUrl(message.file_url);
   const isImage = !!message.file_url && IMAGE_RE.test(message.file_url);
+  const [imageFailed, setImageFailed] = useState(false);
+  const showImage = !!message.file_url && isImage && !imageFailed;
   const name = message.sender_username || "کاربر";
 
   return (
@@ -180,19 +183,27 @@ const MessageBubble = memo(function MessageBubble({
         </div>
       )}
 
-      {message.file_url && isImage && (
+      {showImage && (
         <a href={media} target="_blank" rel="noreferrer" className="mb-1 block">
           <img
             src={media}
             alt=""
             loading="lazy"
             decoding="async"
+            referrerPolicy="no-referrer"
             className="max-h-72 w-full rounded-lg object-cover"
+            onError={() => {
+              console.warn("[chat] image failed to load, falling back to file", {
+                url: media,
+                fileUrl: message.file_url,
+              });
+              setImageFailed(true);
+            }}
           />
         </a>
       )}
 
-      {message.file_url && !isImage && (
+      {message.file_url && !showImage && (
         <a
           href={media}
           target="_blank"
@@ -878,6 +889,7 @@ export default function ChatRoom({
           <input
             ref={fileInputRef}
             type="file"
+            accept={UPLOAD_ACCEPT}
             className="hidden"
             onChange={(event) => handleFile(event.target.files?.[0])}
           />

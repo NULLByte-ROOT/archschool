@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import {
   deleteAssignment,
+  deleteAttachment,
   fetchAssignment,
   fetchAttachments,
   fetchTeamStatus,
@@ -84,6 +85,7 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
   const [teamsLoading, setTeamsLoading] = useState(true);
   const [attachmentsLoading, setAttachmentsLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -184,6 +186,21 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
   );
 
   const completedCount = team.filter((member) => member.completed).length;
+
+  async function removeAttachment(attachment: Attachment) {
+    if (deletingId !== null) return;
+    if (!confirm(`فایل «${attachment.file_name}» حذف شود؟`)) return;
+    setDeletingId(attachment.id);
+    setError(null);
+    try {
+      await deleteAttachment(attachment.id);
+      setAttachments((prev) => prev.filter((item) => item.id !== attachment.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "حذف فایل ناموفق بود");
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   return (
     <div className="relative min-h-full">
@@ -480,6 +497,7 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                         ref={fileInputRef}
                         type="file"
                         multiple
+                        accept="image/*,video/*,application/pdf"
                         className="hidden"
                         onChange={(e) => uploadFiles(e.target.files ?? [])}
                       />
@@ -511,37 +529,81 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                       ) : (
                         attachments.map((attachment) => {
                           const kind = fileIcon(attachment.file_name);
+                          const uploaderName =
+                            attachment.user_username ||
+                            attachment.uploader?.username ||
+                            "کاربر";
+                          const canDelete =
+                            attachment.user_id === user?.id || !!user?.is_admin;
+                          const mediaUrl = resolveMediaUrl(attachment.file_url);
                           return (
-                            <a
+                            <div
                               key={attachment.id}
-                              href={resolveMediaUrl(attachment.file_url)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="group flex items-center gap-2.5 rounded-xl border border-white/8 bg-white/[0.02] p-2.5 transition hover:border-white/20 hover:bg-white/[0.05]"
+                              className="group flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.02] p-2.5 transition hover:border-white/20 hover:bg-white/[0.05]"
                             >
-                              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-fg-300">
-                                {kind === "image" ? (
-                                  <FileText size={15} />
-                                ) : kind === "archive" ? (
-                                  <Download size={15} />
-                                ) : (
-                                  <FileText size={15} />
-                                )}
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate text-[11px] font-semibold text-fg-100" dir="ltr">
-                                  {attachment.file_name}
+                              <a
+                                href={mediaUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex min-w-0 flex-1 items-center gap-2.5"
+                              >
+                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-fg-300">
+                                  {kind === "image" ? (
+                                    <FileText size={15} />
+                                  ) : kind === "archive" ? (
+                                    <Download size={15} />
+                                  ) : (
+                                    <FileText size={15} />
+                                  )}
                                 </span>
-                                <span className="mt-0.5 block text-[9px] text-fg-500">
-                                  {attachment.user_username ?? "کاربر"} ·{" "}
-                                  {parseDue(attachment.created_at).toLocaleDateString("fa-IR")}
+                                <span className="min-w-0 flex-1">
+                                  <span
+                                    className="block truncate text-[11px] font-semibold text-fg-100"
+                                    dir="ltr"
+                                  >
+                                    {attachment.file_name}
+                                  </span>
+                                  <span className="mt-1 flex items-center gap-1.5 text-[9px] text-fg-500">
+                                    <Avatar name={uploaderName} size="xxs" />
+                                    <span className="truncate" dir="ltr">
+                                      {uploaderName}
+                                    </span>
+                                    <span>·</span>
+                                    <span>
+                                      {parseDue(
+                                        attachment.created_at
+                                      ).toLocaleDateString("fa-IR")}
+                                    </span>
+                                  </span>
                                 </span>
-                              </span>
-                              <Download
-                                size={14}
-                                className="shrink-0 text-fg-500 transition group-hover:text-white"
-                              />
-                            </a>
+                              </a>
+
+                              <a
+                                href={mediaUrl}
+                                download={attachment.file_name}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-fg-500 transition hover:bg-white/10 hover:text-white"
+                                aria-label="دانلود"
+                              >
+                                <Download size={14} />
+                              </a>
+
+                              {canDelete && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeAttachment(attachment)}
+                                  disabled={deletingId === attachment.id}
+                                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-fg-500 transition hover:bg-danger/15 hover:text-danger disabled:opacity-50"
+                                  aria-label="حذف فایل"
+                                  title="حذف فایل"
+                                >
+                                  {deletingId === attachment.id ? (
+                                    <Loader2 size={14} className="animate-spin" />
+                                  ) : (
+                                    <Trash2 size={14} />
+                                  )}
+                                </button>
+                              )}
+                            </div>
                           );
                         })
                       )}

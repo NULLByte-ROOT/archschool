@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     MAX_UPLOAD_MB: int = 25
 
+    # Gamification: points granted per assignment attachment, and whether those
+    # points are taken back when the uploader deletes their own attachment.
+    POINTS_PER_UPLOAD: int = 15
+    DEDUCT_POINTS_ON_ATTACHMENT_DELETE: bool = True
+
     @field_validator("CORS_ORIGINS")
     @classmethod
     def _normalize_origins(cls, origins: list[str]) -> list[str]:

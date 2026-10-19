@@ -5,9 +5,10 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..config import settings
 from ..database import get_db
 from ..dependencies import get_current_user
-from ..storage import save_upload
+from ..storage import delete_upload, save_upload
 
 router = APIRouter()
 
@@ -153,7 +154,7 @@ async def upload_attachment(
         file_url=url,
         file_name=file_name,
     )
-    current.points = (current.points or 0) + 15
+    current.points = (current.points or 0) + settings.POINTS_PER_UPLOAD
     db.add(attachment)
     db.commit()
     db.refresh(attachment)
@@ -227,5 +228,7 @@ def delete_assignment(
     )
     if not obj:
         raise HTTPException(status_code=404, detail="Assignment not found")
+    for attachment in list(obj.attachments):
+        delete_upload(attachment.file_url)
     db.delete(obj)
     db.commit()

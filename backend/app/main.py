@@ -3,11 +3,12 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 from sqlalchemy import inspect, text
 
 from .config import settings
 from .database import Base, engine
-from .routers import assignments, auth, messages, uploads, users, ws
+from .routers import assignments, attachments, auth, messages, uploads, users, ws
 
 Base.metadata.create_all(bind=engine)
 
@@ -79,9 +80,35 @@ app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(assignments.router, prefix="/api/assignments", tags=["assignments"])
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
+app.include_router(attachments.router, prefix="/api/attachments", tags=["attachments"])
 app.include_router(ws.router, tags=["ws"])
 
-app.mount("/api/media", StaticFiles(directory=str(UPLOAD_DIR)), name="media")
+
+class MediaStaticFiles(StaticFiles):
+    """Serve uploads with an explicit inline disposition.
+
+    Uploaded images/PDFs must render directly when their URL is opened in a new
+    tab (and inline ``<img>`` previews must not be treated as downloads), so we
+    force ``Content-Disposition: inline`` and a sane cache header.
+    """
+
+    def file_response(self, *args, **kwargs) -> Response:  # type: ignore[override]
+        response = super().file_response(*args, **kwargs)
+        content_type = response.headers.get("content-type", "")
+        # SVG can carry scripts; never render it inline on our own origin.
+        if content_type.startswith("image/svg"):
+            response.headers["Content-Disposition"] = "attachment"
+        else:
+            response.headers.setdefault("Content-Disposition", "inline")
+        response.headers.setdefault("Cache-Control", "public, max-age=86400")
+        return response
+
+
+app.mount(
+    "/api/media",
+    MediaStaticFiles(directory=str(UPLOAD_DIR)),
+    name="media",
+)
 
 
 @app.get("/")

@@ -135,6 +135,7 @@ class AttachmentOut(BaseModel):
     assignment_id: int
     user_id: int
     user_username: Optional[str] = None
+    uploader: Optional[PublicUserOut] = None
     file_url: str
     file_name: str
     created_at: datetime
