@@ -14,6 +14,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import Avatar from "./Avatar";
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
   `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-[background-color,border-color,color] duration-300 ${
@@ -144,9 +145,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
       {/* پایین */}
       <div className="mt-auto shrink-0 border-t border-white/5 p-4">
         <div className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.03] p-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/25 bg-white/10 text-sm font-semibold text-white shadow-[0_0_15px_-4px_rgba(255,255,255,0.6)]">
-            {user?.username.charAt(0).toUpperCase() || "?"}
-          </div>
+          <Avatar
+            name={user?.username ?? "?"}
+            src={user?.avatar_url}
+            size="sm"
+          />
           <div className="min-w-0 flex-1">
             <p className="truncate text-xs font-medium text-white" dir="ltr">
               {user?.username}

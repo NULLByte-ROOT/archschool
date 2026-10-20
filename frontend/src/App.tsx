@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
+import ImageViewer from "./components/ImageViewer";
 import ProtectedRoute from "./components/ProtectedRoute";
 import HomePage from "./pages/HomePage";
 import TimetablePage from "./pages/TimetablePage";
@@ -38,6 +39,7 @@ export default function App() {
           </Route>
         </Route>
       </Routes>
+      <ImageViewer />
     </BrowserRouter>
   );
 }

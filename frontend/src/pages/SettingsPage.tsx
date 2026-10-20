@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Camera,
@@ -25,12 +25,28 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<string | null>(null);
 
   const [bio, setBio] = useState(user?.bio ?? "");
   const [savingBio, setSavingBio] = useState(false);
   const [bioSaved, setBioSaved] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  function clearPreview() {
+    if (previewRef.current) {
+      URL.revokeObjectURL(previewRef.current);
+      previewRef.current = null;
+    }
+    setAvatarPreview(null);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    };
+  }, []);
 
   const rows = [
     { icon: Fingerprint, label: "USERNAME", value: user?.username ?? "—", mono: true },
@@ -63,13 +79,21 @@ export default function SettingsPage() {
 
   async function handleAvatar(file: File | undefined) {
     if (!file || uploading) return;
+
+    clearPreview();
+    const objectUrl = URL.createObjectURL(file);
+    previewRef.current = objectUrl;
+    setAvatarPreview(objectUrl);
+
     setUploading(true);
     setError(null);
     try {
       const uploaded = await uploadFile(file);
       await updateMe({ avatar_url: uploaded.url });
       await refreshUser();
+      clearPreview();
     } catch (e) {
+      clearPreview();
       setError(e instanceof Error ? e.message : "آپلود تصویر ناموفق بود");
     } finally {
       setUploading(false);
@@ -109,7 +133,7 @@ export default function SettingsPage() {
           <div className="relative shrink-0">
             <Avatar
               name={user?.username ?? "?"}
-              src={user?.avatar_url}
+              src={avatarPreview ?? user?.avatar_url}
               size="xl"
               className="shadow-[0_0_30px_-10px_rgba(255,255,255,0.55)]"
             />
