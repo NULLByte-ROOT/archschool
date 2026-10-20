@@ -7,6 +7,7 @@ from .. import chat, models, schemas
 from ..database import get_db
 from ..dependencies import get_current_admin, get_current_user
 from ..security import generate_code, hash_password, normalize_username
+from ..storage import delete_upload
 
 router = APIRouter()
 
@@ -52,6 +53,20 @@ def update_me(
         setattr(current, key, value)
     db.commit()
     db.refresh(current)
+    return current
+
+
+@router.delete("/me/avatar", response_model=schemas.UserOut)
+def delete_my_avatar(
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    previous = current.avatar_url
+    current.avatar_url = None
+    db.commit()
+    db.refresh(current)
+    if previous:
+        delete_upload(previous)
     return current
 
 

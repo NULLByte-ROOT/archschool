@@ -245,6 +245,10 @@ export async function updateMe(data: {
   });
 }
 
+export async function deleteMyAvatar(): Promise<User> {
+  return request<User>("/users/me/avatar", { method: "DELETE" });
+}
+
 // ---------- Users (admin) ----------
 export async function fetchUsers(): Promise<User[]> {
   return request<User[]>("/users/");

@@ -11,8 +11,9 @@ import {
   Moon,
   ShieldCheck,
   Sun,
+  Trash2,
 } from "lucide-react";
-import { updateMe, uploadFile } from "../api/client";
+import { deleteMyAvatar, updateMe, uploadFile } from "../api/client";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
 import PageHeader from "../components/PageHeader";
@@ -31,6 +32,7 @@ export default function SettingsPage() {
   const [savingBio, setSavingBio] = useState(false);
   const [bioSaved, setBioSaved] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,6 +103,21 @@ export default function SettingsPage() {
     }
   }
 
+  async function handleRemoveAvatar() {
+    if (deleting || uploading) return;
+    setDeleting(true);
+    setError(null);
+    clearPreview();
+    try {
+      await deleteMyAvatar();
+      await refreshUser();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "حذف تصویر ناموفق بود");
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function saveBio() {
     if (savingBio) return;
     setSavingBio(true);
@@ -140,13 +157,29 @@ export default function SettingsPage() {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
+              disabled={uploading || deleting}
               className="absolute -bottom-1 -left-1 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black text-white shadow-lg transition hover:bg-white hover:text-black disabled:opacity-60"
               aria-label="تغییر تصویر پروفایل"
               title="تغییر تصویر پروفایل"
             >
               {uploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
             </button>
+            {(avatarPreview || user?.avatar_url) && (
+              <button
+                type="button"
+                onClick={handleRemoveAvatar}
+                disabled={deleting || uploading}
+                className="absolute -right-1 -bottom-1 flex h-8 w-8 items-center justify-center rounded-full border border-danger/40 bg-black text-danger shadow-lg transition hover:bg-danger hover:text-white disabled:opacity-60"
+                aria-label="حذف عکس پروفایل"
+                title="حذف عکس پروفایل"
+              >
+                {deleting ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Trash2 size={14} />
+                )}
+              </button>
+            )}
             <input
               ref={fileInputRef}
               type="file"
