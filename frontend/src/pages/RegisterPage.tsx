@@ -64,7 +64,7 @@ export default function RegisterPage() {
           />
           <div>
             <h1 className="text-2xl font-black text-white">ساخت حساب</h1>
-            <p className="mt-1 text-xs text-zinc-500">با نام کاربری و رمز عبور وارد شو</p>
+            <p className="mt-1 text-xs text-zinc-500">یک نام کاربری و کد دسترسی برای خودت انتخاب کن</p>
           </div>
         </div>
 
@@ -97,7 +97,7 @@ export default function RegisterPage() {
               <div className="mb-2 flex items-center justify-between gap-2">
                 <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
                   <KeyRound className="h-3.5 w-3.5" />
-                  PASSWORD
+                  ACCESS CODE
                 </label>
                 <button
                   type="button"
