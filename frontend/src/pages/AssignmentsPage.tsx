@@ -108,7 +108,7 @@ const CreatorBadge = memo(function CreatorBadge({
   if (!name) return null;
   return (
     <span
-      className="badge shrink-0 !py-0.5 !text-[9px]"
+      className="badge hidden shrink-0 !py-0.5 !text-[9px] sm:inline-flex"
       title={`ساخته شده توسط ${name}`}
     >
       <span className="dot" />
@@ -174,7 +174,7 @@ const AssignmentItem = memo(function AssignmentItem({
         onToggle(item);
       }}
       title={done ? "من انجام دادم" : "انجام دادم"}
-      className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition ${
+      className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition sm:min-h-0 ${
         done
           ? "border-success/30 bg-success/10 text-success"
           : "border-white/12 text-fg-300 hover:border-white/30 hover:text-white"
@@ -205,7 +205,7 @@ const AssignmentItem = memo(function AssignmentItem({
         e.stopPropagation();
         onDelete(item);
       }}
-      className="icon-btn ml-auto hover:border-danger/40 hover:text-danger"
+      className="icon-btn hover:border-danger/40 hover:text-danger"
       title="حذف"
     >
       <Trash2 size={14} />
@@ -216,7 +216,7 @@ const AssignmentItem = memo(function AssignmentItem({
     return (
       <motion.div
         {...motionProps}
-        className={`panel panel-hover group relative flex cursor-pointer items-center gap-4 overflow-hidden rounded-2xl border-2 py-3.5 pr-4 pl-3 ${TONE_BORDER[tone]} ${TONE_GLOW[tone]}`}
+        className={`panel panel-hover group relative flex cursor-pointer flex-wrap items-center gap-3 overflow-hidden rounded-2xl border-2 py-3.5 pr-4 pl-3 sm:flex-nowrap sm:gap-4 ${TONE_BORDER[tone]} ${TONE_GLOW[tone]}`}
       >
         <Corners />
         <span className={`absolute top-3 right-0 bottom-3 w-1 rounded-full ${TONE_DOT[tone]}`} />
@@ -228,7 +228,7 @@ const AssignmentItem = memo(function AssignmentItem({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3
-              className={`truncate text-[14px] font-bold ${
+              className={`min-w-0 truncate text-[14px] font-bold ${
                 done ? "text-fg-500 line-through" : "text-white"
               }`}
             >
@@ -255,12 +255,12 @@ const AssignmentItem = memo(function AssignmentItem({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="ms-auto flex shrink-0 items-center gap-2">
           <CompletedStack users={item.completed_by_users} />
           {toggle}
           {editBtn}
           {removeBtn}
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-500 transition group-hover:bg-white/[0.06] group-hover:text-white">
+          <span className="hidden h-8 w-8 items-center justify-center rounded-lg text-fg-500 transition group-hover:bg-white/[0.06] group-hover:text-white sm:flex">
             <ChevronLeft size={16} />
           </span>
         </div>
@@ -290,7 +290,7 @@ const AssignmentItem = memo(function AssignmentItem({
 
       <div className="mb-3 flex flex-wrap items-center gap-2 pr-2">
         <h3
-          className={`line-clamp-2 text-[15px] leading-6 font-bold ${
+          className={`line-clamp-2 min-w-0 text-[15px] leading-6 font-bold ${
             done ? "text-fg-500 line-through" : "text-white"
           }`}
         >
@@ -313,12 +313,12 @@ const AssignmentItem = memo(function AssignmentItem({
         </p>
       </div>
 
-      <div className="flex items-center gap-2 border-t border-white/8 pt-3 pr-2">
+      <div className="flex flex-wrap items-center gap-2 border-t border-white/8 pt-3 pr-2">
         <CompletedStack users={item.completed_by_users} />
         {toggle}
         {editBtn}
         {removeBtn}
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg text-fg-500 transition group-hover:bg-white/[0.06] group-hover:text-white">
+        <span className="hidden h-8 w-8 items-center justify-center rounded-lg text-fg-500 transition group-hover:bg-white/[0.06] group-hover:text-white sm:flex">
           <ChevronLeft size={16} />
         </span>
       </div>
@@ -563,7 +563,7 @@ export default function AssignmentsPage() {
                   }
                   setStatus(f.key);
                 }}
-                className={`relative rounded-xl px-4 py-2 text-xs font-semibold transition ${
+                className={`relative min-h-10 rounded-xl px-4 py-2 text-xs font-semibold transition sm:min-h-0 ${
                   status === f.key ? "text-black" : "text-fg-500 hover:text-white"
                 }`}
               >
@@ -623,7 +623,7 @@ export default function AssignmentsPage() {
                 aria-label={label}
                 aria-pressed={view === key}
                 title={label}
-                className={`relative flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+                className={`relative flex h-10 w-10 items-center justify-center rounded-xl transition-colors sm:h-9 sm:w-9 ${
                   view === key ? "text-black" : "text-fg-500 hover:text-white"
                 }`}
               >
@@ -669,7 +669,7 @@ export default function AssignmentsPage() {
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          className="panel relative flex flex-col items-center justify-center gap-3 p-16 text-center"
+          className="panel relative flex flex-col items-center justify-center gap-3 p-10 text-center sm:p-16"
         >
           <Corners />
           <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-danger/30 bg-danger/10">
@@ -686,7 +686,7 @@ export default function AssignmentsPage() {
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          className="panel relative flex flex-col items-center justify-center gap-3 p-16 text-center"
+          className="panel relative flex flex-col items-center justify-center gap-3 p-10 text-center sm:p-16"
         >
           <Corners />
           <ClipboardList size={30} className="text-fg-500" />

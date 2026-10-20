@@ -41,7 +41,7 @@ export default function RegisterPage() {
   return (
     <div
       dir="rtl"
-      className="relative flex min-h-[100dvh] w-full items-center justify-center overflow-hidden bg-black px-5 py-10 text-white"
+      className="relative flex min-h-[100dvh] w-full items-center justify-center overflow-x-hidden bg-black px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] text-white sm:px-5 sm:py-10"
       style={{ fontFamily: "'Vazirmatn', system-ui, sans-serif" }}
     >
       <div
@@ -71,7 +71,7 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-[#07070a]/95 p-6 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)] sm:p-8">
+        <div className="rounded-3xl border border-white/10 bg-[#07070a]/95 p-5 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)] sm:p-8">
           <form className="space-y-5" onSubmit={handleSubmit}>
             <div>
               <label className="mono mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">

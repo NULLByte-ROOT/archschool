@@ -137,19 +137,19 @@ export default function LeaderboardPage() {
 
       {/* جدول */}
       {loading ? (
-        <div className="panel relative flex items-center justify-center gap-2 p-16 text-sm text-fg-500">
+        <div className="panel relative flex items-center justify-center gap-2 p-10 text-sm text-fg-500 sm:p-16">
           <Corners />
           <Loader2 size={16} className="animate-spin" />
           در حال بارگذاری…
         </div>
       ) : error ? (
-        <div className="panel relative flex flex-col items-center gap-2 p-16 text-center">
+        <div className="panel relative flex flex-col items-center gap-2 p-10 text-center sm:p-16">
           <Corners />
           <p className="text-sm font-semibold text-white">بارگذاری ناموفق بود</p>
           <p className="text-[11px] text-fg-500">{error}</p>
         </div>
       ) : rows.length === 0 ? (
-        <div className="panel relative flex flex-col items-center gap-2 p-16 text-center">
+        <div className="panel relative flex flex-col items-center gap-2 p-10 text-center sm:p-16">
           <Corners />
           <Trophy size={28} className="text-fg-500" />
           <p className="text-sm text-fg-500">هنوز امتیازی ثبت نشده.</p>

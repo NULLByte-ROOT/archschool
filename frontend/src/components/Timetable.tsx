@@ -517,9 +517,9 @@ const MobileDayRow = memo(function MobileDayRow({
   onSelect,
 }: MobileDayRowProps) {
   return (
-    <div className="relative pr-12">
+    <div className="relative pr-10 sm:pr-12">
       <span
-        className={`absolute right-[14px] top-6 z-10 grid h-4 w-4 place-items-center rounded-full border transition-colors ${
+        className={`absolute right-[14px] top-5 z-10 grid h-4 w-4 place-items-center rounded-full border transition-colors sm:top-6 ${
           isOpen ? "border-white bg-white" : "border-white/40 bg-bg-100"
         }`}
       >
@@ -528,17 +528,17 @@ const MobileDayRow = memo(function MobileDayRow({
 
       <button
         onClick={() => onToggle(day.id)}
-        className={`panel relative flex w-full items-center justify-between gap-3 p-4 text-right transition-colors ${
+        className={`panel relative flex w-full items-center justify-between gap-2 p-3 text-right transition-colors sm:gap-3 sm:p-4 ${
           isOpen ? "border-white/25 bg-white/[0.05]" : "active:bg-white/[0.04]"
         }`}
       >
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-white/15 bg-white/[0.06] text-lg font-black text-white">
+        <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-white/15 bg-white/[0.06] text-lg font-black text-white sm:h-11 sm:w-11">
             {day.short}
           </span>
           <div className="min-w-0">
-            <p className="text-base font-bold text-white">{day.name}</p>
-            <p className="flex items-center gap-1.5 text-[11px] text-fg-500">
+            <p className="truncate text-base font-bold text-white">{day.name}</p>
+            <p className="flex items-center gap-1.5 truncate text-[11px] text-fg-500">
               <span className="mono tabular-nums tracking-widest">
                 {String(count).padStart(2, "0")}
               </span>
@@ -549,7 +549,7 @@ const MobileDayRow = memo(function MobileDayRow({
 
         {events > 0 && (
           <span
-            className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.05] px-2 py-1"
+            className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.05] px-2 py-1 min-[360px]:flex"
             title={`${events} رویداد`}
           >
             <span
@@ -583,7 +583,7 @@ const MobileDayRow = memo(function MobileDayRow({
               <button
                 key={`${day.id}-${ei}`}
                 onClick={() => onSelect(entry.subject!)}
-                className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5 text-right transition-colors active:scale-[0.98] active:bg-white/[0.06]"
+                className="flex w-full items-center gap-2.5 rounded-2xl border border-white/10 bg-white/[0.02] p-3 text-right transition-colors active:scale-[0.98] active:bg-white/[0.06] sm:gap-3 sm:p-3.5"
               >
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/12 bg-white/[0.05]">
                   <BookOpen size={16} className="text-fg-100" />
@@ -602,13 +602,13 @@ const MobileDayRow = memo(function MobileDayRow({
                     }`}
                   />
                 ) : null}
-                <span className="badge shrink-0">{entry.label}</span>
-                <ChevronLeft size={16} className="shrink-0 text-fg-500" />
+                <span className="badge hidden shrink-0 min-[380px]:inline-flex">{entry.label}</span>
+                <ChevronLeft size={16} className="hidden shrink-0 text-fg-500 sm:block" />
               </button>
             ) : (
               <div
                 key={`${day.id}-${ei}`}
-                className="flex items-center gap-3 rounded-2xl border border-dashed border-white/10 p-3.5"
+                className="flex items-center gap-2.5 rounded-2xl border border-dashed border-white/10 p-3 sm:gap-3 sm:p-3.5"
               >
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-dashed border-white/10 text-fg-500">
                   <Clock size={16} />
@@ -725,7 +725,7 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
                 animate={{ y: 0 }}
                 exit={{ y: "100%" }}
                 transition={{ type: "spring", stiffness: 320, damping: 34 }}
-                className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-[28px] border-t border-white/15 bg-bg-100 px-5 pb-10 pt-3 shadow-2xl shadow-black will-change-transform"
+                className="absolute inset-x-0 bottom-0 max-h-[88dvh] overflow-y-auto overscroll-contain rounded-t-[28px] border-t border-white/15 bg-bg-100 px-4 pt-3 pb-[max(2.5rem,env(safe-area-inset-bottom))] shadow-2xl shadow-black will-change-transform sm:px-5"
               >
                 <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-white/25" />
 

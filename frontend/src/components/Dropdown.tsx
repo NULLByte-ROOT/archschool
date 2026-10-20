@@ -64,9 +64,10 @@ export default function Dropdown({
     const r = el.getBoundingClientRect();
     const spaceBelow = window.innerHeight - r.bottom;
     const up = spaceBelow < PANEL_ESTIMATE && r.top > spaceBelow;
+    const compact = window.innerWidth < 640;
     setPos({
-      right: Math.max(8, window.innerWidth - r.right),
-      minWidth: r.width,
+      right: compact ? 8 : Math.max(8, window.innerWidth - r.right),
+      minWidth: compact ? 0 : r.width,
       up,
       ...(up ? { bottom: window.innerHeight - r.top + 8 } : { top: r.bottom + 8 }),
     });
@@ -225,7 +226,7 @@ export default function Dropdown({
                         aria-selected={isSelected}
                         onMouseEnter={() => setActive(flat.findIndex((o) => o.value === option.value))}
                         onClick={() => choose(option.value)}
-                        className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-right transition-colors ${
+                        className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-right transition-colors sm:py-2.5 ${
                           isActive ? "bg-white/[0.07]" : ""
                         } ${isSelected ? "text-white" : "text-fg-300 hover:text-white"}`}
                       >

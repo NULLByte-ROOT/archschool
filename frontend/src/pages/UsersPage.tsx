@@ -164,7 +164,7 @@ export default function UsersPage() {
                 <input
                   value={newCode}
                   onChange={(e) => setNewCode(e.target.value.toUpperCase())}
-                  placeholder="کد ۶ رقمی (خالی = تصادفی)"
+                  placeholder="کد ۶ کاراکتری (خالی = تصادفی)"
                   dir="ltr"
                   maxLength={6}
                   className="input mono tracking-widest"
@@ -199,12 +199,12 @@ export default function UsersPage() {
       <div className="panel relative overflow-hidden">
         <Corners />
         {loading ? (
-          <div className="flex items-center justify-center gap-2 p-12 text-sm text-fg-500">
+          <div className="flex items-center justify-center gap-2 p-10 text-sm text-fg-500 sm:p-12">
             <Loader2 size={16} className="animate-spin" />
             در حال بارگذاری...
           </div>
         ) : users.length === 0 ? (
-          <p className="p-12 text-center text-sm text-fg-500">هنوز کاربری نیست</p>
+          <p className="p-10 text-center text-sm text-fg-500 sm:p-12">هنوز کاربری نیست</p>
         ) : (
           <ul className="divide-y divide-white/5">
             <AnimatePresence initial={false}>
@@ -220,12 +220,12 @@ export default function UsersPage() {
                   <Avatar name={user.username} src={user.avatar_url} size="sm" />
 
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="mono truncate text-sm font-medium text-white" dir="ltr">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="mono min-w-0 truncate text-sm font-medium text-white" dir="ltr">
                         {user.username}
                       </p>
                       <span
-                        className={`badge !py-0.5 !text-[9px] ${
+                        className={`badge shrink-0 !py-0.5 !text-[9px] ${
                           user.role === "admin"
                             ? "border-white/40 text-white"
                             : user.role === "editor"
@@ -242,7 +242,7 @@ export default function UsersPage() {
                     </p>
                   </div>
 
-                  <div className="flex w-[168px] shrink-0 items-center gap-1.5">
+                  <div className="flex w-[150px] shrink-0 items-center gap-1.5 sm:w-[168px]">
                     <ShieldCheck size={13} className="shrink-0 text-fg-500" />
                     <Dropdown
                       ariaLabel={`نقش ${user.username}`}
@@ -272,7 +272,7 @@ export default function UsersPage() {
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => handleCopyCode(user.id, user.code!)}
-                      className="mono flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] tracking-widest text-fg-300 transition hover:border-white/40 hover:text-white"
+                      className="mono flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] tracking-widest text-fg-300 transition hover:border-white/40 hover:text-white"
                       dir="ltr"
                       title="کپی کد"
                     >

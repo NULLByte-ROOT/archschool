@@ -144,7 +144,7 @@ export default function SettingsPage() {
       <PageHeader kicker="settings" title="تنظیمات" subtitle="حساب کاربری و اطلاعات سیستم" />
 
       {/* حساب */}
-      <div className="panel relative mb-4 p-6">
+      <div className="panel relative mb-4 p-4 sm:p-6">
         <Corners />
         <div className="flex items-center gap-4">
           <div className="relative shrink-0">
@@ -158,7 +158,7 @@ export default function SettingsPage() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading || deleting}
-              className="absolute -bottom-1 -left-1 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black text-white shadow-lg transition hover:bg-white hover:text-black disabled:opacity-60"
+              className="absolute -bottom-1 -left-1 flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black text-white shadow-lg transition hover:bg-white hover:text-black disabled:opacity-60 sm:h-8 sm:w-8"
               aria-label="تغییر تصویر پروفایل"
               title="تغییر تصویر پروفایل"
             >
@@ -169,7 +169,7 @@ export default function SettingsPage() {
                 type="button"
                 onClick={handleRemoveAvatar}
                 disabled={deleting || uploading}
-                className="absolute -right-1 -bottom-1 flex h-8 w-8 items-center justify-center rounded-full border border-danger/40 bg-black text-danger shadow-lg transition hover:bg-danger hover:text-white disabled:opacity-60"
+                className="absolute -right-1 -bottom-1 flex h-10 w-10 items-center justify-center rounded-full border border-danger/40 bg-black text-danger shadow-lg transition hover:bg-danger hover:text-white disabled:opacity-60 sm:h-8 sm:w-8"
                 aria-label="حذف عکس پروفایل"
                 title="حذف عکس پروفایل"
               >
@@ -223,7 +223,7 @@ export default function SettingsPage() {
             placeholder="یک بیو کوتاه درباره خودت بنویس…"
             className="input w-full resize-none py-2.5 text-[16px] leading-6 md:text-[12.5px]"
           />
-          <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
             {error ? (
               <p className="text-[11px] text-danger">{error}</p>
             ) : (
@@ -251,13 +251,13 @@ export default function SettingsPage() {
           {rows.map((row) => {
             const Icon = row.icon;
             return (
-              <div key={row.label} className="flex items-center justify-between py-3">
-                <div className="flex items-center gap-3">
+              <div key={row.label} className="flex items-center justify-between gap-3 py-3">
+                <div className="flex shrink-0 items-center gap-3">
                   <Icon size={15} className="text-fg-500" />
                   <span className="mono-label">{row.label}</span>
                 </div>
                 <span
-                  className={`text-sm text-fg-100 ${row.mono ? "mono" : ""}`}
+                  className={`min-w-0 truncate text-left text-sm text-fg-100 ${row.mono ? "mono" : ""}`}
                   dir={row.mono ? "ltr" : undefined}
                 >
                   {row.value}
@@ -269,7 +269,7 @@ export default function SettingsPage() {
       </div>
 
       {/* ظاهر */}
-      <div className="panel relative mb-4 p-6">
+      <div className="panel relative mb-4 p-4 sm:p-6">
         <Corners />
         <p className="mono-label mb-1">// APPEARANCE</p>
         <p className="mb-4 text-sm text-fg-500">حالت نمایش را انتخاب کن</p>
@@ -304,7 +304,7 @@ export default function SettingsPage() {
       </div>
 
       {/* نشست */}
-      <div className="panel relative mb-4 p-6">
+      <div className="panel relative mb-4 p-4 sm:p-6">
         <Corners />
         <p className="mono-label mb-1">// SESSION</p>
         <p className="mb-4 text-sm text-fg-500">از حساب کاربری خارج شو</p>
@@ -318,7 +318,7 @@ export default function SettingsPage() {
       </div>
 
       {/* درباره */}
-      <div className="panel relative p-6">
+      <div className="panel relative p-4 sm:p-6">
         <Corners />
         <p className="mono-label mb-1">// ABOUT</p>
         <div className="flex items-center justify-between">

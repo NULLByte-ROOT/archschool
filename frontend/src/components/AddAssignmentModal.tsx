@@ -142,7 +142,7 @@ function AssignmentForm({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 30, scale: 0.97 }}
         transition={{ type: "spring", stiffness: 320, damping: 30 }}
-        className="panel noise relative z-10 max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-t-[28px] border-white/15 p-5 shadow-2xl shadow-black will-change-transform sm:rounded-3xl sm:p-7"
+        className="panel noise relative z-10 max-h-[94dvh] w-full max-w-lg overflow-y-auto overscroll-contain rounded-t-[28px] border-white/15 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl shadow-black will-change-transform sm:rounded-3xl sm:p-7"
       >
         <Corners />
 

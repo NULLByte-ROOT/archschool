@@ -271,7 +271,7 @@ function ContextMenu({
   const top = Math.min(Math.max(8, menu.y), window.innerHeight - height - 8);
 
   const item =
-    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-fg-100 transition hover:bg-white/[0.07]";
+    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[12.5px] text-fg-100 transition hover:bg-white/[0.07]";
   const icon = "h-4 w-4 shrink-0 text-fg-500";
 
   return (
@@ -489,7 +489,7 @@ const ChatComposer = memo(function ChatComposer({
           <button
             type="button"
             onClick={onCancelReply}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:bg-white/10"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:bg-white/10 sm:h-8 sm:w-8"
             aria-label="بستن پاسخ"
           >
             <X size={16} />
@@ -514,7 +514,7 @@ const ChatComposer = memo(function ChatComposer({
           <button
             type="button"
             onClick={() => setEmojiOpen((value) => !value)}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:text-white"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:text-white"
             aria-label="ایموجی"
           >
             <Smile size={20} />
@@ -541,7 +541,7 @@ const ChatComposer = memo(function ChatComposer({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 8 }}
                 transition={{ duration: 0.14 }}
-                className="absolute bottom-full left-0 mb-2 grid w-64 grid-cols-8 gap-0.5 rounded-xl border border-white/10 bg-[#1c2733] p-2 shadow-2xl will-change-transform"
+                className="absolute bottom-full right-0 mb-2 grid w-[min(17rem,calc(100vw-2rem))] grid-cols-6 gap-1 rounded-xl border border-white/10 bg-[#1c2733] p-2 shadow-2xl will-change-transform"
               >
                 {EMOJIS.map((emoji) => (
                   <button
@@ -551,7 +551,7 @@ const ChatComposer = memo(function ChatComposer({
                       setText((value) => value + emoji);
                       textareaRef.current?.focus();
                     }}
-                    className="flex h-7 w-7 items-center justify-center rounded-lg text-lg transition hover:bg-white/10"
+                    className="flex h-10 w-10 items-center justify-center rounded-lg text-lg transition hover:bg-white/10"
                   >
                     {emoji}
                   </button>
@@ -1028,7 +1028,7 @@ export default function ChatRoom({
             setSearchOpen((value) => !value);
             setMoreOpen(false);
           }}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white sm:h-10 sm:w-10"
           aria-label="جستجو"
         >
           <Search size={18} />
@@ -1038,7 +1038,7 @@ export default function ChatRoom({
           <button
             type="button"
             onClick={() => setMoreOpen((value) => !value)}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white sm:h-10 sm:w-10"
             aria-label="گزینه‌های بیشتر"
           >
             <MoreVertical size={18} />
@@ -1058,7 +1058,7 @@ export default function ChatRoom({
                     setSearchOpen(true);
                     setMoreOpen(false);
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-fg-100 transition hover:bg-white/[0.07]"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[12.5px] text-fg-100 transition hover:bg-white/[0.07]"
                 >
                   <Search size={15} className="text-fg-500" /> جستجو در گفتگو
                 </button>
@@ -1069,7 +1069,7 @@ export default function ChatRoom({
                     setMoreOpen(false);
                     showToast("نمایش گفتگو پاک شد");
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-fg-300 transition hover:bg-white/[0.07]"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[12.5px] text-fg-300 transition hover:bg-white/[0.07]"
                 >
                   <X size={15} /> پاک کردن نمایش
                 </button>
@@ -1077,7 +1077,7 @@ export default function ChatRoom({
                   <button
                     type="button"
                     onClick={handleClearChat}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-danger transition hover:bg-danger/10"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-[12.5px] text-danger transition hover:bg-danger/10"
                   >
                     <Trash2 size={15} /> پاک کردن کل گفتگو
                   </button>
@@ -1095,7 +1095,7 @@ export default function ChatRoom({
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="جستجو در پیام‌ها…"
-            className="input h-9 w-full text-[16px] md:text-[12px]"
+            className="input h-11 w-full text-[16px] md:h-9 md:text-[12px]"
           />
         </div>
       )}
@@ -1202,7 +1202,7 @@ export default function ChatRoom({
                 <button
                   type="button"
                   onClick={() => setForwardFor(null)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-fg-500 hover:bg-white/10"
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-fg-500 hover:bg-white/10 sm:h-8 sm:w-8"
                   aria-label="بستن"
                 >
                   <X size={16} />

@@ -109,12 +109,14 @@ export default function HomePage() {
           <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.04]">
             <CalendarDays size={17} className="text-white" />
           </span>
-          <div>
-            <p className="text-sm font-bold text-white">سلام {user?.username} 👋</p>
-            <p className="text-[11px] text-fg-500">امروز: {jalaliToday(now)}</p>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold text-white">
+              سلام {user?.username} 👋
+            </p>
+            <p className="truncate text-[11px] text-fg-500">امروز: {jalaliToday(now)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <span className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2">
             <Clock size={13} className="text-fg-500" />
             <span className="mono text-sm tabular-nums text-fg-100" dir="ltr">

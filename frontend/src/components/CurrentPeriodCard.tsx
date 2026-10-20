@@ -136,9 +136,12 @@ function PeriodCard({
           {work.length > 0 && (
             <div className="mt-4 flex flex-wrap gap-2">
               {work.slice(0, 3).map((assignment) => (
-                <span key={assignment.id} className="badge !normal-case">
-                  <BookOpen size={11} />
-                  {assignment.title}
+                <span
+                  key={assignment.id}
+                  className="badge max-w-full !normal-case whitespace-normal text-right"
+                >
+                  <BookOpen size={11} className="shrink-0" />
+                  <span className="min-w-0 break-words">{assignment.title}</span>
                 </span>
               ))}
             </div>

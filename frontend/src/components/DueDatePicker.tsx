@@ -157,7 +157,7 @@ export default function DueDatePicker({ value, onChange, subjectId }: DueDatePic
                 bottom: pos.bottom,
                 transformOrigin: pos.up ? "bottom" : "top",
               }}
-              className="z-[120] max-h-[70vh] overflow-y-auto rounded-3xl border border-white/15 bg-[#0a0a0c]/98 p-4 shadow-2xl shadow-black/80 ring-1 ring-black/50"
+              className="z-[120] max-h-[70dvh] overflow-y-auto overscroll-contain rounded-3xl border border-white/15 bg-[#0a0a0c]/98 p-3.5 shadow-2xl shadow-black/80 ring-1 ring-black/50 sm:p-4"
             >
               {/* سربرگ */}
               <div className="mb-4 flex items-center gap-2">
@@ -171,7 +171,7 @@ export default function DueDatePicker({ value, onChange, subjectId }: DueDatePic
               </div>
 
               {/* روزهای هفته */}
-              <div className="grid grid-cols-5 gap-2">
+              <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                 {WEEK_DAYS.map((day) => {
                   const date = dateAt(viewWeek, day.index);
                   const isSelected = selected ? sameDay(date, selected) : false;
@@ -188,7 +188,7 @@ export default function DueDatePicker({ value, onChange, subjectId }: DueDatePic
                         onChange(date.toISOString());
                         setOpen(false);
                       }}
-                      className={`relative flex min-h-[74px] flex-col items-center justify-center gap-1 rounded-2xl border px-1.5 py-3 transition-[background-color,border-color,color,box-shadow] duration-200 ${
+                      className={`relative flex min-h-[68px] flex-col items-center justify-center gap-1 rounded-2xl border px-1 py-2.5 transition-[background-color,border-color,color,box-shadow] duration-200 sm:min-h-[74px] sm:px-1.5 sm:py-3 ${
                         isSelected
                           ? "border-white bg-white text-black shadow-[0_0_26px_-8px_rgba(255,255,255,0.9)]"
                           : "border-white/12 bg-white/[0.03] text-fg-300 hover:border-white/30 hover:bg-white/[0.07] hover:text-white"
@@ -215,13 +215,13 @@ export default function DueDatePicker({ value, onChange, subjectId }: DueDatePic
               </div>
 
               {/* کنترل هفته */}
-              <div className="mt-4 flex gap-1 rounded-full border border-white/10 bg-white/[0.02] p-1">
+              <div className="mt-4 grid grid-cols-2 gap-1 rounded-2xl border border-white/10 bg-white/[0.02] p-1 sm:flex sm:rounded-full">
                 {WEEK_LABELS.map((label, i) => (
                   <button
                     key={label}
                     type="button"
                     onClick={() => setViewWeek(i)}
-                    className={`relative flex flex-1 items-center justify-center gap-1 rounded-full px-2 py-2 text-[11px] font-semibold transition-colors ${
+                    className={`relative flex flex-1 items-center justify-center gap-1 rounded-full px-2 py-2.5 text-[11px] font-semibold transition-colors sm:py-2 ${
                       viewWeek === i ? "text-black" : "text-fg-500 hover:text-white"
                     }`}
                   >

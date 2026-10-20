@@ -161,7 +161,7 @@ export default function ChatPage() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="جستجوی گفتگو…"
-                className="input h-10 pr-9 text-[16px] md:text-[12px]"
+                className="input h-11 pr-9 text-[16px] md:h-10 md:text-[12px]"
               />
             </div>
           </header>

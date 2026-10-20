@@ -263,7 +263,7 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                 onClick={toggle}
                 disabled={busy}
                 title={isDoneByMe ? "لغو انجام توسط من" : "من انجام دادم"}
-                className={`flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-semibold transition disabled:opacity-50 ${
+                className={`flex h-10 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-semibold transition disabled:opacity-50 sm:h-9 ${
                   isDoneByMe
                     ? "border-white/15 bg-white/[0.04] text-fg-300 hover:text-white"
                     : "border-success/40 bg-success/10 text-success hover:bg-success/15"
@@ -300,7 +300,7 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
           در حال بارگذاری…
         </div>
       ) : notFound || !item ? (
-        <div className="mx-auto flex max-w-2xl flex-col items-center gap-3 p-16 text-center">
+        <div className="mx-auto flex max-w-2xl flex-col items-center gap-3 p-10 text-center sm:p-16">
           <ClipboardList size={32} className="text-fg-500" />
           <p className="text-sm text-fg-500">تکلیف پیدا نشد</p>
           <button onClick={() => navigate("/assignments")} className="btn-ghost mt-1">
@@ -631,7 +631,7 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                               <a
                                 href={mediaUrl}
                                 download={attachment.file_name}
-                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-fg-500 transition hover:bg-white/10 hover:text-white"
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-fg-500 transition hover:bg-white/10 hover:text-white sm:h-8 sm:w-8"
                                 aria-label="دانلود"
                               >
                                 <Download size={14} />
@@ -642,7 +642,7 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                                   type="button"
                                   onClick={() => removeAttachment(attachment)}
                                   disabled={deletingId === attachment.id}
-                                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-fg-500 transition hover:bg-danger/15 hover:text-danger disabled:opacity-50"
+                                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-fg-500 transition hover:bg-danger/15 hover:text-danger disabled:opacity-50 sm:h-8 sm:w-8"
                                   aria-label="حذف فایل"
                                   title="حذف فایل"
                                 >

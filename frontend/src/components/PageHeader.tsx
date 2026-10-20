@@ -12,8 +12,8 @@ export default function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-      <div>
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-4 sm:mb-8">
+      <div className="min-w-0">
         {kicker && (
           <div className="badge mb-3">
             <span className="dot animate-pulse" />

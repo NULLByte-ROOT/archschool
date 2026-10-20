@@ -24,7 +24,7 @@ export default function LoginPage() {
     };
     document.body.style.overflow = "hidden";
     document.body.style.margin = "0";
-    document.body.style.height = "100vh";
+    document.body.style.height = "100dvh";
     document.body.style.width = "100vw";
     return () => {
       document.body.style.overflow = previous.overflow;
@@ -163,7 +163,7 @@ export default function LoginPage() {
       </aside>
 
       {/* ===== فرم ===== */}
-      <main className="relative flex h-full w-full min-w-0 flex-1 items-center justify-center overflow-hidden px-5 py-6 sm:px-8 md:px-10 lg:px-14">
+      <main className="relative flex h-full w-full min-w-0 flex-1 items-start justify-center overflow-x-hidden overflow-y-auto px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-8 md:px-10 lg:px-14">
         <div
           className="pointer-events-none absolute inset-0 hidden md:block"
           style={{
@@ -172,7 +172,7 @@ export default function LoginPage() {
           }}
         />
 
-        <div className="relative z-10 w-full max-w-[430px]">
+        <div className="relative z-10 my-auto w-full max-w-[430px]">
           {/* لوگو و عنوان موبایل */}
           <div className="mb-6 flex flex-col items-center gap-3 text-center md:hidden">
             <img
