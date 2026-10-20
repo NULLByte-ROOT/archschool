@@ -3,14 +3,15 @@ import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { User, KeyRound, Shield, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import CodeInput from "../components/CodeInput";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [code, setCode] = useState("");
+  const [masked, setMasked] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,12 +36,13 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const accessCode = code.trim().toUpperCase();
     if (!username.trim() || loading) return;
-    if (password.length < 6) return;
+    if (!/^[A-Z0-9]{6}$/.test(accessCode)) return;
     setLoading(true);
     setError(null);
     try {
-      await login(username.trim(), undefined, password);
+      await login(username.trim(), accessCode);
       navigate("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "خطا در ورود");
@@ -50,7 +52,7 @@ export default function LoginPage() {
   };
 
   const canSubmit =
-    !loading && username.trim().length > 0 && password.length >= 6;
+    !loading && username.trim().length > 0 && /^[A-Z0-9]{6}$/.test(code);
 
   return (
     <div
@@ -243,28 +245,16 @@ export default function LoginPage() {
                   </label>
                   <button
                     type="button"
-                    onClick={() => setShowPassword((value) => !value)}
+                    onClick={() => setMasked((value) => !value)}
                     className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-3 w-3" />
-                    ) : (
-                      <Eye className="h-3 w-3" />
-                    )}
-                    <span>{showPassword ? "HIDE" : "SHOW"}</span>
+                    {masked ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+                    <span>{masked ? "SHOW" : "HIDE"}</span>
                   </button>
                 </div>
-                <input
-                  type={showPassword ? "text" : "password"}
-                  dir="ltr"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  className="auth-input w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 font-mono text-sm text-white outline-none transition-all placeholder:text-zinc-600 hover:bg-white/[0.05] focus:border-white/60 focus:bg-black/80"
-                />
+                <CodeInput value={code} onChange={setCode} masked={masked} />
                 <p dir="rtl" className="mono mt-2 text-[10px] text-zinc-500">
-                  کد دسترسی خود را وارد کن.
+                  کد ۶ کاراکتری خود را وارد کن.
                 </p>
               </div>
 

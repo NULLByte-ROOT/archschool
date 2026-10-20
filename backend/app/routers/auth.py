@@ -11,9 +11,7 @@ from ..dependencies import get_current_user
 from ..security import (
     create_access_token,
     generate_code,
-    hash_password,
     normalize_username,
-    verify_password,
 )
 
 router = APIRouter()
@@ -41,10 +39,16 @@ def register(data: schemas.RegisterRequest, db: Session = Depends(get_db)):
     if _find_user(db, username):
         raise HTTPException(status_code=400, detail="این نام کاربری قبلاً گرفته شده")
 
+    code = data.code.strip().upper()
+    if code == settings.ADMIN_CODE.strip().upper():
+        raise HTTPException(status_code=400, detail="این کد رزرو شده است")
+    exists = db.query(models.User).filter(models.User.code == code).first()
+    if exists:
+        raise HTTPException(status_code=400, detail="این کد دسترسی قبلاً استفاده شده")
+
     user = models.User(
         username=username,
-        code=generate_code(),
-        password=hash_password(data.password),
+        code=code,
         avatar_url=None,
         bio="",
         is_admin=False,
@@ -66,45 +70,38 @@ def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
     if not username:
         raise HTTPException(status_code=400, detail="نام کاربری الزامی است")
 
-    if data.password:
+    code = data.code.strip().upper()
+    if not code:
+        raise HTTPException(status_code=400, detail="کد دسترسی الزامی است")
+
+    if code == settings.ADMIN_CODE.strip().upper():
         user = _find_user(db, username)
-        if not user or not verify_password(data.password, user.password):
-            raise HTTPException(status_code=401, detail="نام کاربری یا رمز عبور اشتباه است")
+        if not user:
+            user = models.User(
+                username=username,
+                code=generate_code(),
+                is_admin=True,
+                role=models.ROLE_ADMIN,
+                is_active=True,
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        elif not user.is_admin:
+            raise HTTPException(status_code=403, detail="Username taken")
+    else:
+        user = (
+            db.query(models.User)
+            .filter(
+                func.lower(models.User.username) == username.lower(),
+                func.upper(models.User.code) == code,
+            )
+            .first()
+        )
+        if not user:
+            raise HTTPException(status_code=401, detail="نام کاربری یا کد اشتباه است")
         if not user.is_active:
             raise HTTPException(status_code=403, detail="حساب غیرفعال است")
-    elif data.code:
-        code = data.code.strip().upper()
-
-        if code == settings.ADMIN_CODE:
-            user = _find_user(db, username)
-            if not user:
-                user = models.User(
-                    username=username,
-                    code=generate_code(),
-                    is_admin=True,
-                    role=models.ROLE_ADMIN,
-                    is_active=True,
-                )
-                db.add(user)
-                db.commit()
-                db.refresh(user)
-            elif not user.is_admin:
-                raise HTTPException(status_code=403, detail="Username taken")
-        else:
-            user = (
-                db.query(models.User)
-                .filter(
-                    func.lower(models.User.username) == username.lower(),
-                    models.User.code == code,
-                )
-                .first()
-            )
-            if not user:
-                raise HTTPException(status_code=401, detail="نام کاربری یا کد اشتباه است")
-            if not user.is_active:
-                raise HTTPException(status_code=403, detail="حساب غیرفعال است")
-    else:
-        raise HTTPException(status_code=400, detail="رمز عبور یا کد دسترسی لازم است")
 
     _touch(user)
     db.commit()

@@ -12,8 +12,8 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isEditor: boolean;
-  login: (username: string, code?: string, password?: string) => Promise<void>;
-  register: (username: string, password: string) => Promise<void>;
+  login: (username: string, code: string) => Promise<void>;
+  register: (username: string, code: string) => Promise<void>;
   refreshUser: () => Promise<void>;
   logout: () => void;
 }
@@ -54,12 +54,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
   };
 
-  const login = async (username: string, code?: string, password?: string) => {
-    persist(await apiLogin(username, code, password));
+  const login = async (username: string, code: string) => {
+    persist(await apiLogin(username, code));
   };
 
-  const register = async (username: string, password: string) => {
-    persist(await apiRegister(username, password));
+  const register = async (username: string, code: string) => {
+    persist(await apiRegister(username, code));
   };
 
   const refreshUser = async () => {
