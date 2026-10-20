@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -15,7 +16,7 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
-  `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-300 ${
+  `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-[background-color,border-color,color] duration-300 ${
     isActive
       ? "border border-white/20 bg-white/[0.06] text-white shadow-[0_0_24px_-10px_rgba(255,255,255,0.6)]"
       : "border border-transparent text-fg-700 hover:bg-white/[0.04] hover:text-white"
@@ -169,7 +170,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
   );
 }
 
-export default function Sidebar({
+function Sidebar({
   isOpen,
   onClose,
 }: {
@@ -219,3 +220,5 @@ export default function Sidebar({
     </>
   );
 }
+
+export default memo(Sidebar);

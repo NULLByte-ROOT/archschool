@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { motion } from "framer-motion";
 import { ClipboardList, GraduationCap, Layers3 } from "lucide-react";
 import type { Assignment } from "../api/client";
@@ -16,7 +16,7 @@ const ICONS = {
   project: Layers3,
 } as const;
 
-export default function AssignmentTypesChart({ items }: { items: Assignment[] }) {
+function AssignmentTypesChart({ items }: { items: Assignment[] }) {
   const isMobile = useIsMobileWidth();
   const segments = useMemo(() => {
     const counts = {
@@ -113,6 +113,8 @@ export default function AssignmentTypesChart({ items }: { items: Assignment[] })
     </div>
   );
 }
+
+export default memo(AssignmentTypesChart);
 
 function Row({
   type,

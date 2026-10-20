@@ -144,7 +144,7 @@ export default function Dropdown({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
-        className={`group flex w-full items-center gap-3 rounded-2xl border text-right transition-all duration-300 ${
+        className={`group flex w-full items-center gap-3 rounded-2xl border text-right transition-[background-color,border-color,box-shadow] duration-300 ${
           large ? "px-4 py-3.5" : "px-3.5 py-3"
         } ${
           open

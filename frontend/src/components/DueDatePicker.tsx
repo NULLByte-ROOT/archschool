@@ -109,7 +109,7 @@ export default function DueDatePicker({ value, onChange, subjectId }: DueDatePic
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="انتخاب مهلت"
-        className={`flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-right transition-all duration-300 ${
+        className={`flex w-full items-center gap-3 rounded-2xl border px-3.5 py-3 text-right transition-[background-color,border-color,box-shadow] duration-300 ${
           open
             ? "border-white/35 bg-black/70 shadow-[0_0_30px_-12px_rgba(255,255,255,0.6)]"
             : "border-white/12 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.05]"
@@ -188,7 +188,7 @@ export default function DueDatePicker({ value, onChange, subjectId }: DueDatePic
                         onChange(date.toISOString());
                         setOpen(false);
                       }}
-                      className={`relative flex min-h-[74px] flex-col items-center justify-center gap-1 rounded-2xl border px-1.5 py-3 transition-all duration-200 ${
+                      className={`relative flex min-h-[74px] flex-col items-center justify-center gap-1 rounded-2xl border px-1.5 py-3 transition-[background-color,border-color,color,box-shadow] duration-200 ${
                         isSelected
                           ? "border-white bg-white text-black shadow-[0_0_26px_-8px_rgba(255,255,255,0.9)]"
                           : "border-white/12 bg-white/[0.03] text-fg-300 hover:border-white/30 hover:bg-white/[0.07] hover:text-white"

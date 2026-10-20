@@ -210,10 +210,10 @@ export default function LeaderboardPage() {
                   </div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
                     <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.max(4, (row.points / topPoints) * 100)}%` }}
+                      initial={{ scaleX: 0 }}
+                      animate={{ scaleX: Math.max(0.04, row.points / topPoints) }}
                       transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                      className={`h-full rounded-full ${
+                      className={`h-full w-full origin-right rounded-full ${
                         rank === 1
                           ? "bg-warning"
                           : rank === 2

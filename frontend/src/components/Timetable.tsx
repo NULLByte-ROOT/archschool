@@ -62,7 +62,7 @@ function GroupIcon({ category, size = 15 }: { category?: string; size?: number }
 // ------------------------------------------------------------------
 //  مکعب درس (دسکتاپ)
 // ------------------------------------------------------------------
-function Cube({
+const Cube = memo(function Cube({
   subject,
   active,
   tone,
@@ -85,7 +85,7 @@ function Cube({
       ref={ref}
       onMouseEnter={() => ref.current && onEnter(ref.current, subject)}
       onMouseLeave={onLeave}
-      className={`group relative flex h-full w-full cursor-pointer flex-col justify-center gap-1 overflow-hidden rounded-2xl border p-3 text-right transition-all duration-300 ${className} ${
+      className={`group relative flex h-full w-full cursor-pointer flex-col justify-center gap-1 overflow-hidden rounded-2xl border p-3 text-right transition-colors duration-300 ${className} ${
         active
           ? "border-white/45 bg-white/[0.1] shadow-[0_0_28px_-12px_rgba(255,255,255,0.65)]"
           : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]"
@@ -112,7 +112,7 @@ function Cube({
       </div>
     </div>
   );
-}
+});
 
 function FreeCell() {
   return (
@@ -725,7 +725,7 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
                 animate={{ y: 0 }}
                 exit={{ y: "100%" }}
                 transition={{ type: "spring", stiffness: 320, damping: 34 }}
-                className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-[28px] border-t border-white/15 bg-bg-100 px-5 pb-10 pt-3 shadow-2xl shadow-black"
+                className="absolute inset-x-0 bottom-0 max-h-[88vh] overflow-y-auto rounded-t-[28px] border-t border-white/15 bg-bg-100 px-5 pb-10 pt-3 shadow-2xl shadow-black will-change-transform"
               >
                 <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-white/25" />
 
@@ -834,7 +834,7 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
 // ------------------------------------------------------------------
 //  انتخاب دسکتاپ / موبایل
 // ------------------------------------------------------------------
-export default function Timetable({
+function Timetable({
   bySubject,
 }: {
   bySubject: Record<string, Assignment[]>;
@@ -846,3 +846,5 @@ export default function Timetable({
     <DesktopTimetable bySubject={bySubject} />
   );
 }
+
+export default memo(Timetable);

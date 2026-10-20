@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Menu } from "lucide-react";
@@ -10,6 +10,9 @@ export default function Layout() {
   const location = useLocation();
   const immersive =
     location.pathname === "/chat" || /^\/assignments\/[^/]+$/.test(location.pathname);
+
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
   return (
     <div className="app-shell relative flex h-dvh overflow-hidden bg-black font-sans" dir="rtl">
@@ -44,13 +47,13 @@ export default function Layout() {
       {/* ذرات پس‌زمینه — فقط دسکتاپ (در موبایل غیرفعال می‌شود) */}
       <Particles count={40} />
 
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar isOpen={sidebarOpen} onClose={closeSidebar} />
 
       <main className="relative z-10 flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         <header className="app-topbar z-20 flex w-full max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-white/5 bg-black/80 px-4 py-3 md:hidden">
           <button
             type="button"
-            onClick={() => setSidebarOpen(true)}
+            onClick={openSidebar}
             className="icon-btn shrink-0"
             aria-label="باز کردن منو"
             aria-expanded={sidebarOpen}

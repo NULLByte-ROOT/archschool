@@ -34,7 +34,6 @@ import Dropdown from "../components/Dropdown";
 import AddAssignmentModal from "../components/AddAssignmentModal";
 import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
-import { useIsMobileWidth } from "../hooks/useMediaQuery";
 import {
   DAY_MS,
   SUBJECT_LIST,
@@ -94,7 +93,6 @@ interface ItemProps {
   view: View;
   index: number;
   now: number;
-  layoutEnabled: boolean;
   canManage: boolean;
   onOpen: (id: number) => void;
   onToggle: (item: Assignment) => void;
@@ -146,7 +144,6 @@ const AssignmentItem = memo(function AssignmentItem({
   view,
   index,
   now,
-  layoutEnabled,
   canManage,
   onOpen,
   onToggle,
@@ -159,7 +156,6 @@ const AssignmentItem = memo(function AssignmentItem({
   const done = item.is_completed_by_me;
 
   const motionProps = {
-    layout: layoutEnabled,
     initial: { opacity: 0, y: 16 },
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, scale: 0.96 },
@@ -334,7 +330,6 @@ export default function AssignmentsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const now = useNow(30_000);
-  const isMobileWidth = useIsMobileWidth();
   const [items, setItems] = useState<Assignment[]>(() => listCache.get(cacheKey("all")) ?? []);
   const [status, setStatus] = useState<Status>("all");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -426,6 +421,11 @@ export default function AssignmentsPage() {
     [items]
   );
 
+  const completedCount = useMemo(
+    () => items.filter((item) => item.is_completed_by_me).length,
+    [items]
+  );
+
   const groups = useMemo(() => {
     const urgent: Assignment[] = [];
     const later: Assignment[] = [];
@@ -494,10 +494,7 @@ export default function AssignmentsPage() {
 
       {/* مینی‌داشبورد */}
       <div className="mb-5 grid gap-4 lg:grid-cols-3">
-        <ActivityChart
-          completed={items.filter((item) => item.is_completed_by_me).length}
-          total={items.length}
-        />
+        <ActivityChart completed={completedCount} total={items.length} />
         <AssignmentTypesChart items={items} />
         <div className="panel relative overflow-hidden rounded-3xl p-5">
           <div className="mb-4 flex items-center justify-between gap-2">
@@ -716,16 +713,14 @@ export default function AssignmentsPage() {
                 <span className="h-px flex-1 bg-gradient-to-l from-white/10 to-transparent" />
               </div>
 
-              <motion.div
-                layout
-                transition={{ type: "spring", stiffness: 320, damping: 34 }}
+              <div
                 className={
                   view === "grid"
                     ? "grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
                     : "flex flex-col gap-3"
                 }
               >
-                <AnimatePresence mode="popLayout" initial={false}>
+                <AnimatePresence initial={false}>
                   {group.items.map((item, i) => (
                     <AssignmentItem
                       key={item.id}
@@ -733,7 +728,6 @@ export default function AssignmentsPage() {
                       view={view}
                       index={i}
                       now={now}
-                      layoutEnabled={!isMobileWidth}
                       canManage={canManageAssignment(item, user)}
                       onOpen={handleOpen}
                       onToggle={handleToggle}
@@ -742,7 +736,7 @@ export default function AssignmentsPage() {
                     />
                   ))}
                 </AnimatePresence>
-              </motion.div>
+              </div>
             </section>
           ))}
         </div>

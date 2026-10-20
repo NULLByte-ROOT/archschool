@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowUpRight, CheckCircle2, CircleDashed } from "lucide-react";
 import { useIsMobileWidth } from "../hooks/useMediaQuery";
 
-export default function ActivityChart({
+function ActivityChart({
   completed,
   total,
 }: {
@@ -48,14 +48,13 @@ export default function ActivityChart({
           </div>
           <div className="relative h-4 overflow-hidden rounded-full bg-white/[0.08]">
             <motion.div
-              className="absolute inset-y-0 right-0 rounded-full"
+              className="absolute inset-y-0 right-0 w-full origin-right rounded-full"
               style={{
-                width: `${total ? (completed / total) * 100 : 0}%`,
                 background: "linear-gradient(90deg, var(--color-success), #6ee7b7)",
                 willChange: "transform",
               }}
               initial={{ scaleX: 0 }}
-              animate={{ scaleX: 1 }}
+              animate={{ scaleX: total ? completed / total : 0 }}
               transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
             />
           </div>
@@ -113,6 +112,8 @@ export default function ActivityChart({
     </motion.button>
   );
 }
+
+export default memo(ActivityChart);
 
 function Legend({
   color,

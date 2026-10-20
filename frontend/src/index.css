@@ -117,24 +117,24 @@
   }
 
   /* ---------- کارت شیشه‌ای ---------- */
+  /* Panels are large, frequently-scrolled containers: a translucent solid
+     background gives the same depth as blur without the per-frame GPU cost. */
   .panel {
     position: relative;
     border-radius: 16px;
     border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.025);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(12, 12, 16, 0.82);
     box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.9);
   }
 
   .panel-hover {
-    transition: border-color 200ms var(--ease-smooth), background-color 200ms var(--ease-smooth),
-      box-shadow 200ms var(--ease-smooth);
+    transition: border-color 200ms var(--ease-smooth),
+      background-color 200ms var(--ease-smooth), transform 200ms var(--ease-smooth);
   }
   .panel-hover:hover {
     border-color: rgba(255, 255, 255, 0.18);
     background: rgba(255, 255, 255, 0.04);
-    box-shadow: 0 22px 48px -28px rgba(0, 0, 0, 0.95);
+    transform: translate3d(0, -1px, 0);
   }
 
   /* ---------- دکمه‌ها ---------- */
@@ -268,9 +268,9 @@
 
 /* ---------- utilities قدیمی ---------- */
 @utility glass {
-  background: rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(24px) saturate(160%);
-  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  background: rgba(12, 12, 16, 0.72);
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -427,23 +427,31 @@
 
 /* ------------------------------------------------------------------
    CTA dashboard glow
+   The glow lives on a dedicated layer and only its opacity animates, so
+   the browser can composite it on the GPU instead of repainting a
+   box-shadow every frame.
 ------------------------------------------------------------------ */
-@keyframes cta-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12), 0 10px 40px -12px rgba(255, 255, 255, 0.35);
+@keyframes cta-glow-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
   }
   50% {
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25), 0 14px 52px -10px rgba(255, 255, 255, 0.55);
+    opacity: 1;
   }
 }
-.cta-glow {
-  animation: cta-pulse 3.4s var(--ease-smooth) infinite;
+.cta-glow-layer {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 10px 40px -12px rgba(255, 255, 255, 0.35);
+  animation: cta-glow-pulse 3.4s var(--ease-smooth) infinite;
+  will-change: opacity;
 }
 @keyframes cta-sheen-move {
   0% {
     transform: translateX(-130%) skewX(-18deg);
   }
-  55%, 100% {
+  55%,
+  100% {
     transform: translateX(230%) skewX(-18deg);
   }
 }
@@ -451,10 +459,11 @@
   width: 45%;
   background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.08), transparent);
   animation: cta-sheen-move 3.6s ease-in-out infinite;
+  will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cta-glow,
+  .cta-glow-layer,
   .cta-sheen {
     animation: none;
   }

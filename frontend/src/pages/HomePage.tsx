@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -154,28 +154,35 @@ export default function HomePage() {
             </p>
           </div>
 
-          <motion.button
-            type="button"
-            onClick={() => navigate("/timetable")}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            className="cta-glow cta-button group relative flex w-full shrink-0 items-center justify-between gap-4 overflow-hidden rounded-2xl border border-white/70 bg-white px-5 py-4 text-black md:w-auto md:min-w-[260px]"
-            style={{ willChange: "transform" }}
-          >
-            <span className="pointer-events-none absolute inset-0 cta-sheen" />
-            <span className="relative flex items-center gap-3">
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-black text-white">
-                <CalendarRange size={20} />
-              </span>
-              <span className="text-right">
-                <span className="block text-base font-black">برنامه هفتگی</span>
-                <span className="block text-[10px] font-semibold opacity-60">
-                  COUNTDOWN · TODAY
+          <div className="relative w-full shrink-0 md:w-auto">
+            <span
+              aria-hidden
+              className="cta-glow-layer pointer-events-none absolute inset-0 rounded-2xl"
+            />
+            <motion.button
+              type="button"
+              onClick={() => navigate("/timetable")}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              className="cta-button group relative flex w-full items-center justify-between gap-4 overflow-hidden rounded-2xl border border-white/70 bg-white px-5 py-4 text-black md:min-w-[260px]"
+              style={{ willChange: "transform" }}
+            >
+              <span className="pointer-events-none absolute inset-0 cta-sheen" />
+              <span className="relative flex items-center gap-3">
+                <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-black text-white">
+                  <CalendarRange size={20} />
+                </span>
+                <span className="text-right">
+                  <span className="block text-base font-black">برنامه کلاس</span>
+                  <span className="block text-[10px] font-semibold opacity-60">
+                    COUNTDOWN TO TODAY
+                  </span>
                 </span>
               </span>
-            </span>
-            <ArrowUpRight size={20} className="relative shrink-0" />
-          </motion.button>
+              <ArrowUpRight size={20} className="relative shrink-0" />
+            </motion.button>
+          </div>
+
         </div>
       </motion.section>
 
@@ -344,7 +351,7 @@ export default function HomePage() {
   );
 }
 
-function MiniStat({
+const MiniStat = memo(function MiniStat({
   label,
   value,
   tone = "default",
@@ -370,4 +377,4 @@ function MiniStat({
       <p className={`mono mt-1 text-xl font-black tabular-nums ${color}`}>{value}</p>
     </div>
   );
-}
+});

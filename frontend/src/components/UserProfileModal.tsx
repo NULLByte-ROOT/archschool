@@ -91,7 +91,7 @@ export default function UserProfileModal({
             exit={{ y: 24, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 30 }}
             onClick={(event) => event.stopPropagation()}
-            className="relative w-full max-w-sm overflow-hidden rounded-t-3xl border border-white/10 bg-[#111318] shadow-2xl sm:rounded-3xl"
+            className="relative w-full max-w-sm overflow-hidden rounded-t-3xl border border-white/10 bg-[#111318] shadow-2xl will-change-transform sm:rounded-3xl"
           >
             <div className="relative h-28 overflow-hidden bg-gradient-to-br from-white/15 via-white/5 to-transparent">
               <span className="pointer-events-none absolute inset-0 grid-bg opacity-30" />

@@ -126,7 +126,7 @@ const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
-      className={`relative min-w-0 select-none rounded-2xl px-3 pt-2 pb-5 transition-shadow ${
+      className={`relative min-w-0 select-none rounded-2xl px-3 pt-2 pb-5 ${
         own
           ? "max-w-[84%] bubble-own rounded-br-sm text-white sm:max-w-[72%]"
           : "max-w-[78%] bubble-other rounded-bl-sm text-fg-100 sm:max-w-[68%]"
@@ -281,7 +281,7 @@ function ContextMenu({
       exit={{ opacity: 0, scale: 0.96 }}
       transition={{ duration: 0.12, ease: "easeOut" }}
       style={{ top, left, width, transformOrigin: "top right" }}
-      className="fixed z-50 rounded-xl border border-white/10 bg-[#1c2733] p-1.5 shadow-2xl md:bg-[#1c2733]/95 md:backdrop-blur-xl"
+      className="fixed z-50 rounded-xl border border-white/10 bg-[#1c2733] p-1.5 shadow-2xl will-change-transform"
     >
       <button type="button" className={item} onClick={onReply}>
         <CornerUpLeft className={icon} /> پاسخ
@@ -316,6 +316,286 @@ function ContextMenu({
   );
 }
 
+interface ChatItem {
+  message: Message;
+  own: boolean;
+  showTail: boolean;
+  showName: boolean;
+  day: string | null;
+  animate: "pop" | "in" | null;
+}
+
+/**
+ * Isolated so that typing in the composer never re-renders the message list.
+ */
+const MessageList = memo(function MessageList({
+  items,
+  loading,
+  highlightId,
+  scrollerRef,
+  nearBottomRef,
+  onContext,
+  onReply,
+  onPressStart,
+  onPressEnd,
+  onProfile,
+}: {
+  items: ChatItem[];
+  loading: boolean;
+  highlightId: number | null;
+  scrollerRef: RefObject<HTMLDivElement | null>;
+  nearBottomRef: RefObject<boolean>;
+  onContext: (message: Message, x: number, y: number) => void;
+  onReply: (message: Message) => void;
+  onPressStart: (message: Message, x: number, y: number) => void;
+  onPressEnd: () => void;
+  onProfile: (id: number) => void;
+}) {
+  return (
+    <div
+      ref={scrollerRef}
+      onScroll={(event) => {
+        const el = event.currentTarget;
+        nearBottomRef.current =
+          el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+      }}
+      className="chat-body chat-scroll relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-black px-3 py-3 [-webkit-overflow-scrolling:touch]"
+    >
+      {loading ? (
+        <div className="relative flex h-full items-center justify-center gap-2 text-xs text-fg-500">
+          <Loader2 size={16} className="animate-spin" />
+          در حال بارگذاری گفتگو…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="relative flex h-full flex-col items-center justify-center gap-2 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.03]">
+            <MessageCircle size={22} className="text-fg-500" />
+          </span>
+          <p className="text-sm font-semibold text-fg-300">هنوز پیامی نیست</p>
+          <p className="max-w-[240px] text-[11px] leading-5 text-fg-500">
+            اولین پیام را بفرست یا روی یک پیام نگه دار تا گزینه‌ها باز شود.
+          </p>
+        </div>
+      ) : (
+        <div className="relative flex flex-col gap-2">
+          {items.map((item) => (
+            <Fragment key={item.message.id}>
+              {item.day && (
+                <div className="sticky top-1 z-10 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[10px] font-semibold text-fg-300">
+                  {item.day}
+                </div>
+              )}
+              <div
+                id={`msg-${item.message.id}`}
+                className={`group flex w-full items-end gap-2 ${
+                  item.own ? "justify-start" : "justify-end"
+                }`}
+              >
+                <MessageBubble
+                  message={item.message}
+                  own={item.own}
+                  showTail={item.showTail}
+                  showName={item.showName}
+                  animate={item.animate}
+                  highlighted={highlightId === item.message.id}
+                  onContext={onContext}
+                  onReply={onReply}
+                  onPressStart={onPressStart}
+                  onPressEnd={onPressEnd}
+                  onProfile={onProfile}
+                />
+                {!item.own && (
+                  <span className="w-9 shrink-0 self-end">
+                    {item.showName && (
+                      <button
+                        type="button"
+                        onClick={() => onProfile(item.message.sender_id)}
+                        className="block rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/40"
+                        aria-label="مشاهده پروفایل"
+                      >
+                        <Avatar
+                          name={item.message.sender_username ?? "کاربر"}
+                          src={item.message.sender_avatar_url}
+                          size="xs"
+                        />
+                      </button>
+                    )}
+                  </span>
+                )}
+              </div>
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+/**
+ * Owns the draft text locally so a keystroke only re-renders the composer.
+ */
+const ChatComposer = memo(function ChatComposer({
+  error,
+  replyTo,
+  sending,
+  uploading,
+  onSend,
+  onFile,
+  onCancelReply,
+}: {
+  error: string | null;
+  replyTo: Message | null;
+  sending: boolean;
+  uploading: boolean;
+  onSend: (content: string) => Promise<boolean>;
+  onFile: (file: File | undefined) => void;
+  onCancelReply: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (replyTo) textareaRef.current?.focus();
+  }, [replyTo]);
+
+  async function submit() {
+    const content = text.trim();
+    if (!content || sending) return;
+    setText("");
+    setEmojiOpen(false);
+    const ok = await onSend(content);
+    if (!ok) setText(content);
+  }
+
+  return (
+    <div className="chat-composer pb-safe relative z-10 shrink-0 border-t border-white/10 bg-[#0b0b0e] px-2 pt-2 sm:px-3">
+      {error && (
+        <p className="mb-2 rounded-lg border border-danger/25 bg-danger/10 px-2.5 py-1.5 text-[11px] text-danger">
+          {error}
+        </p>
+      )}
+
+      {replyTo && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg border-r-2 border-[#4fa3e3] bg-white/[0.04] px-2.5 py-1.5">
+          <CornerUpLeft size={15} className="shrink-0 text-[#6cb2ea]" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold text-[#6cb2ea]">
+              پاسخ به {replyTo.sender_username || "کاربر"}
+            </p>
+            <p className="truncate text-[11px] text-fg-500">{previewText(replyTo)}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancelReply}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:bg-white/10"
+            aria-label="بستن پاسخ"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-end gap-1.5 pb-2">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={UPLOAD_ACCEPT}
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            onFile(file);
+            event.target.value = "";
+          }}
+        />
+
+        <div className="relative flex min-w-0 flex-1 items-end rounded-full border border-white/10 bg-white/[0.04] px-1">
+          <button
+            type="button"
+            onClick={() => setEmojiOpen((value) => !value)}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:text-white"
+            aria-label="ایموجی"
+          >
+            <Smile size={20} />
+          </button>
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                submit();
+              }
+            }}
+            rows={1}
+            placeholder="پیامت را بنویس…"
+            className="max-h-28 min-h-11 min-w-0 flex-1 resize-none rounded-full bg-transparent py-3 pr-2 text-base leading-5 text-white outline-none placeholder:text-fg-500 md:max-h-32 md:text-[13.5px]"
+          />
+
+          <AnimatePresence>
+            {emojiOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.14 }}
+                className="absolute bottom-full left-0 mb-2 grid w-64 grid-cols-8 gap-0.5 rounded-xl border border-white/10 bg-[#1c2733] p-2 shadow-2xl will-change-transform"
+              >
+                {EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => {
+                      setText((value) => value + emoji);
+                      textareaRef.current?.focus();
+                    }}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg text-lg transition hover:bg-white/10"
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {text.trim() ? (
+          <button
+            type="button"
+            onClick={submit}
+            disabled={sending}
+            className="send-btn flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#3390ec] text-white transition active:scale-95 disabled:opacity-60"
+            aria-label="ارسال"
+          >
+            {sending ? (
+              <Loader2 size={18} className="animate-spin" />
+            ) : (
+              <Send size={19} className="-scale-x-100" />
+            )}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+            title="پیوست فایل"
+            aria-label="پیوست فایل"
+          >
+            {uploading ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : (
+              <Paperclip size={21} />
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export default function ChatRoom({
   room,
   title,
@@ -342,14 +622,12 @@ export default function ChatRoom({
   const { user, isAdmin } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
-  const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  const [emojiOpen, setEmojiOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -358,10 +636,7 @@ export default function ChatRoom({
   const [profileId, setProfileId] = useState<number | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
-  const composerRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toastTimer = useRef<number | undefined>(undefined);
   const pressTimer = useRef<number | undefined>(undefined);
   const nearBottomRef = useRef(true);
@@ -535,64 +810,71 @@ export default function ChatRoom({
   const startReply = useCallback((message: Message) => {
     setReplyTo(message);
     setMenu(null);
-    textareaRef.current?.focus();
   }, []);
 
-  async function deliver(payload: { content: string; file_url?: string | null }) {
-    const body = {
-      ...payloadBase,
-      ...payload,
-      reply_to_id: replyTo?.id ?? null,
-    };
-    if (!send({ type: "message", ...body })) {
-      const message = await sendMessage(body);
-      appendMessage(message);
-    }
-  }
+  const deliver = useCallback(
+    async (payload: { content: string; file_url?: string | null }) => {
+      const body = {
+        ...payloadBase,
+        ...payload,
+        reply_to_id: replyTo?.id ?? null,
+      };
+      if (!send({ type: "message", ...body })) {
+        const message = await sendMessage(body);
+        appendMessage(message);
+      }
+    },
+    [appendMessage, payloadBase, replyTo, send]
+  );
 
-  async function handleSend() {
-    const content = text.trim();
-    if (!content || sending) return;
-    setText("");
-    setError(null);
-    setSending(true);
-    setEmojiOpen(false);
-    const reply = replyTo;
-    setReplyTo(null);
-    try {
-      await deliver({ content });
-    } catch (e) {
-      setText(content);
-      setReplyTo(reply);
-      setError(e instanceof Error ? e.message : "ارسال پیام ناموفق بود");
-    } finally {
-      setSending(false);
-      nearBottomRef.current = true;
-    }
-  }
-
-  async function handleFile(file: File | undefined) {
-    if (!file || uploading) return;
-    console.info("[chat] attachment selected", {
-      name: file.name,
-      type: file.type,
-      size: file.size,
-    });
-    setUploading(true);
-    setError(null);
-    try {
-      const uploaded = await uploadFile(file);
-      await deliver({ content: "", file_url: uploaded.url });
+  const handleSend = useCallback(
+    async (content: string): Promise<boolean> => {
+      if (!content.trim() || sending) return false;
+      setError(null);
+      setSending(true);
+      const reply = replyTo;
       setReplyTo(null);
-      nearBottomRef.current = true;
-    } catch (e) {
-      console.error("[chat] attachment upload failed", e);
-      setError(e instanceof Error ? e.message : "آپلود فایل ناموفق بود");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
+      try {
+        await deliver({ content });
+        nearBottomRef.current = true;
+        return true;
+      } catch (e) {
+        setReplyTo(reply);
+        setError(e instanceof Error ? e.message : "ارسال پیام ناموفق بود");
+        return false;
+      } finally {
+        setSending(false);
+      }
+    },
+    [deliver, replyTo, sending]
+  );
+
+  const handleFile = useCallback(
+    async (file: File | undefined) => {
+      if (!file || uploading) return;
+      console.info("[chat] attachment selected", {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      });
+      setUploading(true);
+      setError(null);
+      try {
+        const uploaded = await uploadFile(file);
+        await deliver({ content: "", file_url: uploaded.url });
+        setReplyTo(null);
+        nearBottomRef.current = true;
+      } catch (e) {
+        console.error("[chat] attachment upload failed", e);
+        setError(e instanceof Error ? e.message : "آپلود فایل ناموفق بود");
+      } finally {
+        setUploading(false);
+      }
+    },
+    [deliver, uploading]
+  );
+
+  const cancelReply = useCallback(() => setReplyTo(null), []);
 
   async function handleCopy(message: Message) {
     setMenu(null);
@@ -768,7 +1050,7 @@ export default function ChatRoom({
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.96 }}
                 transition={{ duration: 0.12 }}
-                className="absolute top-11 left-0 z-40 w-44 rounded-xl border border-white/10 bg-[#1c2733] p-1.5 shadow-2xl md:bg-[#1c2733]/95 md:backdrop-blur-xl"
+                className="absolute top-11 left-0 z-40 w-44 rounded-xl border border-white/10 bg-[#1c2733] p-1.5 shadow-2xl will-change-transform"
               >
                 <button
                   type="button"
@@ -841,206 +1123,29 @@ export default function ChatRoom({
       )}
 
       {/* پیام‌ها */}
-      <div
-        ref={scrollerRef}
-        onScroll={(event) => {
-          const el = event.currentTarget;
-          nearBottomRef.current =
-            el.scrollHeight - el.scrollTop - el.clientHeight < 160;
-        }}
-        className="chat-body chat-scroll relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-black px-3 py-3 [-webkit-overflow-scrolling:touch]"
-      >
-        {loading ? (
-          <div className="relative flex h-full items-center justify-center gap-2 text-xs text-fg-500">
-            <Loader2 size={16} className="animate-spin" />
-            در حال بارگذاری گفتگو…
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="relative flex h-full flex-col items-center justify-center gap-2 text-center">
-            <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.03]">
-              <MessageCircle size={22} className="text-fg-500" />
-            </span>
-            <p className="text-sm font-semibold text-fg-300">هنوز پیامی نیست</p>
-            <p className="max-w-[240px] text-[11px] leading-5 text-fg-500">
-              اولین پیام را بفرست یا روی یک پیام نگه دار تا گزینه‌ها باز شود.
-            </p>
-          </div>
-        ) : (
-          <div className="relative flex flex-col gap-2">
-            {items.map((item) => (
-              <Fragment key={item.message.id}>
-                {item.day && (
-                  <div className="sticky top-1 z-10 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[10px] font-semibold text-fg-300">
-                    {item.day}
-                  </div>
-                )}
-                <div
-                  id={`msg-${item.message.id}`}
-                  className={`group flex w-full items-end gap-2 ${
-                    item.own ? "justify-start" : "justify-end"
-                  }`}
-                >
-                  <MessageBubble
-                    message={item.message}
-                    own={item.own}
-                    showTail={item.showTail}
-                    showName={item.showName}
-                    animate={item.animate}
-                    highlighted={highlightId === item.message.id}
-                    onContext={openMenu}
-                    onReply={startReply}
-                    onPressStart={handlePressStart}
-                    onPressEnd={handlePressEnd}
-                    onProfile={setProfileId}
-                  />
-                  {!item.own && (
-                    <span className="w-9 shrink-0 self-end">
-                      {item.showName && (
-                        <button
-                          type="button"
-                          onClick={() => setProfileId(item.message.sender_id)}
-                          className="block rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/40"
-                          aria-label="مشاهده پروفایل"
-                        >
-                          <Avatar
-                            name={item.message.sender_username ?? "کاربر"}
-                            src={item.message.sender_avatar_url}
-                            size="xs"
-                          />
-                        </button>
-                      )}
-                    </span>
-                  )}
-                </div>
-              </Fragment>
-            ))}
-          </div>
-        )}
-      </div>
+      <MessageList
+        items={items}
+        loading={loading}
+        highlightId={highlightId}
+        scrollerRef={scrollerRef}
+        nearBottomRef={nearBottomRef}
+        onContext={openMenu}
+        onReply={startReply}
+        onPressStart={handlePressStart}
+        onPressEnd={handlePressEnd}
+        onProfile={setProfileId}
+      />
 
       {/* ورودی */}
-      <div
-        ref={composerRef}
-        className="chat-composer pb-safe relative z-10 shrink-0 border-t border-white/10 bg-[#0b0b0e] px-2 pt-2 sm:px-3"
-      >
-        {error && (
-          <p className="mb-2 rounded-lg border border-danger/25 bg-danger/10 px-2.5 py-1.5 text-[11px] text-danger">
-            {error}
-          </p>
-        )}
-
-        {replyTo && (
-          <div className="mb-2 flex items-center gap-2 rounded-lg border-r-2 border-[#4fa3e3] bg-white/[0.04] px-2.5 py-1.5">
-            <CornerUpLeft size={15} className="shrink-0 text-[#6cb2ea]" />
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-bold text-[#6cb2ea]">
-                پاسخ به {replyTo.sender_username || "کاربر"}
-              </p>
-              <p className="truncate text-[11px] text-fg-500">{previewText(replyTo)}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setReplyTo(null)}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:bg-white/10"
-              aria-label="بستن پاسخ"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        )}
-
-        <div className="flex items-end gap-1.5 pb-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={UPLOAD_ACCEPT}
-            className="hidden"
-            onChange={(event) => handleFile(event.target.files?.[0])}
-          />
-
-          <div className="relative flex min-w-0 flex-1 items-end rounded-full border border-white/10 bg-white/[0.04] px-1">
-            <button
-              type="button"
-              onClick={() => setEmojiOpen((value) => !value)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:text-white"
-              aria-label="ایموجی"
-            >
-              <Smile size={20} />
-            </button>
-            <textarea
-              ref={textareaRef}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  handleSend();
-                }
-              }}
-              rows={1}
-              placeholder="پیامت را بنویس…"
-              className="max-h-28 min-h-11 min-w-0 flex-1 resize-none rounded-full bg-transparent py-3 pr-2 text-base leading-5 text-white outline-none placeholder:text-fg-500 md:max-h-32 md:text-[13.5px]"
-            />
-
-            <AnimatePresence>
-              {emojiOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 8 }}
-                  transition={{ duration: 0.14 }}
-                  className="absolute bottom-full left-0 mb-2 grid w-64 grid-cols-8 gap-0.5 rounded-xl border border-white/10 bg-[#1c2733] p-2 shadow-2xl md:bg-[#1c2733]/95 md:backdrop-blur-xl"
-                >
-                  {EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      onClick={() => {
-                        setText((value) => value + emoji);
-                        textareaRef.current?.focus();
-                      }}
-                      className="flex h-7 w-7 items-center justify-center rounded-lg text-lg transition hover:bg-white/10"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {text.trim() ? (
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={sending}
-              className="send-btn flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#3390ec] text-white transition active:scale-95 disabled:opacity-60"
-              aria-label="ارسال"
-            >
-              {sending ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                <Send size={19} className="-scale-x-100" />
-              )}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-fg-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
-              title="پیوست فایل"
-              aria-label="پیوست فایل"
-            >
-              {uploading ? (
-                <Loader2 size={20} className="animate-spin" />
-              ) : (
-                <Paperclip size={21} />
-              )}
-            </button>
-          )}
-        </div>
-      </div>
+      <ChatComposer
+        error={error}
+        replyTo={replyTo}
+        sending={sending}
+        uploading={uploading}
+        onSend={handleSend}
+        onFile={handleFile}
+        onCancelReply={cancelReply}
+      />
 
       {/* منوی کانتکست */}
       <AnimatePresence>
