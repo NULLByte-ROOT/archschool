@@ -110,7 +110,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           </motion.div>
           <div>
             <h1 className="text-sm font-bold text-white">ArchSchool</h1>
-            <p className="mono text-[10px] tracking-widest text-fg-500">V0.1.0</p>
+            <p className="mono text-[10px] tracking-widest text-fg-500">V0.1.1</p>
           </div>
         </div>
 

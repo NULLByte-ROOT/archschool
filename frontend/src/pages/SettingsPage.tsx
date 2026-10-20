@@ -290,7 +290,7 @@ export default function SettingsPage() {
         <p className="mono-label mb-1">// ABOUT</p>
         <div className="flex items-center justify-between">
           <span className="text-sm text-fg-100">ArchSchool</span>
-          <span className="mono text-xs text-fg-500">v0.1.0</span>
+          <span className="mono text-xs text-fg-500">v0.1.1</span>
         </div>
       </div>
     </div>
