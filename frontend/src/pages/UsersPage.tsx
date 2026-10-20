@@ -1,16 +1,29 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, Copy, Check, Power, Loader2 } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Power, Loader2, ShieldCheck } from "lucide-react";
 import {
   fetchUsers,
   createUser,
   updateUser,
   deleteUser,
 } from "../api/client";
-import type { User } from "../api/client";
+import type { Role, User } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import Corners from "../components/Corners";
+import Dropdown from "../components/Dropdown";
 import { parseDue } from "../lib/assignments";
+
+const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
+  { value: "admin", label: "مدیر (Admin)", description: "دسترسی کامل" },
+  { value: "editor", label: "ویرایشگر (Editor)", description: "مدیریت همه تکالیف" },
+  { value: "member", label: "عضو (Member)", description: "فقط تکالیف خودش" },
+];
+
+const ROLE_LABELS: Record<Role, string> = {
+  admin: "Admin",
+  editor: "Editor",
+  member: "Member",
+};
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
@@ -21,6 +34,7 @@ export default function UsersPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
+  const [savingRole, setSavingRole] = useState<number | null>(null);
 
   async function load() {
     setLoading(true);
@@ -77,6 +91,24 @@ export default function UsersPage() {
     await updateUser(user.id, { is_active: !user.is_active });
     load();
   }
+
+  async function handleRoleChange(user: User, role: string) {
+    if (role === user.role) return;
+    setSavingRole(user.id);
+    setError(null);
+    try {
+      const updated = await updateUser(user.id, { role: role as Role });
+      setUsers((prev) =>
+        prev.map((u) => (u.id === updated.id ? updated : u))
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "تغییر نقش ناموفق بود");
+    } finally {
+      setSavingRole(null);
+    }
+  }
+
+  const roleGroups = [{ options: ROLE_OPTIONS }];
 
   async function handleDelete(id: number) {
     if (!confirm("مطمئنی؟ این کاربر حذف می‌شه.")) return;
@@ -193,16 +225,37 @@ export default function UsersPage() {
                       <p className="mono truncate text-sm font-medium text-white" dir="ltr">
                         {user.username}
                       </p>
-                      {user.is_admin && (
-                        <span className="badge !py-0.5 !text-[9px]">
-                          <span className="dot" />
-                          admin
-                        </span>
-                      )}
+                      <span
+                        className={`badge !py-0.5 !text-[9px] ${
+                          user.role === "admin"
+                            ? "border-white/40 text-white"
+                            : user.role === "editor"
+                              ? "border-warning/40 text-warning"
+                              : ""
+                        }`}
+                      >
+                        <span className="dot" />
+                        {ROLE_LABELS[user.role] ?? user.role}
+                      </span>
                     </div>
                     <p className="mono text-[11px] text-fg-500">
                       {parseDue(user.created_at).toLocaleDateString("fa-IR")}
                     </p>
+                  </div>
+
+                  <div className="flex w-[168px] shrink-0 items-center gap-1.5">
+                    <ShieldCheck size={13} className="shrink-0 text-fg-500" />
+                    <Dropdown
+                      ariaLabel={`نقش ${user.username}`}
+                      groups={roleGroups}
+                      value={user.role}
+                      onChange={(role) => handleRoleChange(user, role)}
+                      placeholder="نقش"
+                      className="w-full"
+                    />
+                    {savingRole === user.id && (
+                      <Loader2 size={13} className="shrink-0 animate-spin text-fg-500" />
+                    )}
                   </div>
 
                   <span
@@ -252,7 +305,7 @@ export default function UsersPage() {
                     >
                       <Power size={15} />
                     </motion.button>
-                    {!user.is_admin && (
+                    {user.role !== "admin" && (
                       <motion.button
                         whileHover={{ scale: 1.1 }}
                         whileTap={{ scale: 0.9 }}

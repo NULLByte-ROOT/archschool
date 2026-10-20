@@ -6,7 +6,22 @@ import {
   type Day,
   type Subject,
 } from "../data";
-import type { Assignment } from "../api/client";
+import type { Assignment, User } from "../api/client";
+
+/**
+ * Admins and editors may manage any assignment; members only the ones they
+ * created. Mirrors the backend `_can_manage` check.
+ */
+export function canManageAssignment(
+  assignment: Assignment,
+  user: User | null
+): boolean {
+  if (!user) return false;
+  if (user.is_admin || user.role === "admin" || user.role === "editor") {
+    return true;
+  }
+  return assignment.creator_id === user.id;
+}
 
 // ------------------------------------------------------------------
 //  دسته‌بندی موضوع تکلیف

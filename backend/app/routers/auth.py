@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from .. import models, schemas
 from ..config import settings
 from ..database import get_db
+from ..dependencies import get_current_user
 from ..security import create_access_token, generate_code
 
 router = APIRouter()
@@ -20,6 +21,7 @@ def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
                 username=data.username,
                 code=generate_code(),
                 is_admin=True,
+                role=models.ROLE_ADMIN,
                 is_active=True,
             )
             db.add(user)
@@ -40,3 +42,9 @@ def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
 
     token = create_access_token({"sub": str(user.id), "is_admin": user.is_admin})
     return schemas.LoginResponse(access_token=token, user=user)
+
+
+@router.get("/me", response_model=schemas.UserOut)
+def me(current: models.User = Depends(get_current_user)):
+    """Return the fresh user record so role changes apply without re-login."""
+    return current

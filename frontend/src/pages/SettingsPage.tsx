@@ -11,7 +11,17 @@ export default function SettingsPage() {
 
   const rows = [
     { icon: Fingerprint, label: "USERNAME", value: user?.username ?? "—", mono: true },
-    { icon: ShieldCheck, label: "ROLE", value: user?.is_admin ? "ادمین" : "کاربر", mono: false },
+    {
+      icon: ShieldCheck,
+      label: "ROLE",
+      value:
+        user?.role === "admin"
+          ? "ادمین"
+          : user?.role === "editor"
+            ? "ویرایشگر"
+            : "عضو",
+      mono: false,
+    },
     {
       icon: Cpu,
       label: "STATUS",

@@ -10,17 +10,21 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     code: Optional[str] = Field(None, min_length=6, max_length=6)
     is_admin: bool = False
+    role: Optional[str] = Field(None, max_length=20)
 
 
 class UserUpdate(BaseModel):
     username: Optional[str] = Field(None, min_length=2, max_length=50)
     code: Optional[str] = Field(None, min_length=6, max_length=6)
     is_active: Optional[bool] = None
+    is_admin: Optional[bool] = None
+    role: Optional[str] = Field(None, max_length=20)
 
 
 class UserOut(UserBase):
     id: int
     is_admin: bool
+    role: str = "member"
     is_active: bool
     points: int = 0
     created_at: datetime
@@ -33,6 +37,7 @@ class PublicUserOut(BaseModel):
     id: int
     username: str
     is_admin: bool
+    role: str = "member"
     points: int = 0
 
     model_config = {"from_attributes": True}
@@ -75,9 +80,18 @@ class AssignmentUpdate(BaseModel):
     completed: Optional[bool] = None
 
 
+class CompletedByUser(BaseModel):
+    id: int
+    username: Optional[str] = None
+
+
 class AssignmentOut(AssignmentBase):
     id: int
     owner_id: Optional[int] = None
+    creator_id: Optional[int] = None
+    creator_username: Optional[str] = None
+    completed_by_users: list[CompletedByUser] = []
+    is_completed_by_me: bool = False
     created_at: datetime
     updated_at: datetime
 

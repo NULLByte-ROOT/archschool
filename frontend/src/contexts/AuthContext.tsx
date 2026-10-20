@@ -1,12 +1,13 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { login as apiLogin } from "../api/client";
+import { fetchMe, login as apiLogin } from "../api/client";
 import type { User } from "../api/client";
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isAdmin: boolean;
+  isEditor: boolean;
   login: (username: string, code: string) => Promise<void>;
   logout: () => void;
 }
@@ -23,6 +24,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
   });
+
+  // Refresh the cached user on load so role changes made in the admin panel
+  // take effect without forcing a re-login.
+  useEffect(() => {
+    if (!localStorage.getItem("token")) return;
+    let active = true;
+    fetchMe()
+      .then((fresh) => {
+        if (!active) return;
+        localStorage.setItem("user", JSON.stringify(fresh));
+        setUser(fresh);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const login = async (username: string, code: string) => {
     const data = await apiLogin(username, code);
@@ -42,7 +60,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         isAuthenticated: !!user,
-        isAdmin: !!user?.is_admin,
+        isAdmin: !!user?.is_admin || user?.role === "admin",
+        isEditor: user?.role === "editor",
         login,
         logout,
       }}

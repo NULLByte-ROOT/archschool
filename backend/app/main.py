@@ -25,12 +25,14 @@ def _ensure_columns() -> None:
     wanted: dict[str, dict[str, str]] = {
         "users": {
             "points": "INTEGER NOT NULL DEFAULT 0",
+            "role": "VARCHAR(20) NOT NULL DEFAULT 'member'",
         },
         "assignments": {
             "category": "VARCHAR(20) DEFAULT ''",
             "subtype": "VARCHAR(40) DEFAULT ''",
             "subject_id": "VARCHAR(40) DEFAULT ''",
             "points_awarded": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "creator_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
         },
         "messages": {
             "reply_to_id": "INTEGER REFERENCES messages(id) ON DELETE SET NULL",
@@ -52,7 +54,33 @@ def _ensure_columns() -> None:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
+def _backfill_rbac_data() -> None:
+    """Idempotently migrate pre-existing rows to the new RBAC/public model.
+
+    - grant the ``admin`` role to legacy ``is_admin`` users,
+    - point ``creator_id`` at the original ``owner_id``,
+    - materialise ``assignment_completions`` for already-completed tasks.
+    """
+    statements = [
+        "UPDATE users SET role = 'admin' WHERE is_admin = TRUE "
+        "AND (role IS NULL OR role = 'member')",
+        "UPDATE assignments SET creator_id = owner_id WHERE creator_id IS NULL",
+        "INSERT INTO assignment_completions (user_id, assignment_id, completed_at) "
+        "SELECT a.owner_id, a.id, CURRENT_TIMESTAMP FROM assignments a "
+        "WHERE a.completed = TRUE AND a.owner_id IS NOT NULL "
+        "AND NOT EXISTS (SELECT 1 FROM assignment_completions c "
+        "WHERE c.assignment_id = a.id AND c.user_id = a.owner_id)",
+    ]
+    with engine.begin() as conn:
+        for statement in statements:
+            try:
+                conn.execute(text(statement))
+            except Exception:  # pragma: no cover - best-effort migration
+                pass
+
+
 _ensure_columns()
+_backfill_rbac_data()
 
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

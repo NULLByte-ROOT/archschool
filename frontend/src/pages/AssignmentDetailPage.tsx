@@ -28,7 +28,7 @@ import {
   fetchAttachments,
   fetchTeamStatus,
   resolveMediaUrl,
-  updateAssignment,
+  toggleAssignmentCompletion,
   uploadAssignmentFile,
 } from "../api/client";
 import type { Assignment, Attachment, TeamMember } from "../api/client";
@@ -40,6 +40,7 @@ import { useNow } from "../hooks/useNow";
 import {
   SUBJECT_BY_ID,
   TONE_TEXT,
+  canManageAssignment,
   categoryGroup,
   categoryItemLabel,
   deadlineTone,
@@ -127,20 +128,21 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
     };
   }, [assignmentId]);
 
-  const canManage = !!item && item.owner_id === user?.id;
+  const canManage = !!item && canManageAssignment(item, user);
+  const isDoneByMe = !!item?.is_completed_by_me;
 
   async function toggle() {
     if (!item || busy) return;
     setBusy(true);
     setError(null);
     try {
-      const updated = await updateAssignment(item.id, {
-        completed: !item.completed,
-      });
+      const updated = await toggleAssignmentCompletion(item.id);
       setItem(updated);
       setTeam((prev) =>
         prev.map((member) =>
-          member.is_self ? { ...member, completed: updated.completed } : member
+          member.is_self
+            ? { ...member, completed: updated.is_completed_by_me }
+            : member
         )
       );
     } catch (e) {
@@ -227,7 +229,7 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
           <div className="min-w-0 flex-1">
             <h1
               className={`truncate text-sm font-black sm:text-base ${
-                item?.completed ? "text-fg-500 line-through" : "text-white"
+                item?.is_completed_by_me ? "text-fg-500 line-through" : "text-white"
               }`}
             >
               {item?.title ?? "جزئیات تکلیف"}
@@ -245,23 +247,24 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
           {item && (
             <span
               className={`badge hidden sm:inline-flex ${
-                item.completed
+                isDoneByMe
                   ? "border-success/30 bg-success/10 text-success"
                   : TONE_TEXT[deadlineTone(item.due_date, now)]
               }`}
             >
-              {item.completed ? "انجام شد" : relativeDue(item.due_date, now)}
+              {isDoneByMe ? "انجام دادم" : relativeDue(item.due_date, now)}
             </span>
           )}
 
-          {canManage && item && (
+          {item && (
             <div className="flex shrink-0 items-center gap-1.5">
               <button
                 type="button"
                 onClick={toggle}
                 disabled={busy}
+                title={isDoneByMe ? "لغو انجام توسط من" : "من انجام دادم"}
                 className={`flex h-9 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-semibold transition disabled:opacity-50 ${
-                  item.completed
+                  isDoneByMe
                     ? "border-white/15 bg-white/[0.04] text-fg-300 hover:text-white"
                     : "border-success/40 bg-success/10 text-success hover:bg-success/15"
                 }`}
@@ -272,18 +275,20 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                   <Check size={13} strokeWidth={3} />
                 )}
                 <span className="hidden sm:inline">
-                  {item.completed ? "برگرداندن" : "انجام شد"}
+                  {isDoneByMe ? "برگرداندن" : "انجام دادم"}
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={remove}
-                disabled={busy}
-                className="icon-btn hover:border-danger/40 hover:text-danger disabled:opacity-50"
-                aria-label="حذف تکلیف"
-              >
-                <Trash2 size={15} />
-              </button>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={remove}
+                  disabled={busy}
+                  className="icon-btn hover:border-danger/40 hover:text-danger disabled:opacity-50"
+                  aria-label="حذف تکلیف"
+                >
+                  <Trash2 size={15} />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -359,18 +364,14 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                     />
                     <InfoChip
                       icon={<User size={15} />}
-                      label="ثبت‌شده"
-                      value={parseDue(item.created_at).toLocaleDateString("fa-IR", {
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                      })}
+                      label="سازنده"
+                      value={item.creator_username || "نامشخص"}
                     />
                     <InfoChip
                       icon={<Clock size={15} />}
-                      label="وضعیت"
-                      value={item.completed ? "انجام شده" : "در انتظار انجام"}
-                      valueClass={item.completed ? "text-success" : "text-white"}
+                      label="وضعیت من"
+                      value={isDoneByMe ? "انجام دادم" : "در انتظار انجام"}
+                      valueClass={isDoneByMe ? "text-success" : "text-white"}
                     />
                   </div>
 
@@ -384,6 +385,55 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                 </section>
 
                 <div className="flex flex-col gap-4">
+                  {/* انجام‌دهندگان */}
+                  <section className="panel relative overflow-hidden rounded-3xl p-5">
+                    <Corners />
+                    <div className="mb-4 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-success/25 bg-success/10">
+                          <Check size={16} className="text-success" strokeWidth={3} />
+                        </span>
+                        <div>
+                          <h3 className="text-sm font-bold text-white">
+                            انجام داده‌اند
+                          </h3>
+                          <p className="mono text-[9px] tracking-widest text-fg-500">
+                            // COMPLETED BY
+                          </p>
+                        </div>
+                      </div>
+                      <span className="badge">{item.completed_by_users.length}</span>
+                    </div>
+
+                    {item.completed_by_users.length === 0 ? (
+                      <p className="py-3 text-[11px] text-fg-500">
+                        هنوز کسی این تکلیف را انجام نداده.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {item.completed_by_users.map((completer) => (
+                          <span
+                            key={completer.id}
+                            className="flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.03] py-1.5 pr-2.5 pl-1.5"
+                          >
+                            <Avatar name={completer.username ?? "?"} size="xs" />
+                            <span
+                              className="text-[11px] font-medium text-fg-100"
+                              dir="ltr"
+                            >
+                              {completer.username ?? "کاربر"}
+                            </span>
+                            {completer.id === user?.id && (
+                              <span className="rounded-full border border-white/20 bg-white/10 px-1.5 text-[8px] font-semibold text-white">
+                                تو
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
                   {/* وضعیت تیم */}
                   <section className="panel relative overflow-hidden rounded-3xl p-5">
                     <Corners />

@@ -6,12 +6,20 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from .database import Base
+
+# RBAC roles. "admin" manages everything, "editor" can manage every assignment,
+# "member" can only manage the assignments they created.
+ROLE_ADMIN = "admin"
+ROLE_EDITOR = "editor"
+ROLE_MEMBER = "member"
+VALID_ROLES = (ROLE_ADMIN, ROLE_EDITOR, ROLE_MEMBER)
 
 
 class User(Base):
@@ -21,11 +29,32 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False, index=True)
     code = Column(String(100), unique=True, nullable=False, index=True)
     is_admin = Column(Boolean, default=False)
+    role = Column(
+        String(20),
+        nullable=False,
+        default=ROLE_MEMBER,
+        server_default=text("'member'"),
+        index=True,
+    )
     is_active = Column(Boolean, default=True)
     points = Column(Integer, nullable=False, default=0, server_default=text("0"))
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    assignments = relationship("Assignment", back_populates="owner")
+    assignments = relationship(
+        "Assignment",
+        foreign_keys="Assignment.owner_id",
+        back_populates="owner",
+    )
+    created_assignments = relationship(
+        "Assignment",
+        foreign_keys="Assignment.creator_id",
+        back_populates="creator",
+    )
+    completions = relationship(
+        "AssignmentCompletion",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
     sent_messages = relationship(
         "Message",
         foreign_keys="Message.sender_id",
@@ -60,10 +89,30 @@ class Assignment(Base):
         Boolean, nullable=False, default=False, server_default=text("false")
     )
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    creator_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    owner = relationship("User", back_populates="assignments")
+    owner = relationship(
+        "User",
+        foreign_keys=[owner_id],
+        back_populates="assignments",
+    )
+    creator = relationship(
+        "User",
+        foreign_keys=[creator_id],
+        back_populates="created_assignments",
+    )
+    completions = relationship(
+        "AssignmentCompletion",
+        back_populates="assignment",
+        cascade="all, delete-orphan",
+    )
     attachments = relationship(
         "Attachment",
         back_populates="assignment",
@@ -75,6 +124,40 @@ class Assignment(Base):
         cascade="all, delete-orphan",
         foreign_keys="Message.assignment_id",
     )
+
+
+class AssignmentCompletion(Base):
+    """Per-user completion of a shared assignment.
+
+    Assignments are public in the team workspace, so ``Assignment.completed``
+    alone cannot express who has finished the work. Each row here means one
+    user has marked one assignment as done.
+    """
+
+    __tablename__ = "assignment_completions"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "assignment_id", name="uq_completion_user_assignment"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assignment_id = Column(
+        Integer,
+        ForeignKey("assignments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    completed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="completions")
+    assignment = relationship("Assignment", back_populates="completions")
 
 
 class Message(Base):

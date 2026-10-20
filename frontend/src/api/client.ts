@@ -24,10 +24,13 @@ function clearSessionAndRedirect(): void {
   }
 }
 
+export type Role = "admin" | "editor" | "member";
+
 export interface User {
   id: number;
   username: string;
   is_admin: boolean;
+  role: Role;
   is_active: boolean;
   points: number;
   created_at: string;
@@ -38,6 +41,7 @@ export interface PublicUser {
   id: number;
   username: string;
   is_admin: boolean;
+  role?: Role;
   points: number;
 }
 
@@ -95,6 +99,11 @@ export interface ChatOverview {
   directs: DirectPreview[];
 }
 
+export interface CompletedByUser {
+  id: number;
+  username: string | null;
+}
+
 export interface Assignment {
   id: number;
   title: string;
@@ -106,6 +115,10 @@ export interface Assignment {
   due_date: string | null;
   completed: boolean;
   owner_id: number | null;
+  creator_id: number | null;
+  creator_username: string | null;
+  completed_by_users: CompletedByUser[];
+  is_completed_by_me: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -176,6 +189,10 @@ export async function login(username: string, code: string): Promise<LoginRespon
   return res.json();
 }
 
+export async function fetchMe(): Promise<User> {
+  return request<User>("/auth/me");
+}
+
 // ---------- Users (admin) ----------
 export async function fetchUsers(): Promise<User[]> {
   return request<User[]>("/users/");
@@ -185,6 +202,7 @@ export async function createUser(data: {
   username: string;
   code?: string;
   is_admin?: boolean;
+  role?: Role;
 }): Promise<User> {
   return request<User>("/users/", {
     method: "POST",
@@ -194,7 +212,7 @@ export async function createUser(data: {
 
 export async function updateUser(
   id: number,
-  data: { username?: string; code?: string; is_active?: boolean }
+  data: { username?: string; code?: string; is_active?: boolean; role?: Role }
 ): Promise<User> {
   return request<User>(`/users/${id}`, {
     method: "PATCH",
@@ -251,6 +269,12 @@ export async function updateAssignment(
     method: "PATCH",
     body: JSON.stringify(data),
   });
+}
+
+export async function toggleAssignmentCompletion(
+  id: number
+): Promise<Assignment> {
+  return request<Assignment>(`/assignments/${id}/toggle`, { method: "PATCH" });
 }
 
 export async function deleteAssignment(id: number): Promise<void> {

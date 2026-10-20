@@ -55,10 +55,15 @@ def create_user(
 
     code = (data.code or generate_code()).upper()
 
+    role = data.role or (models.ROLE_ADMIN if data.is_admin else models.ROLE_MEMBER)
+    if role not in models.VALID_ROLES:
+        raise HTTPException(status_code=400, detail="نقش نامعتبر است")
+
     user = models.User(
         username=data.username,
         code=code,
-        is_admin=data.is_admin,
+        is_admin=role == models.ROLE_ADMIN,
+        role=role,
         is_active=True,
     )
     db.add(user)
@@ -81,9 +86,18 @@ def update_user(
     updates = data.model_dump(exclude_unset=True)
     if updates.get("code"):
         updates["code"] = updates["code"].upper()
+    if "role" in updates and updates["role"] not in models.VALID_ROLES:
+        raise HTTPException(status_code=400, detail="نقش نامعتبر است")
 
     for key, value in updates.items():
         setattr(user, key, value)
+
+    # Keep the legacy `is_admin` flag and the RBAC `role` in sync so both the
+    # old admin-only checks and the new role checks agree.
+    if "role" in updates:
+        user.is_admin = user.role == models.ROLE_ADMIN
+    elif "is_admin" in updates:
+        user.role = models.ROLE_ADMIN if user.is_admin else models.ROLE_MEMBER
 
     db.commit()
     db.refresh(user)

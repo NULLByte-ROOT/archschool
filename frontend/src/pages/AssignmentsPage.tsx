@@ -18,12 +18,18 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import { fetchAssignments, deleteAssignment, updateAssignment } from "../api/client";
+import {
+  fetchAssignments,
+  deleteAssignment,
+  toggleAssignmentCompletion,
+} from "../api/client";
 import type { Assignment } from "../api/client";
 import PageHeader from "../components/PageHeader";
+import Avatar from "../components/Avatar";
 import Corners from "../components/Corners";
 import Dropdown from "../components/Dropdown";
 import AddAssignmentModal from "../components/AddAssignmentModal";
+import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
 import { useIsMobileWidth } from "../hooks/useMediaQuery";
 import {
@@ -32,6 +38,7 @@ import {
   TONE_DOT,
   TONE_GLOW,
   TONE_TEXT,
+  canManageAssignment,
   categoryGroup,
   categoryItemLabel,
   deadlineTone,
@@ -84,11 +91,51 @@ interface ItemProps {
   index: number;
   now: number;
   layoutEnabled: boolean;
+  canManage: boolean;
   onOpen: (id: number) => void;
   onToggle: (item: Assignment) => void;
   onDelete: (item: Assignment) => void;
   onEdit: (item: Assignment) => void;
 }
+
+const CreatorBadge = memo(function CreatorBadge({
+  name,
+}: {
+  name: string | null;
+}) {
+  if (!name) return null;
+  return (
+    <span
+      className="badge shrink-0 !py-0.5 !text-[9px]"
+      title={`ساخته شده توسط ${name}`}
+    >
+      <span className="dot" />
+      ساخته شده توسط: {name}
+    </span>
+  );
+});
+
+const CompletedStack = memo(function CompletedStack({
+  users,
+}: {
+  users: Assignment["completed_by_users"];
+}) {
+  if (users.length === 0) return null;
+  return (
+    <span className="flex shrink-0 items-center" title="انجام‌دهندگان">
+      <span className="flex -space-x-2" dir="ltr">
+        {users.slice(0, 5).map((u) => (
+          <Avatar key={u.id} name={u.username ?? "?"} size="xxs" />
+        ))}
+      </span>
+      {users.length > 5 && (
+        <span className="mono ms-1 text-[10px] text-fg-500">
+          +{users.length - 5}
+        </span>
+      )}
+    </span>
+  );
+});
 
 const AssignmentItem = memo(function AssignmentItem({
   item,
@@ -96,6 +143,7 @@ const AssignmentItem = memo(function AssignmentItem({
   index,
   now,
   layoutEnabled,
+  canManage,
   onOpen,
   onToggle,
   onDelete,
@@ -104,6 +152,7 @@ const AssignmentItem = memo(function AssignmentItem({
   const tone = deadlineTone(item.due_date, now);
   const group = categoryGroup(item.category);
   const GroupIcon = group?.id === "exam" ? GraduationCap : ClipboardList;
+  const done = item.is_completed_by_me;
 
   const motionProps = {
     layout: layoutEnabled,
@@ -124,18 +173,19 @@ const AssignmentItem = memo(function AssignmentItem({
         e.stopPropagation();
         onToggle(item);
       }}
+      title={done ? "من انجام دادم" : "انجام دادم"}
       className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition ${
-        item.completed
+        done
           ? "border-success/30 bg-success/10 text-success"
           : "border-white/12 text-fg-300 hover:border-white/30 hover:text-white"
       }`}
     >
       <Check size={12} strokeWidth={3} />
-      {item.completed ? "انجام شد" : "انجام بده"}
+      {done ? "برگرداندن" : "انجام دادم"}
     </button>
   );
 
-  const editBtn = (
+  const editBtn = canManage ? (
     <button
       onClick={(e) => {
         e.stopPropagation();
@@ -147,9 +197,9 @@ const AssignmentItem = memo(function AssignmentItem({
     >
       <Pencil size={14} />
     </button>
-  );
+  ) : null;
 
-  const removeBtn = (
+  const removeBtn = canManage ? (
     <button
       onClick={(e) => {
         e.stopPropagation();
@@ -160,7 +210,7 @@ const AssignmentItem = memo(function AssignmentItem({
     >
       <Trash2 size={14} />
     </button>
-  );
+  ) : null;
 
   if (view === "list") {
     return (
@@ -179,11 +229,12 @@ const AssignmentItem = memo(function AssignmentItem({
           <div className="flex items-center gap-2">
             <h3
               className={`truncate text-[14px] font-bold ${
-                item.completed ? "text-fg-500 line-through" : "text-white"
+                done ? "text-fg-500 line-through" : "text-white"
               }`}
             >
               {item.title}
             </h3>
+            <CreatorBadge name={item.creator_username} />
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
             <span className="text-fg-500">
@@ -205,6 +256,7 @@ const AssignmentItem = memo(function AssignmentItem({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+          <CompletedStack users={item.completed_by_users} />
           {toggle}
           {editBtn}
           {removeBtn}
@@ -236,13 +288,16 @@ const AssignmentItem = memo(function AssignmentItem({
         </div>
       </div>
 
-      <h3
-        className={`mb-3 line-clamp-2 pr-2 text-[15px] leading-6 font-bold ${
-          item.completed ? "text-fg-500 line-through" : "text-white"
-        }`}
-      >
-        {item.title}
-      </h3>
+      <div className="mb-3 flex flex-wrap items-center gap-2 pr-2">
+        <h3
+          className={`line-clamp-2 text-[15px] leading-6 font-bold ${
+            done ? "text-fg-500 line-through" : "text-white"
+          }`}
+        >
+          {item.title}
+        </h3>
+        <CreatorBadge name={item.creator_username} />
+      </div>
 
       <div className="mb-3 space-y-1.5 pr-2 text-[12px]">
         {item.subject_id && (
@@ -259,6 +314,7 @@ const AssignmentItem = memo(function AssignmentItem({
       </div>
 
       <div className="flex items-center gap-2 border-t border-white/8 pt-3 pr-2">
+        <CompletedStack users={item.completed_by_users} />
         {toggle}
         {editBtn}
         {removeBtn}
@@ -272,6 +328,7 @@ const AssignmentItem = memo(function AssignmentItem({
 
 export default function AssignmentsPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const now = useNow(30_000);
   const isMobileWidth = useIsMobileWidth();
   const [items, setItems] = useState<Assignment[]>(() => listCache.get(cacheKey("all")) ?? []);
@@ -373,7 +430,7 @@ export default function AssignmentsPage() {
 
   const handleOpen = useCallback((id: number) => navigate(`/assignments/${id}`), [navigate]);
   const handleToggle = useCallback(
-    (item: Assignment) => updateAssignment(item.id, { completed: !item.completed }).then(reload),
+    (item: Assignment) => toggleAssignmentCompletion(item.id).then(reload),
     [reload]
   );
   const handleDelete = useCallback((item: Assignment) => deleteAssignment(item.id).then(reload), [reload]);
@@ -573,6 +630,7 @@ export default function AssignmentsPage() {
                 index={i}
                 now={now}
                 layoutEnabled={!isMobileWidth}
+                canManage={canManageAssignment(item, user)}
                 onOpen={handleOpen}
                 onToggle={handleToggle}
                 onDelete={handleDelete}

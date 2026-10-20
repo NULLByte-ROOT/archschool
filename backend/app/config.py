@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     POINTS_PER_UPLOAD: int = 15
     DEDUCT_POINTS_ON_ATTACHMENT_DELETE: bool = True
 
+    # Points awarded to the specific user who marks a shared assignment done.
+    POINTS_PER_ASSIGNMENT: int = 10
+
     @field_validator("CORS_ORIGINS")
     @classmethod
     def _normalize_origins(cls, origins: list[str]) -> list[str]:
