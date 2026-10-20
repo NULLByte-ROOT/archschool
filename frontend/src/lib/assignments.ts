@@ -269,27 +269,34 @@ export function subjectAtPeriod(day: Day | undefined, periodIndex: number): Subj
 export interface ScheduleTarget {
   /** اندیس روز در TIMETABLE (۰ = شنبه) */
   dayIndex: number;
-  /** آیا هدف، روز بعد است؟ */
+  /** آیا هدف، نزدیک‌ترین روز مدرسه‌ی بعد از امروز است؟ (نه امروز) */
   isTomorrow: boolean;
   /** آیا ساعت از پایان مدرسه گذشته است؟ */
   isAfterSchool: boolean;
+  /** آیا امروز پنجشنبه یا جمعه (تعطیلات آخر هفته) است؟ */
+  isWeekend: boolean;
+  /** آیا روز هدف دقیقاً فردای تقویمی است؟ */
+  isLiteralTomorrow: boolean;
 }
 
 /**
  * منطق «برنامه‌ی پیش‌رو»:
- * - بعد از ۱۴:۰۰ یا در روز تعطیل، نزدیک‌ترین روز مدرسه‌ی بعدی.
+ * - بعد از ۱۴:۰۰ یا در تعطیلات آخر هفته، نزدیک‌ترین روز مدرسه‌ی بعدی (شنبه).
  * - قبل از آن برنامه‌ی امروز.
  */
 export function scheduleTarget(now: number = Date.now()): ScheduleTarget {
   const base = new Date(now);
   const minutes = base.getHours() * 60 + base.getMinutes();
   const today = todayIndex(base);
-  const isAfterSchool = minutes >= SCHOOL_END_MINUTES || today >= TIMETABLE.length;
+  const isWeekend = today >= TIMETABLE.length;
+  const isAfterSchool = minutes >= SCHOOL_END_MINUTES || isWeekend;
   const dayIndex = isAfterSchool ? nextSchoolDayIndex(today) : today;
   return {
     dayIndex,
     isTomorrow: isAfterSchool || dayIndex !== today,
     isAfterSchool,
+    isWeekend,
+    isLiteralTomorrow: dayIndex === (today + 1) % 7,
   };
 }
 

@@ -11,7 +11,7 @@ countdown, and includes a team chat with profiles.
 
 - **Dashboard** — activity chart, assignment type breakdown, upcoming
   deadlines, recent chat messages and latest assignment comments.
-- **Timetable** — Sat–Thu, four 90-minute periods (08:00–14:00), live
+- **Timetable** — Sat–Wed, four 90-minute periods (08:00–14:00), live
   countdown for the current/next period, and next school day preview.
 - **Assignments** — urgent/upcoming/completed groups, filters, per-user
   completion and points.

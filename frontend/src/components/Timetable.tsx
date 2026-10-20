@@ -227,6 +227,23 @@ function DesktopTimetable({ bySubject }: { bySubject: Record<string, Assignment[
           ))}
 
           {TIMETABLE.map((day, d) => {
+            if (day.cells.length === 0) {
+              return (
+                <div
+                  key={`${day.id}-empty`}
+                  style={
+                    {
+                      gridColumn: d + 2,
+                      gridRow: `2 / span ${PERIOD_COUNT}`,
+                    } as CSSProperties
+                  }
+                  className="min-h-0"
+                >
+                  <FreeCell />
+                </div>
+              );
+            }
+
             let row = 2;
             return day.cells.map((cell: Cell, ci) => {
               const style = {
@@ -553,6 +570,14 @@ const MobileDayRow = memo(function MobileDayRow({
 
       {isOpen && (
         <div className="space-y-2 pt-2">
+          {entries.length === 0 && (
+            <div className="flex items-center gap-3 rounded-2xl border border-dashed border-white/10 p-3.5 text-sm text-fg-500">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-dashed border-white/10 text-fg-500">
+                <Clock size={16} />
+              </span>
+              کلاسی برای این روز ثبت نشده
+            </div>
+          )}
           {entries.map((entry, ei) =>
             entry.subject ? (
               <button

@@ -92,13 +92,6 @@ export const TIMETABLE: Day[] = [
       { kind: "class", span: 1, subject: S.chemistry },
     ],
   },
-  {
-    id: "thu",
-    name: "پنجشنبه",
-    short: "پ",
-    // School is open Saturday–Thursday; no Thursday subject is configured yet.
-    cells: [{ kind: "free", span: 4 }],
-  },
 ];
 
 export const PERIOD_COUNT = 4;
@@ -112,4 +105,4 @@ export const PERIOD_TIMES = [
   { start: 12 * 60 + 30, end: 14 * 60 },
 ];
 
-export const SCHOOL_DAYS = ["sat", "sun", "mon", "tue", "wed", "thu"];
+export const SCHOOL_DAYS = ["sat", "sun", "mon", "tue", "wed"];

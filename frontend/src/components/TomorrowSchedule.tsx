@@ -110,6 +110,24 @@ export default function TomorrowSchedule({
     [rows]
   );
 
+  const isLiteralTomorrow = target.isTomorrow && target.isLiteralTomorrow;
+
+  const heading = isLiteralTomorrow
+    ? "فردا چه کلاسی داریم؟"
+    : target.isWeekend
+      ? "برنامه بعد از تعطیلات"
+      : target.isTomorrow
+        ? "برنامه روز بعد"
+        : "برنامه امروز";
+
+  const badgeLabel = isLiteralTomorrow
+    ? "فردا"
+    : target.isWeekend
+      ? "تعطیلات آخر هفته"
+      : target.isTomorrow
+        ? "روز بعد"
+        : "امروز";
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 20 }}
@@ -125,11 +143,9 @@ export default function TomorrowSchedule({
             <CalendarClock size={18} className="text-white" />
           </span>
           <div className="min-w-0">
-            <h2 className="truncate text-base font-bold text-white">
-              {target.isTomorrow ? "فردا چه کلاسی داریم؟" : "برنامه امروز"}
-            </h2>
+            <h2 className="truncate text-base font-bold text-white">{heading}</h2>
             <p className="mono truncate text-[10px] tracking-widest text-fg-500">
-              // {target.isTomorrow ? "TOMORROW" : "TODAY"}
+              // {target.isTomorrow ? "NEXT DAY" : "TODAY"}
               {day ? ` · ${day.name.toUpperCase()}` : ""}
             </p>
           </div>
@@ -137,7 +153,7 @@ export default function TomorrowSchedule({
 
         <span className="badge shrink-0">
           <span className="dot animate-pulse" />
-          {target.isTomorrow ? "فردا" : "امروز"}
+          {badgeLabel}
           {totalEvents > 0 ? ` · ${totalEvents} رویداد` : ""}
         </span>
       </div>
@@ -146,7 +162,11 @@ export default function TomorrowSchedule({
         <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-white/12 p-10 text-center">
           <MoonStar size={26} className="text-fg-500" />
           <p className="text-sm text-fg-500">
-            {target.isTomorrow ? "فردا کلاسی نداریم" : "امروز کلاسی نداریم"}
+            {target.isWeekend
+              ? "تعطیلات آخر هفته — کلاسی نداریم"
+              : target.isTomorrow
+                ? "روز بعد کلاسی نداریم"
+                : "امروز کلاسی نداریم"}
           </p>
         </div>
       ) : (

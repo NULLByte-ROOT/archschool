@@ -31,7 +31,7 @@ export default function TimetablePage() {
       <PageHeader
         kicker="timetable"
         title="برنامه هفتگی"
-        subtitle={`شنبه تا پنجشنبه · ۰۸:۰۰ تا ۱۴:۰۰ · امروز ${jalaliToday(now)}`}
+        subtitle={`شنبه تا چهارشنبه · ۰۸:۰۰ تا ۱۴:۰۰ · امروز ${jalaliToday(now)}`}
         action={
           <span className="badge">
             <Clock size={11} />
