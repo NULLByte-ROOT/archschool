@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent, FormEvent, KeyboardEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { User, KeyRound, Shield, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 
@@ -9,6 +9,9 @@ export default function LoginPage() {
   const navigate = useNavigate();
 
   const [username, setUsername] = useState("");
+  const [mode, setMode] = useState<"password" | "code">("password");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
   const [showCode, setShowCode] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -72,11 +75,17 @@ export default function LoginPage() {
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const code = otpDigits.join("");
-    if (!username.trim() || code.length < 6 || loading) return;
+    if (!username.trim() || loading) return;
+    if (mode === "code" && code.length < 6) return;
+    if (mode === "password" && password.length < 6) return;
     setLoading(true);
     setError(null);
     try {
-      await login(username.trim(), code);
+      await login(
+        username.trim(),
+        mode === "code" ? code : undefined,
+        mode === "password" ? password : undefined
+      );
       navigate("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "خطا در ورود");
@@ -85,7 +94,12 @@ export default function LoginPage() {
     }
   };
 
-  const canSubmit = !loading && username.trim().length > 0 && otpDigits.join("").length === 6;
+  const canSubmit =
+    !loading &&
+    username.trim().length > 0 &&
+    (mode === "code"
+      ? otpDigits.join("").length === 6
+      : password.length >= 6);
 
   return (
     <div
@@ -239,8 +253,30 @@ export default function LoginPage() {
 
               <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Welcome</h2>
               <p dir="rtl" className="mt-2 text-xs leading-6 text-zinc-400">
-                یوزر نیم و کد لاگین که بهتون ارسال شده رو وارد کنید
+                با نام کاربری و رمز عبور وارد شو، یا با کد دسترسی قدیمی.
               </p>
+              <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-white/[0.02] p-1">
+                {[
+                  { key: "password" as const, label: "رمز عبور" },
+                  { key: "code" as const, label: "کد دسترسی" },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => {
+                      setMode(tab.key);
+                      setError(null);
+                    }}
+                    className={`rounded-lg px-3 py-2 text-[11px] font-bold transition ${
+                      mode === tab.key
+                        ? "auth-tab-active bg-white text-black"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <form className="space-y-5" onSubmit={handleSubmit}>
@@ -262,7 +298,7 @@ export default function LoginPage() {
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="arsi_dev"
                     autoComplete="username"
-                    className="w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 font-mono text-sm text-white outline-none transition-all placeholder:text-zinc-600 hover:bg-white/[0.05] focus:border-white/60 focus:bg-black/80"
+                    className="auth-input w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 font-mono text-sm text-white outline-none transition-all placeholder:text-zinc-600 hover:bg-white/[0.05] focus:border-white/60 focus:bg-black/80"
                   />
                   <span className="mono pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-zinc-500">
                     @
@@ -270,48 +306,79 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              {/* کد دسترسی */}
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
-                    <KeyRound className="h-3.5 w-3.5 text-white" />
-                    <span>ACCESS CODE</span>
-                  </label>
-
-                  <button
-                    type="button"
-                    onClick={() => setShowCode(!showCode)}
-                    className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
-                  >
-                    {showCode ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                    <span>{showCode ? "HIDE" : "SHOW"}</span>
-                  </button>
+              {mode === "password" ? (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
+                      <KeyRound className="h-3.5 w-3.5 text-white" />
+                      <span>PASSWORD</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((value) => !value)}
+                      className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-3 w-3" />
+                      ) : (
+                        <Eye className="h-3 w-3" />
+                      )}
+                      <span>{showPassword ? "HIDE" : "SHOW"}</span>
+                    </button>
+                  </div>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    dir="ltr"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    className="auth-input w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 font-mono text-sm text-white outline-none transition-all placeholder:text-zinc-600 hover:bg-white/[0.05] focus:border-white/60 focus:bg-black/80"
+                  />
                 </div>
+              ) : (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
+                      <KeyRound className="h-3.5 w-3.5 text-white" />
+                      <span>ACCESS CODE</span>
+                    </label>
 
-                <div dir="ltr" className="grid grid-cols-6 gap-1.5 sm:gap-2" onPaste={handlePaste}>
-                  {otpDigits.map((digit, idx) => (
-                    <input
-                      key={idx}
-                      ref={(el) => {
-                        otpRefs.current[idx] = el;
-                      }}
-                      type={showCode ? "text" : "password"}
-                      inputMode="text"
-                      autoComplete="one-time-code"
-                      maxLength={1}
-                      value={digit}
-                      onChange={(e) => handleDigitChange(idx, e.target.value)}
-                      onKeyDown={(e) => handleDigitKeyDown(idx, e)}
-                      placeholder="•"
-                      className="h-11 rounded-xl border border-white/10 bg-white/[0.03] text-center font-mono text-base font-bold text-white outline-none transition-all placeholder:text-zinc-700 hover:bg-white/[0.06] focus:-translate-y-0.5 focus:scale-105 focus:border-white focus:bg-black sm:h-12"
-                    />
-                  ))}
+                    <button
+                      type="button"
+                      onClick={() => setShowCode(!showCode)}
+                      className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
+                    >
+                      {showCode ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      <span>{showCode ? "HIDE" : "SHOW"}</span>
+                    </button>
+                  </div>
+
+                  <div dir="ltr" className="grid grid-cols-6 gap-1.5 sm:gap-2" onPaste={handlePaste}>
+                    {otpDigits.map((digit, idx) => (
+                      <input
+                        key={idx}
+                        ref={(el) => {
+                          otpRefs.current[idx] = el;
+                        }}
+                        type={showCode ? "text" : "password"}
+                        inputMode="text"
+                        autoComplete="one-time-code"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleDigitChange(idx, e.target.value)}
+                        onKeyDown={(e) => handleDigitKeyDown(idx, e)}
+                        placeholder="•"
+                        className="auth-input h-11 rounded-xl border border-white/10 bg-white/[0.03] text-center font-mono text-base font-bold text-white outline-none transition-all placeholder:text-zinc-700 hover:bg-white/[0.06] focus:-translate-y-0.5 focus:scale-105 focus:border-white focus:bg-black sm:h-12"
+                      />
+                    ))}
+                  </div>
+
+                  <p className="mono mt-2 text-center text-[10px] text-zinc-500" dir="rtl">
+                    در صورت داشتن کد کامل، آن را Paste کنید
+                  </p>
                 </div>
-
-                <p className="mono mt-2 text-center text-[10px] text-zinc-500" dir="rtl">
-                  در صورت داشتن کد کامل، آن را Paste کنید
-                </p>
-              </div>
+              )}
 
               {error && (
                 <p
@@ -326,7 +393,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={!canSubmit}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-xs font-extrabold text-black shadow-[0_0_30px_-5px_rgba(255,255,255,0.6)] transition-all hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                  className="auth-submit flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-xs font-extrabold text-black shadow-[0_0_30px_-5px_rgba(255,255,255,0.6)] transition-all hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
                 >
                   {loading ? (
                     <>
@@ -343,6 +410,14 @@ export default function LoginPage() {
               </div>
             </form>
 
+            <Link
+              to="/register"
+              dir="rtl"
+              className="mt-5 flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-[12px] font-semibold text-zinc-300 transition hover:border-white/30 hover:text-white"
+            >
+              حساب نداری؟ <span className="text-white underline decoration-white/40">ثبت‌نام کن</span>
+            </Link>
+
             <div
               dir="ltr"
               className="mono mt-7 flex items-center justify-center border-t border-white/10 pt-4 text-[10px] tracking-[0.18em] text-zinc-500"
@@ -358,3 +433,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

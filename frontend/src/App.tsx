@@ -2,11 +2,13 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Layout from "./components/Layout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import HomePage from "./pages/HomePage";
+import TimetablePage from "./pages/TimetablePage";
 import AssignmentsPage from "./pages/AssignmentsPage";
 import AssignmentDetailPage from "./pages/AssignmentDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
 import UsersPage from "./pages/UsersPage";
 import ChatPage from "./pages/ChatPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
@@ -16,10 +18,12 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
 
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Layout />}>
             <Route index element={<HomePage />} />
+            <Route path="timetable" element={<TimetablePage />} />
             <Route path="assignments" element={<AssignmentsPage />} />
             <Route path="assignments/:id" element={<AssignmentDetailPage />} />
             <Route path="chat" element={<ChatPage />} />

@@ -6,6 +6,7 @@ import {
   ArrowUpDown,
   BookOpen,
   Calendar,
+  CalendarClock,
   Check,
   ChevronLeft,
   ClipboardList,
@@ -25,6 +26,8 @@ import {
 } from "../api/client";
 import type { Assignment } from "../api/client";
 import PageHeader from "../components/PageHeader";
+import ActivityChart from "../components/ActivityChart";
+import AssignmentTypesChart from "../components/AssignmentTypesChart";
 import Avatar from "../components/Avatar";
 import Corners from "../components/Corners";
 import Dropdown from "../components/Dropdown";
@@ -33,6 +36,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
 import { useIsMobileWidth } from "../hooks/useMediaQuery";
 import {
+  DAY_MS,
   SUBJECT_LIST,
   TONE_BORDER,
   TONE_DOT,
@@ -413,6 +417,38 @@ export default function AssignmentsPage() {
     return sorted;
   }, [items, categoryFilter, subjectFilter, sort]);
 
+  const upcoming = useMemo(
+    () =>
+      [...items]
+        .filter((item) => !item.is_completed_by_me && item.due_date)
+        .sort((a, b) => assignDeadline(a) - assignDeadline(b))
+        .slice(0, 5),
+    [items]
+  );
+
+  const groups = useMemo(() => {
+    const urgent: Assignment[] = [];
+    const later: Assignment[] = [];
+    const completed: Assignment[] = [];
+    for (const item of displayed) {
+      if (item.is_completed_by_me) {
+        completed.push(item);
+      } else if (
+        item.due_date &&
+        parseDue(item.due_date).getTime() - now <= DAY_MS * 2
+      ) {
+        urgent.push(item);
+      } else {
+        later.push(item);
+      }
+    }
+    return [
+      { key: "urgent", title: "فوری", tone: "red" as const, items: urgent },
+      { key: "upcoming", title: "پیش‌رو", tone: "yellow" as const, items: later },
+      { key: "done", title: "انجام‌شده", tone: "none" as const, items: completed },
+    ].filter((group) => group.items.length > 0);
+  }, [displayed, now]);
+
   const openCreate = useCallback(() => {
     setEditing(null);
     setModalOpen(true);
@@ -455,6 +491,60 @@ export default function AssignmentsPage() {
           </motion.button>
         }
       />
+
+      {/* مینی‌داشبورد */}
+      <div className="mb-5 grid gap-4 lg:grid-cols-3">
+        <ActivityChart
+          completed={items.filter((item) => item.is_completed_by_me).length}
+          total={items.length}
+        />
+        <AssignmentTypesChart items={items} />
+        <div className="panel relative overflow-hidden rounded-3xl p-5">
+          <div className="mb-4 flex items-center justify-between gap-2">
+            <div>
+              <p className="mono-label">// DEADLINES</p>
+              <h3 className="text-base font-bold text-white">مهلت‌های نزدیک</h3>
+            </div>
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
+              <CalendarClock size={15} className="text-white" />
+            </span>
+          </div>
+
+          {upcoming.length === 0 ? (
+            <p className="py-8 text-center text-[11px] text-fg-500">
+              مهلت نزدیکی ثبت نشده
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {upcoming.map((item) => {
+                const tone = deadlineTone(item.due_date, now);
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/assignments/${item.id}`)}
+                      className={`flex w-full items-center gap-2.5 rounded-2xl border bg-white/[0.02] px-2.5 py-2 text-right transition hover:bg-white/[0.05] ${TONE_BORDER[tone]}`}
+                    >
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${TONE_DOT[tone]}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[11.5px] font-bold text-white">
+                          {item.title}
+                        </span>
+                        <span className="block truncate text-[10px] text-fg-500">
+                          {subjectName(item.subject_id, item.course) || "بدون درس"}
+                        </span>
+                      </span>
+                      <span className={`shrink-0 text-[10px] font-semibold ${TONE_TEXT[tone]}`}>
+                        {relativeDue(item.due_date, now)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
 
       {/* نوار ابزار */}
       <div className="panel relative mb-5 flex flex-col gap-3 p-3">
@@ -614,31 +704,48 @@ export default function AssignmentsPage() {
           )}
         </motion.div>
       ) : (
-        <motion.div
-          layout
-          transition={{ type: "spring", stiffness: 320, damping: 34 }}
-          className={
-            view === "grid" ? "grid gap-4 sm:grid-cols-2 xl:grid-cols-3" : "flex flex-col gap-3"
-          }
-        >
-          <AnimatePresence mode="popLayout" initial={false}>
-            {displayed.map((item, i) => (
-              <AssignmentItem
-                key={item.id}
-                item={item}
-                view={view}
-                index={i}
-                now={now}
-                layoutEnabled={!isMobileWidth}
-                canManage={canManageAssignment(item, user)}
-                onOpen={handleOpen}
-                onToggle={handleToggle}
-                onDelete={handleDelete}
-                onEdit={openEdit}
-              />
-            ))}
-          </AnimatePresence>
-        </motion.div>
+        <div className="space-y-7">
+          {groups.map((group) => (
+            <section key={group.key}>
+              <div className="mb-3 flex items-center gap-2.5 px-1">
+                <span className={`h-2.5 w-2.5 rounded-full ${TONE_DOT[group.tone]}`} />
+                <h2 className="text-sm font-black text-white">{group.title}</h2>
+                <span className="mono rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[10px] tabular-nums text-fg-500">
+                  {group.items.length}
+                </span>
+                <span className="h-px flex-1 bg-gradient-to-l from-white/10 to-transparent" />
+              </div>
+
+              <motion.div
+                layout
+                transition={{ type: "spring", stiffness: 320, damping: 34 }}
+                className={
+                  view === "grid"
+                    ? "grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+                    : "flex flex-col gap-3"
+                }
+              >
+                <AnimatePresence mode="popLayout" initial={false}>
+                  {group.items.map((item, i) => (
+                    <AssignmentItem
+                      key={item.id}
+                      item={item}
+                      view={view}
+                      index={i}
+                      now={now}
+                      layoutEnabled={!isMobileWidth}
+                      canManage={canManageAssignment(item, user)}
+                      onOpen={handleOpen}
+                      onToggle={handleToggle}
+                      onDelete={handleDelete}
+                      onEdit={openEdit}
+                    />
+                  ))}
+                </AnimatePresence>
+              </motion.div>
+            </section>
+          ))}
+        </div>
       )}
 
       <AddAssignmentModal

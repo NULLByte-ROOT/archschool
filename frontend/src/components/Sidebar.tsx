@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   LayoutDashboard,
   CheckSquare,
+  CalendarDays,
   Settings,
   X,
   Users,
@@ -73,6 +74,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
 
   const links = [
     { to: "/", label: "داشبورد", icon: LayoutDashboard },
+    { to: "/timetable", label: "برنامه هفتگی", icon: CalendarDays },
     { to: "/assignments", label: "تکالیف و پروژه‌ها", icon: CheckSquare },
     { to: "/chat", label: "گفتگوها", icon: MessageCircle },
     { to: "/leaderboard", label: "جدول امتیازها", icon: Trophy },
@@ -177,7 +179,7 @@ export default function Sidebar({
   return (
     <>
       {/* سایدبار دسکتاپ */}
-      <aside className="hidden h-dvh w-64 shrink-0 flex-col overflow-hidden border-l border-white/5 bg-black/70 md:flex">
+      <aside className="app-sidebar hidden h-dvh w-64 shrink-0 flex-col overflow-hidden border-l border-white/5 bg-black/70 md:flex">
         <SidebarContent />
       </aside>
 
@@ -204,7 +206,7 @@ export default function Sidebar({
                 animate={{ x: 0 }}
                 exit={{ x: "100%" }}
                 transition={{ type: "spring", damping: 30, stiffness: 300 }}
-                className="absolute right-0 top-0 flex h-full w-72 max-w-[85vw] flex-col overflow-hidden border-l border-white/10 bg-black/95"
+                className="absolute right-0 top-0 app-drawer flex h-full w-72 max-w-[85vw] flex-col overflow-hidden border-l border-white/10 bg-black/95"
                 style={{ willChange: "transform" }}
               >
                 <SidebarContent onClose={onClose} />

@@ -33,6 +33,9 @@ export interface User {
   role: Role;
   is_active: boolean;
   points: number;
+  avatar_url?: string | null;
+  bio?: string;
+  last_seen?: string | null;
   created_at: string;
   code?: string;
 }
@@ -43,6 +46,19 @@ export interface PublicUser {
   is_admin: boolean;
   role?: Role;
   points: number;
+  avatar_url?: string | null;
+}
+
+export interface UserProfile {
+  id: number;
+  username: string;
+  is_admin: boolean;
+  role: Role;
+  points: number;
+  avatar_url?: string | null;
+  bio: string;
+  last_seen?: string | null;
+  created_at: string;
 }
 
 export interface TeamMember {
@@ -63,8 +79,10 @@ export interface Message {
   id: number;
   sender_id: number;
   sender_username: string | null;
+  sender_avatar_url?: string | null;
   receiver_id: number | null;
   assignment_id: number | null;
+  assignment_title?: string | null;
   content: string;
   file_url: string | null;
   reply_to: ReplyPreview | null;
@@ -176,11 +194,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 // ---------- Auth ----------
-export async function login(username: string, code: string): Promise<LoginResponse> {
+export async function login(
+  username: string,
+  code?: string,
+  password?: string
+): Promise<LoginResponse> {
   const res = await fetch(apiUrl("/auth/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, code }),
+    body: JSON.stringify({ username, code, password }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "خطا" }));
@@ -189,8 +211,38 @@ export async function login(username: string, code: string): Promise<LoginRespon
   return res.json();
 }
 
+export async function register(
+  username: string,
+  password: string
+): Promise<LoginResponse> {
+  const res = await fetch(apiUrl("/auth/register"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "خطا" }));
+    throw new Error(err.detail || "خطا در ثبت‌نام");
+  }
+  return res.json();
+}
+
 export async function fetchMe(): Promise<User> {
   return request<User>("/auth/me");
+}
+
+export async function fetchUserProfile(id: number): Promise<UserProfile> {
+  return request<UserProfile>(`/users/${id}/profile`);
+}
+
+export async function updateMe(data: {
+  avatar_url?: string | null;
+  bio?: string;
+}): Promise<User> {
+  return request<User>("/users/me", {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 }
 
 // ---------- Users (admin) ----------
@@ -201,6 +253,7 @@ export async function fetchUsers(): Promise<User[]> {
 export async function createUser(data: {
   username: string;
   code?: string;
+  password?: string;
   is_admin?: boolean;
   role?: Role;
 }): Promise<User> {
@@ -212,7 +265,13 @@ export async function createUser(data: {
 
 export async function updateUser(
   id: number,
-  data: { username?: string; code?: string; is_active?: boolean; role?: Role }
+  data: {
+    username?: string;
+    code?: string;
+    password?: string;
+    is_active?: boolean;
+    role?: Role;
+  }
 ): Promise<User> {
   return request<User>(`/users/${id}`, {
     method: "PATCH",
@@ -363,6 +422,23 @@ export async function sendMessage(data: {
 
 export async function deleteMessage(id: number): Promise<void> {
   return request<void>(`/messages/${id}`, { method: "DELETE" });
+}
+
+export async function clearChat(params: {
+  scope: "global" | "private" | "assignment";
+  peerId?: number;
+  assignmentId?: number;
+}): Promise<void> {
+  const search = new URLSearchParams({ scope: params.scope });
+  if (params.peerId) search.set("peer_id", String(params.peerId));
+  if (params.assignmentId) search.set("assignment_id", String(params.assignmentId));
+  return request<void>(`/messages/clear?${search.toString()}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchRecentComments(limit = 5): Promise<Message[]> {
+  return request<Message[]>(`/messages/recent-comments?limit=${limit}`);
 }
 
 export async function pinMessage(id: number): Promise<Message> {

@@ -26,6 +26,10 @@ def _ensure_columns() -> None:
         "users": {
             "points": "INTEGER NOT NULL DEFAULT 0",
             "role": "VARCHAR(20) NOT NULL DEFAULT 'member'",
+            "password": "VARCHAR(255)",
+            "avatar_url": "VARCHAR(500)",
+            "bio": "TEXT NOT NULL DEFAULT ''",
+            "last_seen": "TIMESTAMP",
         },
         "assignments": {
             "category": "VARCHAR(20) DEFAULT ''",

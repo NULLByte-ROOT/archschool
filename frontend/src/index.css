@@ -47,6 +47,12 @@
 @layer base {
   :root {
     color-scheme: dark;
+    --chart-1: #f4f4f5;
+    --chart-2: #a1a1aa;
+    --chart-3: #52525b;
+    --chart-track: rgba(255, 255, 255, 0.08);
+    --chart-muted: rgba(255, 255, 255, 0.45);
+    --period-glow: rgba(255, 255, 255, 0.22);
   }
 
   * {
@@ -417,4 +423,330 @@
   .noise::after {
     display: none !important;
   }
+}
+
+/* ------------------------------------------------------------------
+   CTA dashboard glow
+------------------------------------------------------------------ */
+@keyframes cta-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12), 0 10px 40px -12px rgba(255, 255, 255, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.25), 0 14px 52px -10px rgba(255, 255, 255, 0.55);
+  }
+}
+.cta-glow {
+  animation: cta-pulse 3.4s var(--ease-smooth) infinite;
+}
+@keyframes cta-sheen-move {
+  0% {
+    transform: translateX(-130%) skewX(-18deg);
+  }
+  55%, 100% {
+    transform: translateX(230%) skewX(-18deg);
+  }
+}
+.cta-sheen {
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.08), transparent);
+  animation: cta-sheen-move 3.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cta-glow,
+  .cta-sheen {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------
+   حالت روشن — خاکستری نرم، بدون سفید خیره‌کننده
+------------------------------------------------------------------ */
+.light {
+  color-scheme: light;
+
+  --color-bg-50: #ffffff;
+  --color-bg-100: #fafafa;
+  --color-bg-200: #f4f4f5;
+  --color-bg-300: #ebebee;
+  --color-bg-400: #e4e4e7;
+  --color-bg-500: #d4d4d8;
+  --color-bg-600: #c4c4ca;
+  --color-bg-700: #a1a1aa;
+  --color-bg-800: #f4f4f5;
+  --color-bg-900: #f4f4f5;
+
+  --color-fg-100: #18181b;
+  --color-fg-300: #3f3f46;
+  --color-fg-500: #71717a;
+  --color-fg-700: #52525b;
+  --color-fg-900: #18181b;
+
+  --color-accent-400: #111113;
+  --color-accent-500: #27272a;
+  --color-accent-600: #3f3f46;
+  --color-accent-700: #52525b;
+
+  --color-success: #059669;
+  --color-warning: #b45309;
+  --color-danger: #dc2626;
+
+  --color-border-600: rgba(24, 24, 27, 0.12);
+  --color-border-700: rgba(24, 24, 27, 0.08);
+
+  --chart-1: #27272a;
+  --chart-2: #71717a;
+  --chart-3: #a1a1aa;
+  --chart-track: #e4e4e7;
+  --chart-muted: #71717a;
+  --period-glow: rgba(24, 24, 27, 0.12);
+}
+
+html.light,
+.light body {
+  background: #f4f4f6 !important;
+  color: #18181b;
+}
+
+.light ::selection {
+  background: #18181b;
+  color: #fff;
+}
+
+.light ::-webkit-scrollbar-thumb {
+  background: rgba(24, 24, 27, 0.18);
+}
+.light ::-webkit-scrollbar-thumb:hover {
+  background: rgba(24, 24, 27, 0.3);
+}
+
+.light .text-white {
+  color: #18181b !important;
+}
+.light [class*="text-white/"] {
+  color: rgba(24, 24, 27, 0.55) !important;
+}
+.light [class*="text-[#6cb2ea]"] {
+  color: #1d6fa5 !important;
+}
+
+.light .bg-black {
+  background-color: #f4f4f6 !important;
+}
+.light [class*="bg-white/"] {
+  background-color: rgba(24, 24, 27, 0.045) !important;
+}
+.light [class*="bg-[#1c2733]"],
+.light [class*="bg-[#141418]"],
+.light [class*="bg-[#0b0b0e]"] {
+  background-color: #ffffff !important;
+}
+
+.light [class*="border-white/"] {
+  border-color: rgba(24, 24, 27, 0.1) !important;
+}
+.light [class*="divide-white/"] > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(24, 24, 27, 0.07) !important;
+}
+
+.light .panel,
+.light .glass {
+  background: rgba(255, 255, 255, 0.86) !important;
+  border-color: rgba(24, 24, 27, 0.09) !important;
+  box-shadow: 0 18px 40px -30px rgba(24, 24, 27, 0.4) !important;
+}
+.light .panel-hover:hover {
+  border-color: rgba(24, 24, 27, 0.2) !important;
+  background: #ffffff !important;
+}
+
+.light .grid-bg {
+  background-image:
+    linear-gradient(to right, rgba(24, 24, 27, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(24, 24, 27, 0.05) 1px, transparent 1px);
+}
+.light .floor-grid {
+  opacity: 0.1 !important;
+  background-image:
+    linear-gradient(to right, rgba(24, 24, 27, 0.15) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(24, 24, 27, 0.15) 1px, transparent 1px);
+}
+.light .app-floor {
+  display: none;
+}
+
+.light .btn-primary {
+  background: #18181b;
+  color: #ffffff;
+  box-shadow: 0 10px 24px -14px rgba(24, 24, 27, 0.8);
+}
+.light .btn-primary:hover {
+  background: #27272a;
+}
+.light .btn-ghost {
+  border-color: rgba(24, 24, 27, 0.12);
+  background: rgba(255, 255, 255, 0.7);
+  color: #27272a;
+}
+.light .btn-ghost:hover {
+  border-color: rgba(24, 24, 27, 0.3);
+  background: #ffffff;
+}
+.light .icon-btn {
+  border-color: rgba(24, 24, 27, 0.1);
+  background: #ffffff;
+  color: #52525b;
+}
+.light .icon-btn:hover {
+  border-color: rgba(24, 24, 27, 0.28);
+  background: #ffffff;
+  color: #18181b;
+}
+
+.light .input {
+  border-color: rgba(24, 24, 27, 0.1);
+  background: rgba(255, 255, 255, 0.8);
+  color: #18181b;
+}
+.light .input::placeholder {
+  color: #a1a1aa;
+}
+.light .input:hover {
+  background: #ffffff;
+}
+.light .input:focus {
+  border-color: rgba(24, 24, 27, 0.45);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(24, 24, 27, 0.06);
+}
+
+.light .badge {
+  border-color: rgba(24, 24, 27, 0.12);
+  background: rgba(24, 24, 27, 0.035);
+  color: #3f3f46;
+}
+.light .dot {
+  background: #18181b;
+  box-shadow: 0 0 8px rgba(24, 24, 27, 0.5);
+}
+
+.light .avatar {
+  border-color: rgba(24, 24, 27, 0.14);
+  box-shadow: 0 6px 16px -10px rgba(24, 24, 27, 0.6);
+}
+
+.light .app-sidebar {
+  background: rgba(250, 250, 250, 0.88) !important;
+  border-color: rgba(24, 24, 27, 0.07) !important;
+}
+.light .app-topbar {
+  background: rgba(250, 250, 250, 0.9) !important;
+  border-color: rgba(24, 24, 27, 0.07) !important;
+}
+.light .app-drawer {
+  background: #fafafa !important;
+  border-color: rgba(24, 24, 27, 0.08) !important;
+}
+
+.light .chat-list,
+.light .chat-room,
+.light .chat-body,
+.light .chat-header,
+.light .chat-subbar,
+.light .chat-composer {
+  background: #ffffff !important;
+  border-color: rgba(24, 24, 27, 0.08) !important;
+}
+.light .chat-body {
+  background: #f7f7f9 !important;
+}
+.light .chat-list header {
+  background: transparent !important;
+}
+.light .chat-body [class*="bg-black/70"] {
+  background-color: rgba(24, 24, 27, 0.08) !important;
+}
+
+.light .bubble-own {
+  background: #e5e5ea;
+  border: 1px solid rgba(24, 24, 27, 0.06);
+}
+.light .bubble-other {
+  background: #ffffff;
+  border: 1px solid rgba(24, 24, 27, 0.07);
+}
+.light .bubble-tail-own::after {
+  background: #e5e5ea;
+}
+.light .bubble-tail-other::after {
+  background: #ffffff;
+}
+.light .bubble-own [class*="bg-black/"],
+.light .bubble-other [class*="bg-black/"] {
+  background-color: rgba(24, 24, 27, 0.05) !important;
+}
+.light .chat-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(24, 24, 27, 0.2);
+}
+.light .chat-scroll:hover {
+  scrollbar-color: rgba(24, 24, 27, 0.2) transparent;
+}
+
+.light .cta-hero {
+  background: linear-gradient(145deg, #ffffff, #f1f1f4) !important;
+  border-color: rgba(24, 24, 27, 0.08) !important;
+}
+.light .cta-button {
+  background: #18181b !important;
+  border-color: #18181b !important;
+  color: #ffffff !important;
+}
+.light .cta-button .text-white {
+  color: #ffffff !important;
+}
+.light .cta-sheen {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.14), transparent);
+}
+
+.light [class*="bg-[#050507]"],
+.light [class*="bg-[#07070a]"],
+.light [class*="bg-[#111318]"],
+.light [class*="bg-[#0a0a0c]"] {
+  background-color: #ffffff !important;
+}
+
+.light .send-btn {
+  background: #1d6fa5 !important;
+  color: #ffffff !important;
+}
+
+.light [class*="border-[#111318]"] {
+  border-color: #ffffff !important;
+}
+
+.light .auth-submit {
+  background: #18181b !important;
+  color: #ffffff !important;
+  box-shadow: 0 10px 26px -14px rgba(24, 24, 27, 0.75);
+}
+.light .auth-submit:hover {
+  background: #27272a !important;
+}
+.light .auth-submit:disabled {
+  opacity: 0.45;
+}
+.light .auth-tab-active {
+  background: #18181b !important;
+  color: #ffffff !important;
+}
+.light .auth-input:focus {
+  background: #ffffff !important;
+  color: #18181b !important;
+}
+
+.light .theme-active {
+  background: #18181b !important;
+  border-color: #18181b !important;
+  color: #ffffff !important;
 }

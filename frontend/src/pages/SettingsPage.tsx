@@ -1,13 +1,36 @@
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LogOut, ShieldCheck, Fingerprint, Calendar, Cpu } from "lucide-react";
+import {
+  Camera,
+  Calendar,
+  Check,
+  Cpu,
+  Fingerprint,
+  Loader2,
+  LogOut,
+  Moon,
+  ShieldCheck,
+  Sun,
+} from "lucide-react";
+import { updateMe, uploadFile } from "../api/client";
 import { useAuth } from "../contexts/AuthContext";
+import { useTheme } from "../contexts/ThemeContext";
 import PageHeader from "../components/PageHeader";
 import Corners from "../components/Corners";
+import Avatar from "../components/Avatar";
 import { parseDue } from "../lib/assignments";
 
 export default function SettingsPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, refreshUser } = useAuth();
+  const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [bio, setBio] = useState(user?.bio ?? "");
+  const [savingBio, setSavingBio] = useState(false);
+  const [bioSaved, setBioSaved] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const rows = [
     { icon: Fingerprint, label: "USERNAME", value: user?.username ?? "—", mono: true },
@@ -38,6 +61,38 @@ export default function SettingsPage() {
     },
   ];
 
+  async function handleAvatar(file: File | undefined) {
+    if (!file || uploading) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const uploaded = await uploadFile(file);
+      await updateMe({ avatar_url: uploaded.url });
+      await refreshUser();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "آپلود تصویر ناموفق بود");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  async function saveBio() {
+    if (savingBio) return;
+    setSavingBio(true);
+    setError(null);
+    try {
+      await updateMe({ bio: bio.trim() });
+      await refreshUser();
+      setBioSaved(true);
+      window.setTimeout(() => setBioSaved(false), 1800);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "ذخیره بیو ناموفق بود");
+    } finally {
+      setSavingBio(false);
+    }
+  }
+
   function handleLogout() {
     logout();
     navigate("/login");
@@ -51,8 +106,30 @@ export default function SettingsPage() {
       <div className="panel relative mb-4 p-6">
         <Corners />
         <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/25 bg-white/10 text-xl font-bold text-white shadow-[0_0_25px_-8px_rgba(255,255,255,0.7)]">
-            {user?.username.charAt(0).toUpperCase() || "?"}
+          <div className="relative shrink-0">
+            <Avatar
+              name={user?.username ?? "?"}
+              src={user?.avatar_url}
+              size="xl"
+              className="shadow-[0_0_30px_-10px_rgba(255,255,255,0.55)]"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="absolute -bottom-1 -left-1 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black text-white shadow-lg transition hover:bg-white hover:text-black disabled:opacity-60"
+              aria-label="تغییر تصویر پروفایل"
+              title="تغییر تصویر پروفایل"
+            >
+              {uploading ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => handleAvatar(event.target.files?.[0])}
+            />
           </div>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-lg font-bold text-white" dir="ltr">
@@ -63,11 +140,57 @@ export default function SettingsPage() {
                 <span className="dot" />
                 {user?.is_admin ? "admin" : "user"}
               </span>
+              <span className="mono text-[10px] text-fg-500">
+                {user?.points ?? 0} POINTS
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 divide-y divide-white/5">
+        <div className="mt-5">
+          <div className="mb-1.5 flex items-center justify-between">
+            <label htmlFor="bio" className="mono-label">
+              BIO
+            </label>
+            <span className="text-[10px] text-fg-500">{bio.length}/200</span>
+          </div>
+          <textarea
+            id="bio"
+            value={bio}
+            maxLength={200}
+            rows={2}
+            onChange={(event) => {
+              setBio(event.target.value);
+              setBioSaved(false);
+            }}
+            placeholder="یک بیو کوتاه درباره خودت بنویس…"
+            className="input w-full resize-none py-2.5 text-[16px] leading-6 md:text-[12.5px]"
+          />
+          <div className="mt-2 flex items-center justify-between gap-2">
+            {error ? (
+              <p className="text-[11px] text-danger">{error}</p>
+            ) : (
+              <span className="text-[11px] text-fg-500">
+                {bioSaved ? "ذخیره شد" : "برای نمایش در پروفایل"}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={saveBio}
+              disabled={savingBio || bio.trim() === (user?.bio ?? "")}
+              className="btn-ghost h-9 px-3 text-[11px]"
+            >
+              {savingBio ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : bioSaved ? (
+                <Check size={13} />
+              ) : null}
+              ذخیره بیو
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 divide-y divide-white/5 border-t border-white/5">
           {rows.map((row) => {
             const Icon = row.icon;
             return (
@@ -85,6 +208,41 @@ export default function SettingsPage() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* ظاهر */}
+      <div className="panel relative mb-4 p-6">
+        <Corners />
+        <p className="mono-label mb-1">// APPEARANCE</p>
+        <p className="mb-4 text-sm text-fg-500">حالت نمایش را انتخاب کن</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setTheme("dark")}
+            aria-pressed={theme === "dark"}
+            className={`flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+              theme === "dark"
+                ? "theme-active border-white/60 bg-white text-black"
+                : "border-white/10 bg-white/[0.03] text-fg-300 hover:border-white/25"
+            }`}
+          >
+            <Moon size={16} />
+            تاریک
+          </button>
+          <button
+            type="button"
+            onClick={() => setTheme("light")}
+            aria-pressed={theme === "light"}
+            className={`flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
+              theme === "light"
+                ? "theme-active border-white/60 bg-white text-black"
+                : "border-white/10 bg-white/[0.03] text-fg-300 hover:border-white/25"
+            }`}
+          >
+            <Sun size={16} />
+            روشن
+          </button>
         </div>
       </div>
 

@@ -1,6 +1,10 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { fetchMe, login as apiLogin } from "../api/client";
+import {
+  fetchMe,
+  login as apiLogin,
+  register as apiRegister,
+} from "../api/client";
 import type { User } from "../api/client";
 
 interface AuthContextType {
@@ -8,7 +12,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isEditor: boolean;
-  login: (username: string, code: string) => Promise<void>;
+  login: (username: string, code?: string, password?: string) => Promise<void>;
+  register: (username: string, password: string) => Promise<void>;
+  refreshUser: () => Promise<void>;
   logout: () => void;
 }
 
@@ -42,11 +48,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = async (username: string, code: string) => {
-    const data = await apiLogin(username, code);
+  const persist = (data: { access_token: string; user: User }) => {
     localStorage.setItem("token", data.access_token);
     localStorage.setItem("user", JSON.stringify(data.user));
     setUser(data.user);
+  };
+
+  const login = async (username: string, code?: string, password?: string) => {
+    persist(await apiLogin(username, code, password));
+  };
+
+  const register = async (username: string, password: string) => {
+    persist(await apiRegister(username, password));
+  };
+
+  const refreshUser = async () => {
+    const fresh = await fetchMe();
+    localStorage.setItem("user", JSON.stringify(fresh));
+    setUser(fresh);
   };
 
   const logout = () => {
@@ -63,6 +82,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin: !!user?.is_admin || user?.role === "admin",
         isEditor: user?.role === "editor",
         login,
+        register,
+        refreshUser,
         logout,
       }}
     >

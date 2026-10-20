@@ -186,6 +186,69 @@ async def create_message(
     return message
 
 
+@router.get("/recent-comments", response_model=list[schemas.MessageOut])
+def recent_comments(
+    limit: int = Query(5, ge=1, le=20),
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Latest comments that were posted on an assignment task."""
+    return (
+        db.query(models.Message)
+        .filter(models.Message.assignment_id.isnot(None))
+        .order_by(models.Message.created_at.desc(), models.Message.id.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+@router.delete("/clear", status_code=204)
+async def clear_messages(
+    scope: Literal["global", "private", "assignment"] = Query("global"),
+    peer_id: int | None = Query(None),
+    assignment_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Admin-only: wipe every message in the current room."""
+    if not (current.is_admin or current.role == models.ROLE_ADMIN):
+        raise HTTPException(status_code=403, detail="فقط مدیر می‌تواند گفتگو را پاک کند")
+
+    query = db.query(models.Message)
+    if scope == "global":
+        query = query.filter(
+            models.Message.receiver_id.is_(None),
+            models.Message.assignment_id.is_(None),
+        )
+        room = "global"
+    elif scope == "private":
+        if not peer_id:
+            raise HTTPException(status_code=400, detail="کاربر مقصد مشخص نیست")
+        query = query.filter(
+            or_(
+                and_(
+                    models.Message.sender_id == current.id,
+                    models.Message.receiver_id == peer_id,
+                ),
+                and_(
+                    models.Message.sender_id == peer_id,
+                    models.Message.receiver_id == current.id,
+                ),
+            )
+        )
+        room = chat.dm_room(current.id, peer_id)
+    else:
+        if not assignment_id:
+            raise HTTPException(status_code=400, detail="تکلیف مشخص نیست")
+        query = query.filter(models.Message.assignment_id == assignment_id)
+        room = f"assignment:{assignment_id}"
+
+    deleted = query.delete(synchronize_session=False)
+    db.commit()
+    await manager.broadcast(room, {"type": "clear", "data": {"room": room, "deleted": deleted}})
+    return None
+
+
 @router.delete("/{message_id}", status_code=204)
 async def delete_message(
     message_id: int,
@@ -193,7 +256,9 @@ async def delete_message(
     current: models.User = Depends(get_current_user),
 ):
     message = chat.load_visible_message(db, message_id, current.id)
-    if message.sender_id != current.id and not current.is_admin:
+    if message.sender_id != current.id and not (
+        current.is_admin or current.role == models.ROLE_ADMIN
+    ):
         raise HTTPException(
             status_code=403, detail="فقط فرستنده می‌تواند پیام را حذف کند"
         )

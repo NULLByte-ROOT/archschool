@@ -9,6 +9,7 @@ import {
 } from "../api/client";
 import type { Role, User } from "../api/client";
 import PageHeader from "../components/PageHeader";
+import Avatar from "../components/Avatar";
 import Corners from "../components/Corners";
 import Dropdown from "../components/Dropdown";
 import { parseDue } from "../lib/assignments";
@@ -216,9 +217,7 @@ export default function UsersPage() {
                   transition={{ delay: i * 0.03, duration: 0.25 }}
                   className="flex flex-wrap items-center gap-3 px-4 py-3 transition hover:bg-white/[0.03]"
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 text-sm font-semibold text-white">
-                    {user.username.charAt(0).toUpperCase()}
-                  </div>
+                  <Avatar name={user.username} src={user.avatar_url} size="sm" />
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">

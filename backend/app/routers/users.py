@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List
 
-from .. import models, schemas
+from .. import chat, models, schemas
 from ..database import get_db
 from ..dependencies import get_current_admin, get_current_user
-from ..security import generate_code
+from ..security import generate_code, hash_password, normalize_username
 
 router = APIRouter()
 
@@ -36,6 +37,40 @@ def team(
     )
 
 
+@router.patch("/me", response_model=schemas.UserOut)
+def update_me(
+    data: schemas.UserSelfUpdate,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    updates = data.model_dump(exclude_unset=True)
+    if "avatar_url" in updates:
+        chat.validate_file_url(updates["avatar_url"])
+    if "bio" in updates:
+        updates["bio"] = (updates["bio"] or "").strip()
+    for key, value in updates.items():
+        setattr(current, key, value)
+    db.commit()
+    db.refresh(current)
+    return current
+
+
+@router.get("/{user_id}/profile", response_model=schemas.UserProfileOut)
+def user_profile(
+    user_id: int,
+    db: Session = Depends(get_db),
+    _: models.User = Depends(get_current_user),
+):
+    user = (
+        db.query(models.User)
+        .filter(models.User.id == user_id, models.User.is_active.is_(True))
+        .first()
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail="کاربر پیدا نشد")
+    return user
+
+
 @router.get("/", response_model=List[schemas.UserOut])
 def list_users(
     db: Session = Depends(get_db),
@@ -50,7 +85,13 @@ def create_user(
     db: Session = Depends(get_db),
     _: models.User = Depends(get_current_admin),
 ):
-    if db.query(models.User).filter(models.User.username == data.username).first():
+    username = normalize_username(data.username)
+    exists = (
+        db.query(models.User)
+        .filter(func.lower(models.User.username) == username.lower())
+        .first()
+    )
+    if exists:
         raise HTTPException(status_code=400, detail="این نام کاربری قبلاً گرفته شده")
 
     code = (data.code or generate_code()).upper()
@@ -60,8 +101,9 @@ def create_user(
         raise HTTPException(status_code=400, detail="نقش نامعتبر است")
 
     user = models.User(
-        username=data.username,
+        username=username,
         code=code,
+        password=hash_password(data.password) if data.password else None,
         is_admin=role == models.ROLE_ADMIN,
         role=role,
         is_active=True,
@@ -84,8 +126,12 @@ def update_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     updates = data.model_dump(exclude_unset=True)
+    if updates.get("username"):
+        updates["username"] = normalize_username(updates["username"])
     if updates.get("code"):
         updates["code"] = updates["code"].upper()
+    if updates.get("password"):
+        updates["password"] = hash_password(updates["password"])
     if "role" in updates and updates["role"] not in models.VALID_ROLES:
         raise HTTPException(status_code=400, detail="نقش نامعتبر است")
 

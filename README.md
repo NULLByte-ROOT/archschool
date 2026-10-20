@@ -1,11 +1,27 @@
 # ArchSchool
 
 ArchSchool is a school homework & timetable manager. It tracks assignments,
-exams and projects, and shows the weekly class schedule with upcoming work
-highlighted per subject.
+exams and projects, shows the weekly class schedule with a live period
+countdown, and includes a team chat with profiles.
 
 - **Frontend:** React 19 + TypeScript + Vite + Tailwind CSS v4 + Framer Motion
 - **Backend:** FastAPI + SQLAlchemy + Pydantic (SQLite for local dev, PostgreSQL in Docker)
+
+## Features
+
+- **Dashboard** — activity chart, assignment type breakdown, upcoming
+  deadlines, recent chat messages and latest assignment comments.
+- **Timetable** — Sat–Thu, four 90-minute periods (08:00–14:00), live
+  countdown for the current/next period, and next school day preview.
+- **Assignments** — urgent/upcoming/completed groups, filters, per-user
+  completion and points.
+- **Accounts** — username + password registration and login (legacy login
+  codes and the admin code still work), editable bio and avatar.
+- **Chat** — global, private and per-assignment rooms; profile modal, pin,
+  reply, forward, attachments, admin delete-any/clear-room.
+- **Themes** — dark monochrome (default) and a soft light theme, toggle in
+  Settings.
+
 
 ## Structure
 
@@ -27,6 +43,8 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Copy `backend/.env.example` to `backend/.env` and adjust values as needed.
+New users can register from `/register`; usernames are case-insensitive on
+lookup and start with a capital letter.
 
 ### Frontend
 
@@ -67,6 +85,18 @@ docker compose exec -T db psql -U postgres -d archschool_db \
 
 It adds `users.role`, `assignments.creator_id` and `assignment_completions`,
 then backfills existing admins, creators and completed assignments.
+
+For username/password auth and profiles, apply
+[`backend/migrations/002_user_passwords_profiles.sql`](backend/migrations/002_user_passwords_profiles.sql)
+the same way:
+
+```bash
+docker compose exec -T db psql -U postgres -d archschool_db \
+  < backend/migrations/002_user_passwords_profiles.sql
+```
+
+It adds `users.password`, `users.avatar_url`, `users.bio` and
+`users.last_seen`. Both migrations are idempotent and only add columns.
 
 ## Production
 

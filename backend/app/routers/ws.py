@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, UTC
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
@@ -24,6 +25,8 @@ def _authenticate(token: str | None) -> models.User | None:
         )
         if not user or not user.is_active:
             return None
+        user.last_seen = datetime.now(UTC).replace(tzinfo=None)
+        db.commit()
         db.expunge(user)
         return user
 

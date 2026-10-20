@@ -9,6 +9,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     code: Optional[str] = Field(None, min_length=6, max_length=6)
+    password: Optional[str] = Field(None, min_length=6, max_length=128)
     is_admin: bool = False
     role: Optional[str] = Field(None, max_length=20)
 
@@ -16,9 +17,17 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     username: Optional[str] = Field(None, min_length=2, max_length=50)
     code: Optional[str] = Field(None, min_length=6, max_length=6)
+    password: Optional[str] = Field(None, min_length=6, max_length=128)
+    avatar_url: Optional[str] = Field(None, max_length=500)
+    bio: Optional[str] = Field(None, max_length=500)
     is_active: Optional[bool] = None
     is_admin: Optional[bool] = None
     role: Optional[str] = Field(None, max_length=20)
+
+
+class UserSelfUpdate(BaseModel):
+    avatar_url: Optional[str] = Field(None, max_length=500)
+    bio: Optional[str] = Field(None, max_length=500)
 
 
 class UserOut(UserBase):
@@ -27,8 +36,25 @@ class UserOut(UserBase):
     role: str = "member"
     is_active: bool
     points: int = 0
+    avatar_url: Optional[str] = None
+    bio: str = ""
+    last_seen: Optional[datetime] = None
     created_at: datetime
     code: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class UserProfileOut(BaseModel):
+    id: int
+    username: str
+    is_admin: bool
+    role: str = "member"
+    points: int = 0
+    avatar_url: Optional[str] = None
+    bio: str = ""
+    last_seen: Optional[datetime] = None
+    created_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -39,13 +65,20 @@ class PublicUserOut(BaseModel):
     is_admin: bool
     role: str = "member"
     points: int = 0
+    avatar_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
 
 class LoginRequest(BaseModel):
     username: str
-    code: str = Field(..., min_length=6, max_length=6)
+    code: Optional[str] = Field(None, max_length=100)
+    password: Optional[str] = Field(None, max_length=128)
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=2, max_length=50)
+    password: str = Field(..., min_length=6, max_length=128)
 
 
 class LoginResponse(BaseModel):
@@ -123,8 +156,10 @@ class MessageOut(BaseModel):
     id: int
     sender_id: int
     sender_username: Optional[str] = None
+    sender_avatar_url: Optional[str] = None
     receiver_id: Optional[int] = None
     assignment_id: Optional[int] = None
+    assignment_title: Optional[str] = None
     content: str = ""
     file_url: Optional[str] = None
     reply_to: Optional[ReplyPreview] = None

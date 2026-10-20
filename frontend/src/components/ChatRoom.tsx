@@ -31,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  clearChat,
   deleteMessage,
   fetchMessages,
   fetchTeam,
@@ -46,6 +47,7 @@ import { useChatSocket } from "../hooks/useChatSocket";
 import type { ChatSocketEvent } from "../hooks/useChatSocket";
 import { chatDayLabel, chatTime } from "../lib/chat";
 import Avatar from "./Avatar";
+import UserProfileModal from "./UserProfileModal";
 
 const IMAGE_RE = /\.(png|jpe?g|jfif|gif|webp|avif|bmp)(\?|$)/i;
 const UPLOAD_ACCEPT = "image/*,video/*,application/pdf";
@@ -102,6 +104,7 @@ const MessageBubble = memo(function MessageBubble({
   onReply,
   onPressStart,
   onPressEnd,
+  onProfile,
 }: {
   message: Message;
   own: boolean;
@@ -113,6 +116,7 @@ const MessageBubble = memo(function MessageBubble({
   onReply: (message: Message) => void;
   onPressStart: (message: Message, x: number, y: number) => void;
   onPressEnd: () => void;
+  onProfile: (id: number) => void;
 }) {
   const media = resolveMediaUrl(message.file_url);
   const isImage = !!message.file_url && IMAGE_RE.test(message.file_url);
@@ -122,7 +126,7 @@ const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
-      className={`relative min-w-0 select-none rounded-2xl px-2.5 py-1.5 transition-shadow ${
+      className={`relative min-w-0 select-none rounded-2xl px-3 pt-2 pb-5 transition-shadow ${
         own
           ? "max-w-[84%] bubble-own rounded-br-sm text-white sm:max-w-[72%]"
           : "max-w-[78%] bubble-other rounded-bl-sm text-fg-100 sm:max-w-[68%]"
@@ -169,7 +173,13 @@ const MessageBubble = memo(function MessageBubble({
       </div>
 
       {!own && showName && (
-        <p className="mb-0.5 text-[12px] font-bold text-[#6cb2ea]">{name}</p>
+        <button
+          type="button"
+          onClick={() => onProfile(message.sender_id)}
+          className="mb-0.5 block text-[12px] font-bold text-[#6cb2ea] hover:underline"
+        >
+          {name}
+        </button>
       )}
 
       {message.reply_to && (
@@ -218,7 +228,7 @@ const MessageBubble = memo(function MessageBubble({
       )}
 
       {message.content && (
-        <p className="pr-12 text-[14.5px] leading-relaxed whitespace-pre-wrap break-words">
+        <p className="text-[14.5px] leading-relaxed whitespace-pre-wrap break-words">
           {message.content}
         </p>
       )}
@@ -238,7 +248,7 @@ const MessageBubble = memo(function MessageBubble({
 
 function ContextMenu({
   menu,
-  own,
+  canDelete,
   onClose,
   onReply,
   onCopy,
@@ -247,7 +257,7 @@ function ContextMenu({
   onDelete,
 }: {
   menu: MenuState;
-  own: boolean;
+  canDelete: boolean;
   onClose: () => void;
   onReply: () => void;
   onCopy: () => void;
@@ -256,7 +266,7 @@ function ContextMenu({
   onDelete: () => void;
 }) {
   const width = 200;
-  const height = own ? 5 * 40 + 12 : 4 * 40 + 12;
+  const height = (canDelete ? 5 : 4) * 40 + 12;
   const left = Math.min(Math.max(8, menu.x), window.innerWidth - width - 8);
   const top = Math.min(Math.max(8, menu.y), window.innerHeight - height - 8);
 
@@ -290,7 +300,7 @@ function ContextMenu({
         )}
         {menu.message.is_pinned ? "برداشتن سنجاق" : "سنجاق"}
       </button>
-      {own && (
+      {canDelete && (
         <button
           type="button"
           className={`${item} text-danger hover:bg-danger/10`}
@@ -311,6 +321,7 @@ export default function ChatRoom({
   title,
   subtitle,
   avatarName,
+  avatarSrc,
   headerIcon,
   peerId,
   assignmentId,
@@ -321,13 +332,14 @@ export default function ChatRoom({
   title: string;
   subtitle?: string;
   avatarName?: string;
+  avatarSrc?: string | null;
   headerIcon?: ReactNode;
   peerId?: number;
   assignmentId?: number;
   compact?: boolean;
   onBack?: () => void;
 }) {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
@@ -343,6 +355,7 @@ export default function ChatRoom({
   const [searchQuery, setSearchQuery] = useState("");
   const [forwardFor, setForwardFor] = useState<Message | null>(null);
   const [forwardTeam, setForwardTeam] = useState<PublicUser[]>([]);
+  const [profileId, setProfileId] = useState<number | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -372,6 +385,8 @@ export default function ChatRoom({
     if (event.type === "delete") {
       const id = (event.data as { id?: number } | undefined)?.id;
       if (id) setMessages((prev) => prev.filter((item) => item.id !== id));
+    } else if (event.type === "clear") {
+      setMessages([]);
     } else if (event.type === "pin") {
       const data = event.data as Message | undefined;
       if (!data) return;
@@ -625,6 +640,24 @@ export default function ChatRoom({
     }
   }
 
+  async function handleClearChat() {
+    setMoreOpen(false);
+    if (
+      !window.confirm(
+        "کل گفتگو برای همه پاک شود؟ این کار قابل بازگشت نیست."
+      )
+    ) {
+      return;
+    }
+    try {
+      await clearChat({ scope, peerId, assignmentId });
+      setMessages([]);
+      showToast("گفتگو پاک شد");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "پاک کردن ناموفق بود");
+    }
+  }
+
   function openForward(message: Message) {
     setMenu(null);
     setForwardFor(message);
@@ -653,14 +686,14 @@ export default function ChatRoom({
 
   return (
     <section
-      className={`relative flex min-h-0 w-full flex-col overflow-hidden bg-black ${
+      className={`chat-room relative flex min-h-0 w-full flex-col overflow-hidden bg-black ${
         compact
           ? "h-[460px] rounded-3xl border border-white/10 sm:h-[540px]"
           : "h-full rounded-none border-0 md:rounded-3xl md:border md:border-white/10 md:bg-black/40"
       }`}
     >
       {/* هدر */}
-      <header className="relative z-20 flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#17212b] px-2 py-2 sm:px-3 md:bg-black/50 md:backdrop-blur-xl">
+      <header className="chat-header relative z-20 flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#0b0b0e] px-2 py-2 sm:px-3">
         {onBack && (
           <button
             type="button"
@@ -673,7 +706,7 @@ export default function ChatRoom({
         )}
 
         {avatarName ? (
-          <Avatar name={avatarName} size="sm" />
+          <Avatar name={avatarName} src={avatarSrc} size="sm" />
         ) : (
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white/[0.05] text-white">
             {headerIcon ?? <MessageCircle size={18} />}
@@ -694,6 +727,18 @@ export default function ChatRoom({
             {subtitle && <span className="truncate text-fg-500">· {subtitle}</span>}
           </p>
         </div>
+
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={handleClearChat}
+            className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-500 transition hover:bg-danger/15 hover:text-danger sm:flex"
+            aria-label="پاک کردن کل گفتگو"
+            title="پاک کردن کل گفتگو"
+          >
+            <Trash2 size={18} />
+          </button>
+        )}
 
         <button
           type="button"
@@ -742,10 +787,19 @@ export default function ChatRoom({
                     setMoreOpen(false);
                     showToast("نمایش گفتگو پاک شد");
                   }}
-                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-danger transition hover:bg-danger/10"
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-fg-300 transition hover:bg-white/[0.07]"
                 >
-                  <Trash2 size={15} /> پاک کردن نمایش
+                  <X size={15} /> پاک کردن نمایش
                 </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleClearChat}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] text-danger transition hover:bg-danger/10"
+                  >
+                    <Trash2 size={15} /> پاک کردن کل گفتگو
+                  </button>
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -753,7 +807,7 @@ export default function ChatRoom({
       </header>
 
       {searchOpen && (
-        <div className="relative z-10 shrink-0 border-b border-white/10 bg-[#17212b] px-3 py-2">
+        <div className="chat-subbar relative z-10 shrink-0 border-b border-white/10 bg-[#0b0b0e] px-3 py-2">
           <input
             autoFocus
             value={searchQuery}
@@ -772,7 +826,7 @@ export default function ChatRoom({
               .getElementById(`msg-${pinned.id}`)
               ?.scrollIntoView({ behavior: "smooth", block: "center" })
           }
-          className="relative z-10 flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#1c2733] px-3 py-2 text-right transition hover:bg-white/[0.04]"
+          className="chat-subbar relative z-10 flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#141418] px-3 py-2 text-right transition hover:bg-white/[0.04]"
         >
           <Pin size={14} className="shrink-0 rotate-45 text-[#6cb2ea]" />
           <span className="min-w-0 flex-1">
@@ -794,10 +848,8 @@ export default function ChatRoom({
           nearBottomRef.current =
             el.scrollHeight - el.scrollTop - el.clientHeight < 160;
         }}
-        className="chat-scroll relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-3 py-3 [-webkit-overflow-scrolling:touch]"
+        className="chat-body chat-scroll relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-black px-3 py-3 [-webkit-overflow-scrolling:touch]"
       >
-        <div className="pointer-events-none absolute inset-0 grid-bg opacity-[0.08]" />
-
         {loading ? (
           <div className="relative flex h-full items-center justify-center gap-2 text-xs text-fg-500">
             <Loader2 size={16} className="animate-spin" />
@@ -814,7 +866,7 @@ export default function ChatRoom({
             </p>
           </div>
         ) : (
-          <div className="relative flex flex-col gap-1">
+          <div className="relative flex flex-col gap-2">
             {items.map((item) => (
               <Fragment key={item.message.id}>
                 {item.day && (
@@ -824,7 +876,7 @@ export default function ChatRoom({
                 )}
                 <div
                   id={`msg-${item.message.id}`}
-                  className={`group flex w-full items-end ${
+                  className={`group flex w-full items-end gap-2 ${
                     item.own ? "justify-start" : "justify-end"
                   }`}
                 >
@@ -839,11 +891,23 @@ export default function ChatRoom({
                     onReply={startReply}
                     onPressStart={handlePressStart}
                     onPressEnd={handlePressEnd}
+                    onProfile={setProfileId}
                   />
                   {!item.own && (
                     <span className="w-9 shrink-0 self-end">
                       {item.showName && (
-                        <Avatar name={item.message.sender_username ?? "کاربر"} size="xs" />
+                        <button
+                          type="button"
+                          onClick={() => setProfileId(item.message.sender_id)}
+                          className="block rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/40"
+                          aria-label="مشاهده پروفایل"
+                        >
+                          <Avatar
+                            name={item.message.sender_username ?? "کاربر"}
+                            src={item.message.sender_avatar_url}
+                            size="xs"
+                          />
+                        </button>
                       )}
                     </span>
                   )}
@@ -857,7 +921,7 @@ export default function ChatRoom({
       {/* ورودی */}
       <div
         ref={composerRef}
-        className="pb-safe relative z-10 shrink-0 border-t border-white/10 bg-[#17212b] px-2 pt-2 sm:px-3 md:bg-black/55"
+        className="chat-composer pb-safe relative z-10 shrink-0 border-t border-white/10 bg-[#0b0b0e] px-2 pt-2 sm:px-3"
       >
         {error && (
           <p className="mb-2 rounded-lg border border-danger/25 bg-danger/10 px-2.5 py-1.5 text-[11px] text-danger">
@@ -950,7 +1014,7 @@ export default function ChatRoom({
               type="button"
               onClick={handleSend}
               disabled={sending}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#3390ec] text-white transition active:scale-95 disabled:opacity-60"
+              className="send-btn flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#3390ec] text-white transition active:scale-95 disabled:opacity-60"
               aria-label="ارسال"
             >
               {sending ? (
@@ -997,7 +1061,7 @@ export default function ChatRoom({
             />
             <ContextMenu
               menu={menu}
-              own={menu.message.sender_id === user?.id}
+              canDelete={isAdmin || menu.message.sender_id === user?.id}
               onClose={() => setMenu(null)}
               onReply={() => startReply(menu.message)}
               onCopy={() => handleCopy(menu.message)}
@@ -1059,7 +1123,7 @@ export default function ChatRoom({
                       onClick={() => forwardTo(member.id)}
                       className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-right transition hover:bg-white/[0.06]"
                     >
-                      <Avatar name={member.username} size="sm" />
+                      <Avatar name={member.username} src={member.avatar_url} size="sm" />
                       <span
                         className="truncate text-[13px] font-semibold text-white"
                         dir="ltr"
@@ -1073,6 +1137,14 @@ export default function ChatRoom({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {profileId !== null && (
+        <UserProfileModal
+          key={profileId}
+          userId={profileId}
+          onClose={() => setProfileId(null)}
+        />
+      )}
 
       {/* توست */}
       <AnimatePresence>

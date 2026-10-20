@@ -12,7 +12,7 @@ export default function Layout() {
     location.pathname === "/chat" || /^\/assignments\/[^/]+$/.test(location.pathname);
 
   return (
-    <div className="relative flex h-dvh overflow-hidden bg-black font-sans" dir="rtl">
+    <div className="app-shell relative flex h-dvh overflow-hidden bg-black font-sans" dir="rtl">
       {/* پس‌زمینه شبکه */}
       <div
         className="pointer-events-none fixed inset-0 z-0 grid-bg"
@@ -32,7 +32,7 @@ export default function Layout() {
 
       {/* کف پرسپکتیو */}
       <div
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-0 h-72 opacity-20 floor-grid"
+        className="app-floor pointer-events-none fixed inset-x-0 bottom-0 z-0 h-72 opacity-20 floor-grid"
         style={{
           transform: "perspective(450px) rotateX(68deg) translateY(90px) scale(1.4)",
           transformOrigin: "bottom center",
@@ -47,7 +47,7 @@ export default function Layout() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <main className="relative z-10 flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="z-20 flex w-full max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-white/5 bg-black/80 px-4 py-3 md:hidden">
+        <header className="app-topbar z-20 flex w-full max-w-full shrink-0 items-center gap-2 overflow-hidden border-b border-white/5 bg-black/80 px-4 py-3 md:hidden">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}

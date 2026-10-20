@@ -92,7 +92,24 @@ export const TIMETABLE: Day[] = [
       { kind: "class", span: 1, subject: S.chemistry },
     ],
   },
+  {
+    id: "thu",
+    name: "پنجشنبه",
+    short: "پ",
+    // School is open Saturday–Thursday; no Thursday subject is configured yet.
+    cells: [{ kind: "free", span: 4 }],
+  },
 ];
 
 export const PERIOD_COUNT = 4;
 export const PERIOD_LABELS = ["زنگ ۱", "زنگ ۲", "زنگ ۳", "زنگ ۴"];
+
+/** دقیقه‌ی شروع/پایان هر زنگ از ۰۸:۰۰ تا ۱۴:۰۰ */
+export const PERIOD_TIMES = [
+  { start: 8 * 60, end: 9 * 60 + 30 },
+  { start: 9 * 60 + 30, end: 11 * 60 },
+  { start: 11 * 60, end: 12 * 60 + 30 },
+  { start: 12 * 60 + 30, end: 14 * 60 },
+];
+
+export const SCHOOL_DAYS = ["sat", "sun", "mon", "tue", "wed", "thu"];

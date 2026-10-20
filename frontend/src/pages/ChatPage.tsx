@@ -55,6 +55,15 @@ export default function ChatPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user?.id) return;
+    try {
+      localStorage.setItem(`chat-seen:${user.id}`, String(Date.now()));
+    } catch {
+      // ignore
+    }
+  }, [user?.id]);
+
   const withId = Number(searchParams.get("with")) || null;
   const selectedUser = useMemo(
     () => team.find((member) => member.id === withId) ?? null,
@@ -122,7 +131,7 @@ export default function ChatPage() {
   return (
     <div className="flex h-full min-h-0 gap-3 overflow-hidden">
       {listVisible && (
-        <aside className="flex h-full w-full shrink-0 flex-col overflow-hidden rounded-none border-0 bg-black md:w-72 md:rounded-3xl md:border md:border-white/10 md:bg-black/40 md:glass lg:w-80">
+        <aside className="chat-list flex h-full w-full shrink-0 flex-col overflow-hidden rounded-none border-0 bg-black md:w-72 md:rounded-3xl md:border md:border-white/10 md:bg-black/40 md:glass lg:w-80">
           <Corners />
 
           <header className="sticky top-0 z-10 shrink-0 border-b border-white/10 bg-black px-3 py-3 md:glass-top-highlight md:bg-transparent md:px-4 md:py-4">
@@ -198,7 +207,7 @@ export default function ChatPage() {
                         </span>
                       ) : (
                         <span className="relative shrink-0">
-                          <Avatar name={name} size="md" />
+                          <Avatar name={name} src={member?.avatar_url} size="md" />
                           <span className="absolute -bottom-0.5 -left-0.5 h-3 w-3 rounded-full border-2 border-black bg-success" />
                         </span>
                       )}
@@ -235,7 +244,7 @@ export default function ChatPage() {
 
           <footer className="hidden shrink-0 border-t border-white/8 p-3 md:block">
             <div className="flex items-center gap-2.5 rounded-2xl border border-white/8 bg-white/[0.03] p-2.5">
-              <Avatar name={user?.username ?? "?"} size="sm" />
+              <Avatar name={user?.username ?? "?"} src={user?.avatar_url} size="sm" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[11px] font-semibold text-white" dir="ltr">
                   {user?.username}
@@ -261,6 +270,7 @@ export default function ChatPage() {
               title={selectedUser.username}
               subtitle="پیام خصوصی"
               avatarName={selectedUser.username}
+              avatarSrc={selectedUser.avatar_url}
               peerId={selectedUser.id}
               onBack={() => setMobileChatOpen(false)}
             />

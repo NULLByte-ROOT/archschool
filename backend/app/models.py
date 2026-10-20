@@ -28,6 +28,10 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     code = Column(String(100), unique=True, nullable=False, index=True)
+    password = Column(String(255), nullable=True)
+    avatar_url = Column(String(500), nullable=True)
+    bio = Column(Text, nullable=False, default="", server_default=text("''"))
+    last_seen = Column(DateTime, nullable=True)
     is_admin = Column(Boolean, default=False)
     role = Column(
         String(20),
@@ -215,6 +219,14 @@ class Message(Base):
     @property
     def sender_username(self) -> str | None:
         return self.sender.username if self.sender else None
+
+    @property
+    def sender_avatar_url(self) -> str | None:
+        return self.sender.avatar_url if self.sender else None
+
+    @property
+    def assignment_title(self) -> str | None:
+        return self.assignment.title if self.assignment else None
 
 
 class Attachment(Base):

@@ -3,6 +3,7 @@ import {
   TIMETABLE,
   PERIOD_COUNT,
   PERIOD_LABELS,
+  PERIOD_TIMES,
   type Day,
   type Subject,
 } from "../data";
@@ -141,6 +142,129 @@ export function dayEntries(day: Day): DayEntry[] {
 
 /** ساعت پایان مدرسه (۱۴:۰۰) به دقیقه */
 export const SCHOOL_END_MINUTES = 14 * 60;
+export const SCHOOL_START_MINUTES = 8 * 60;
+
+export interface SchoolPeriod {
+  index: number;
+  label: string;
+  start: number;
+  end: number;
+}
+
+export const SCHOOL_PERIODS: SchoolPeriod[] = PERIOD_TIMES.map((period, index) => ({
+  index,
+  label: PERIOD_LABELS[index],
+  start: period.start,
+  end: period.end,
+}));
+
+export type SchoolPhase = "before" | "active" | "after" | "holiday";
+
+export interface PeriodState {
+  phase: SchoolPhase;
+  /** اندیس زنگ فعلی (یا زنگ بعدی در حالت before) */
+  periodIndex: number;
+  /** میلی‌ثانیه باقی‌مانده تا پایان زنگ/شروع مدرسه */
+  remainingMs: number;
+  /** درصد سپری‌شده از زنگ فعلی (۰ تا ۱) */
+  progress: number;
+  /** آیا امروز روز مدرسه است؟ */
+  isSchoolDay: boolean;
+}
+
+export function schoolDayIndex(base: Date = new Date()): number {
+  const index = todayIndex(base);
+  return index < TIMETABLE.length ? index : -1;
+}
+
+export function nextSchoolDayIndex(index: number): number {
+  if (index < 0) return 0;
+  return index < TIMETABLE.length - 1 ? index + 1 : 0;
+}
+
+export function formatClock(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** محاسبه‌ی دقیق زنگ جاری و زمان باقی‌مانده تا پایان آن. */
+export function periodState(now: number = Date.now()): PeriodState {
+  const date = new Date(now);
+  const dayIndex = schoolDayIndex(date);
+  const dayStart = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate()
+  ).getTime();
+  const elapsed = now - dayStart;
+  const minuteNow = elapsed / 60_000;
+
+  if (dayIndex < 0) {
+    return {
+      phase: "holiday",
+      periodIndex: 0,
+      remainingMs: 0,
+      progress: 0,
+      isSchoolDay: false,
+    };
+  }
+
+  if (minuteNow < SCHOOL_START_MINUTES) {
+    return {
+      phase: "before",
+      periodIndex: 0,
+      remainingMs: dayStart + SCHOOL_START_MINUTES * 60_000 - now,
+      progress: 0,
+      isSchoolDay: true,
+    };
+  }
+
+  for (const period of SCHOOL_PERIODS) {
+    if (minuteNow >= period.start && minuteNow < period.end) {
+      const startMs = dayStart + period.start * 60_000;
+      const endMs = dayStart + period.end * 60_000;
+      return {
+        phase: "active",
+        periodIndex: period.index,
+        remainingMs: endMs - now,
+        progress: Math.min(1, Math.max(0, (now - startMs) / (endMs - startMs))),
+        isSchoolDay: true,
+      };
+    }
+  }
+
+  return {
+    phase: "after",
+    periodIndex: SCHOOL_PERIODS.length - 1,
+    remainingMs: 0,
+    progress: 1,
+    isSchoolDay: true,
+  };
+}
+
+/** دروس حاضر در یک زنگ مشخص (پشتیبانی از سلول‌های چنددرسی). */
+export function subjectsAtPeriod(day: Day, periodIndex: number): Subject[] {
+  let cursor = 0;
+  for (const cell of day.cells) {
+    if (periodIndex >= cursor && periodIndex < cursor + cell.span) {
+      if (cell.kind === "class") return [cell.subject];
+      if (cell.kind === "multi") {
+        const offset = periodIndex - cursor;
+        const subject = cell.subjects[offset] ?? cell.subjects[0];
+        return subject ? [subject] : [];
+      }
+      return [];
+    }
+    cursor += cell.span;
+  }
+  return [];
+}
+
+export function subjectAtPeriod(day: Day | undefined, periodIndex: number): Subject | null {
+  if (!day) return null;
+  return subjectsAtPeriod(day, periodIndex)[0] ?? null;
+}
 
 export interface ScheduleTarget {
   /** اندیس روز در TIMETABLE (۰ = شنبه) */
@@ -152,22 +276,31 @@ export interface ScheduleTarget {
 }
 
 /**
- * منطق هوشمند «برنامه‌ی پیش‌رو»:
- * - بعد از ساعت ۱۴:۰۰ برنامه‌ی روز تقویمی بعد نمایش داده می‌شود.
- * - قبل از آن برنامه‌ی امروز نمایش داده می‌شود.
+ * منطق «برنامه‌ی پیش‌رو»:
+ * - بعد از ۱۴:۰۰ یا در روز تعطیل، نزدیک‌ترین روز مدرسه‌ی بعدی.
+ * - قبل از آن برنامه‌ی امروز.
  */
 export function scheduleTarget(now: number = Date.now()): ScheduleTarget {
   const base = new Date(now);
   const minutes = base.getHours() * 60 + base.getMinutes();
-  const isAfterSchool = minutes >= SCHOOL_END_MINUTES;
   const today = todayIndex(base);
-  const dayIndex = isAfterSchool ? (today + 1) % 7 : today;
-  return { dayIndex, isTomorrow: isAfterSchool, isAfterSchool };
+  const isAfterSchool = minutes >= SCHOOL_END_MINUTES || today >= TIMETABLE.length;
+  const dayIndex = isAfterSchool ? nextSchoolDayIndex(today) : today;
+  return {
+    dayIndex,
+    isTomorrow: isAfterSchool || dayIndex !== today,
+    isAfterSchool,
+  };
 }
 
 /** روزِ برنامه با اندیس؛ خارج از روزهای مدرسه undefined است */
 export function dayAtIndex(index: number): Day | undefined {
   return index >= 0 && index < TIMETABLE.length ? TIMETABLE[index] : undefined;
+}
+
+/** روز برنامه‌ی امروز (یا undefined در تعطیلی) */
+export function todayDay(now: number = Date.now()): Day | undefined {
+  return dayAtIndex(schoolDayIndex(new Date(now)));
 }
 
 // ------------------------------------------------------------------
