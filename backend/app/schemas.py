@@ -9,7 +9,6 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     code: Optional[str] = Field(None, min_length=6, max_length=6)
-    password: Optional[str] = Field(None, min_length=6, max_length=128)
     is_admin: bool = False
     role: Optional[str] = Field(None, max_length=20)
 
@@ -17,7 +16,6 @@ class UserCreate(UserBase):
 class UserUpdate(BaseModel):
     username: Optional[str] = Field(None, min_length=2, max_length=50)
     code: Optional[str] = Field(None, min_length=6, max_length=6)
-    password: Optional[str] = Field(None, min_length=6, max_length=128)
     avatar_url: Optional[str] = Field(None, max_length=500)
     bio: Optional[str] = Field(None, max_length=500)
     is_active: Optional[bool] = None
@@ -71,14 +69,13 @@ class PublicUserOut(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str
-    code: Optional[str] = Field(None, max_length=100)
-    password: Optional[str] = Field(None, max_length=128)
+    username: str = Field(..., min_length=2, max_length=50)
+    code: str = Field(..., min_length=6, max_length=6)
 
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=50)
-    password: str = Field(..., min_length=6, max_length=128)
+    code: str = Field(..., min_length=6, max_length=6)
 
 
 class LoginResponse(BaseModel):

@@ -6,7 +6,12 @@ from typing import List
 from .. import chat, models, schemas
 from ..database import get_db
 from ..dependencies import get_current_admin, get_current_user
-from ..security import generate_code, hash_password, normalize_username
+from ..security import (
+    generate_code,
+    is_valid_access_code,
+    normalize_access_code,
+    normalize_username,
+)
 from ..storage import delete_upload
 
 router = APIRouter()
@@ -109,7 +114,19 @@ def create_user(
     if exists:
         raise HTTPException(status_code=400, detail="این نام کاربری قبلاً گرفته شده")
 
-    code = (data.code or generate_code()).upper()
+    code = normalize_access_code(data.code) if data.code else generate_code()
+    if not is_valid_access_code(code):
+        raise HTTPException(
+            status_code=400,
+            detail="کد دسترسی باید دقیقاً ۶ کاراکتر و فقط شامل اعداد و حروف انگلیسی بزرگ باشد",
+        )
+    code_taken = (
+        db.query(models.User)
+        .filter(func.upper(models.User.code) == code)
+        .first()
+    )
+    if code_taken:
+        raise HTTPException(status_code=400, detail="این کد دسترسی قبلاً استفاده شده است")
 
     role = data.role or (models.ROLE_ADMIN if data.is_admin else models.ROLE_MEMBER)
     if role not in models.VALID_ROLES:
@@ -118,7 +135,6 @@ def create_user(
     user = models.User(
         username=username,
         code=code,
-        password=hash_password(data.password) if data.password else None,
         is_admin=role == models.ROLE_ADMIN,
         role=role,
         is_active=True,
@@ -144,9 +160,24 @@ def update_user(
     if updates.get("username"):
         updates["username"] = normalize_username(updates["username"])
     if updates.get("code"):
-        updates["code"] = updates["code"].upper()
-    if updates.get("password"):
-        updates["password"] = hash_password(updates["password"])
+        updates["code"] = normalize_access_code(updates["code"])
+        if not is_valid_access_code(updates["code"]):
+            raise HTTPException(
+                status_code=400,
+                detail="کد دسترسی باید دقیقاً ۶ کاراکتر و فقط شامل اعداد و حروف انگلیسی بزرگ باشد",
+            )
+        code_taken = (
+            db.query(models.User)
+            .filter(
+                func.upper(models.User.code) == updates["code"],
+                models.User.id != user.id,
+            )
+            .first()
+        )
+        if code_taken:
+            raise HTTPException(
+                status_code=400, detail="این کد دسترسی قبلاً استفاده شده است"
+            )
     if "role" in updates and updates["role"] not in models.VALID_ROLES:
         raise HTTPException(status_code=400, detail="نقش نامعتبر است")
 

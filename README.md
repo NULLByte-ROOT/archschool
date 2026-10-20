@@ -15,8 +15,9 @@ countdown, and includes a team chat with profiles.
   countdown for the current/next period, and next school day preview.
 - **Assignments** — urgent/upcoming/completed groups, filters, per-user
   completion and points.
-- **Accounts** — username + password registration and login (legacy login
-  codes and the admin code still work), editable bio and avatar.
+- **Accounts** — username + 6-character access code registration and login
+  (uppercase English letters and numbers only; the admin code still works),
+  editable bio and avatar.
 - **Chat** — global, private and per-assignment rooms; profile modal, pin,
   reply, forward, attachments, admin delete-any/clear-room.
 - **Themes** — dark monochrome (default) and a soft light theme, toggle in
@@ -43,8 +44,9 @@ uvicorn app.main:app --reload --port 8000
 ```
 
 Copy `backend/.env.example` to `backend/.env` and adjust values as needed.
-New users can register from `/register`; usernames are case-insensitive on
-lookup and start with a capital letter.
+New users can register from `/register` with a username and a 6-character
+access code; usernames are case-insensitive on lookup and start with a capital
+letter. Access codes accept only uppercase English letters and numbers.
 
 ### Frontend
 

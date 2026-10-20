@@ -196,13 +196,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 // ---------- Auth ----------
 export async function login(
   username: string,
-  code?: string,
-  password?: string
+  code: string
 ): Promise<LoginResponse> {
   const res = await fetch(apiUrl("/auth/login"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, code, password }),
+    body: JSON.stringify({ username, code }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "خطا" }));
@@ -213,12 +212,12 @@ export async function login(
 
 export async function register(
   username: string,
-  password: string
+  code: string
 ): Promise<LoginResponse> {
   const res = await fetch(apiUrl("/auth/register"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, code }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "خطا" }));

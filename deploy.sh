@@ -171,7 +171,7 @@ ensure_env() {
                 printf 'SECRET_KEY=change-me-to-a-long-random-string\n'
                 printf 'ALGORITHM=HS256\n'
                 printf 'ACCESS_TOKEN_EXPIRE_MINUTES=10080\n'
-                printf 'ADMIN_CODE=change-me\n'
+                printf 'ADMIN_CODE=ROOT01\n'
                 printf 'MAX_UPLOAD_MB=25\n'
             } > "${ENV_FILE}"
             info "Created a new backend/.env."
@@ -253,7 +253,7 @@ initial_setup() {
 
     success "Initial setup complete."
     info "Frontend: http://SERVER_IP:6241"
-    info "Change ADMIN_CODE in backend/.env before creating admin users."
+    info "Change ADMIN_CODE in backend/.env (exactly 6 uppercase letters/numbers) before creating admin users."
     echo
     compose ps
 }
