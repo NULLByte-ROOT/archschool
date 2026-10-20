@@ -163,21 +163,15 @@ export default function UsersPage() {
                 />
                 <input
                   value={newCode}
-                  onChange={(e) =>
-                    setNewCode(
-                      e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6)
-                    )
-                  }
-                  placeholder="کد ۶ کاراکتری (خالی = تصادفی)"
+                  onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                  placeholder="کد ۶ رقمی (خالی = تصادفی)"
                   dir="ltr"
                   maxLength={6}
                   className="input mono tracking-widest"
                 />
                 <button
                   onClick={handleCreate}
-                  disabled={
-                    creating || !newUsername.trim() || (newCode.length > 0 && newCode.length !== 6)
-                  }
+                  disabled={creating || !newUsername.trim()}
                   className="btn-primary"
                 >
                   {creating ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}

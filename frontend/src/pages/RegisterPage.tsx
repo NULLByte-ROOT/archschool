@@ -3,15 +3,14 @@ import type { FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowRight, Eye, EyeOff, Loader2, Shield, User, KeyRound } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import CodeInput from "../components/CodeInput";
 
 export default function RegisterPage() {
   const { register } = useAuth();
   const navigate = useNavigate();
 
   const [username, setUsername] = useState("");
-  const [code, setCode] = useState("");
-  const [masked, setMasked] = useState(true);
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,13 +20,11 @@ export default function RegisterPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const accessCode = code.trim().toUpperCase();
     if (loading) return;
-    if (username.trim().length < 2 || !/^[A-Z0-9]{6}$/.test(accessCode)) return;
     setLoading(true);
     setError(null);
     try {
-      await register(username.trim(), accessCode);
+      await register(username.trim(), password);
       navigate("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "خطا در ثبت‌نام");
@@ -36,8 +33,7 @@ export default function RegisterPage() {
     }
   }
 
-  const canSubmit =
-    username.trim().length >= 2 && /^[A-Z0-9]{6}$/.test(code) && !loading;
+  const canSubmit = username.trim().length >= 2 && password.length >= 6 && !loading;
 
   return (
     <div
@@ -68,7 +64,7 @@ export default function RegisterPage() {
           />
           <div>
             <h1 className="text-2xl font-black text-white">ساخت حساب</h1>
-            <p className="mt-1 text-xs text-zinc-500">یک نام کاربری و کد دسترسی برای خودت انتخاب کن</p>
+            <p className="mt-1 text-xs text-zinc-500">با نام کاربری و رمز عبور وارد شو</p>
           </div>
         </div>
 
@@ -101,21 +97,26 @@ export default function RegisterPage() {
               <div className="mb-2 flex items-center justify-between gap-2">
                 <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
                   <KeyRound className="h-3.5 w-3.5" />
-                  ACCESS CODE
+                  PASSWORD
                 </label>
                 <button
                   type="button"
-                  onClick={() => setMasked((value) => !value)}
+                  onClick={() => setShowPassword((value) => !value)}
                   className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
                 >
-                  {masked ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-                  {masked ? "SHOW" : "HIDE"}
+                  {showPassword ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                  {showPassword ? "HIDE" : "SHOW"}
                 </button>
               </div>
-              <CodeInput value={code} onChange={setCode} masked={masked} />
-              <p className="mt-2 text-[10px] leading-5 text-zinc-500">
-                یک کد ۶ کاراکتری (حروف و اعداد) انتخاب کن؛ با همین کد وارد می‌شوی.
-              </p>
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                placeholder="حداقل ۶ کاراکتر"
+                autoComplete="new-password"
+                dir="ltr"
+                className="auth-input w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 font-mono text-sm text-white outline-none transition-all placeholder:text-zinc-600 hover:bg-white/[0.05] focus:border-white/60 focus:bg-black/80"
+              />
             </div>
 
             {error && (

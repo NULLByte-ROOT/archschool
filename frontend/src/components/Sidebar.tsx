@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import Avatar from "./Avatar";
-import ThemeToggle from "./ThemeToggle";
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
   `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-[background-color,border-color,color] duration-300 ${
@@ -111,7 +110,7 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
           </motion.div>
           <div>
             <h1 className="text-sm font-bold text-white">ArchSchool</h1>
-            <p className="mono text-[10px] tracking-widest text-fg-500">V0.1.1</p>
+            <p className="mono text-[10px] tracking-widest text-fg-500">V0.1.2</p>
           </div>
         </div>
 
@@ -159,7 +158,6 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
               {user?.is_admin ? "admin" : "online"}
             </p>
           </div>
-          <ThemeToggle className="h-8 w-8" />
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}

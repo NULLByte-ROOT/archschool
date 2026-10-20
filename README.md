@@ -15,12 +15,12 @@ countdown, and includes a team chat with profiles.
   countdown for the current/next period, and next school day preview.
 - **Assignments** — urgent/upcoming/completed groups, filters, per-user
   completion and points.
-- **Accounts** — username + 6-character alphanumeric access code registration
-  and login; the admin code still works. Editable bio and avatar.
+- **Accounts** — username + password registration and login (legacy login
+  codes and the admin code still work), editable bio and avatar.
 - **Chat** — global, private and per-assignment rooms; profile modal, pin,
   reply, forward, attachments, admin delete-any/clear-room.
 - **Themes** — dark monochrome (default) and a soft light theme, toggle in
-  the sidebar.
+  Settings.
 
 
 ## Structure
@@ -86,7 +86,7 @@ docker compose exec -T db psql -U postgres -d archschool_db \
 It adds `users.role`, `assignments.creator_id` and `assignment_completions`,
 then backfills existing admins, creators and completed assignments.
 
-For profiles and access codes, apply
+For username/password auth and profiles, apply
 [`backend/migrations/002_user_passwords_profiles.sql`](backend/migrations/002_user_passwords_profiles.sql)
 the same way:
 
@@ -95,9 +95,8 @@ docker compose exec -T db psql -U postgres -d archschool_db \
   < backend/migrations/002_user_passwords_profiles.sql
 ```
 
-It adds `users.avatar_url`, `users.bio` and `users.last_seen` (plus a legacy
-`users.password` column the app no longer uses). Both migrations are idempotent
-and only add columns.
+It adds `users.password`, `users.avatar_url`, `users.bio` and
+`users.last_seen`. Both migrations are idempotent and only add columns.
 
 ## Production
 

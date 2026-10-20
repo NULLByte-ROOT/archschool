@@ -1,19 +1,23 @@
-import { useEffect, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { ClipboardEvent, FormEvent, KeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { User, KeyRound, Shield, ArrowRight, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import CodeInput from "../components/CodeInput";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const [username, setUsername] = useState("");
-  const [code, setCode] = useState("");
-  const [masked, setMasked] = useState(true);
+  const [mode, setMode] = useState<"password" | "code">("password");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
+  const [showCode, setShowCode] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const otpRefs = useRef<Array<HTMLInputElement | null>>([]);
 
   useEffect(() => {
     const previous = {
@@ -34,15 +38,54 @@ export default function LoginPage() {
     };
   }, []);
 
+  const handleDigitChange = (index: number, val: string) => {
+    const clean = val.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+    const next = [...otpDigits];
+    next[index] = clean.slice(-1);
+    setOtpDigits(next);
+
+    if (clean && index < 5) {
+      otpRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleDigitKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Backspace" && !otpDigits[index] && index > 0) {
+      otpRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData
+      .getData("text")
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .toUpperCase()
+      .slice(0, 6);
+    if (!pasted) return;
+    const next = ["", "", "", "", "", ""];
+    pasted.split("").forEach((ch, i) => {
+      next[i] = ch;
+    });
+    setOtpDigits(next);
+    const lastIndex = Math.min(pasted.length, 5);
+    otpRefs.current[lastIndex]?.focus();
+  };
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const accessCode = code.trim().toUpperCase();
+    const code = otpDigits.join("");
     if (!username.trim() || loading) return;
-    if (!/^[A-Z0-9]{6}$/.test(accessCode)) return;
+    if (mode === "code" && code.length < 6) return;
+    if (mode === "password" && password.length < 6) return;
     setLoading(true);
     setError(null);
     try {
-      await login(username.trim(), accessCode);
+      await login(
+        username.trim(),
+        mode === "code" ? code : undefined,
+        mode === "password" ? password : undefined
+      );
       navigate("/");
     } catch (err) {
       setError(err instanceof Error ? err.message : "خطا در ورود");
@@ -52,7 +95,11 @@ export default function LoginPage() {
   };
 
   const canSubmit =
-    !loading && username.trim().length > 0 && /^[A-Z0-9]{6}$/.test(code);
+    !loading &&
+    username.trim().length > 0 &&
+    (mode === "code"
+      ? otpDigits.join("").length === 6
+      : password.length >= 6);
 
   return (
     <div
@@ -206,8 +253,30 @@ export default function LoginPage() {
 
               <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Welcome</h2>
               <p dir="rtl" className="mt-2 text-xs leading-6 text-zinc-400">
-                با نام کاربری و کد دسترسی وارد شو.
+                با نام کاربری و رمز عبور وارد شو، یا با کد دسترسی قدیمی.
               </p>
+              <div className="mt-4 grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-white/[0.02] p-1">
+                {[
+                  { key: "password" as const, label: "رمز عبور" },
+                  { key: "code" as const, label: "کد دسترسی" },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => {
+                      setMode(tab.key);
+                      setError(null);
+                    }}
+                    className={`rounded-lg px-3 py-2 text-[11px] font-bold transition ${
+                      mode === tab.key
+                        ? "auth-tab-active bg-white text-black"
+                        : "text-zinc-400 hover:text-white"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <form className="space-y-5" onSubmit={handleSubmit}>
@@ -237,26 +306,79 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
-                    <KeyRound className="h-3.5 w-3.5 text-white" />
-                    <span>ACCESS CODE</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setMasked((value) => !value)}
-                    className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
-                  >
-                    {masked ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-                    <span>{masked ? "SHOW" : "HIDE"}</span>
-                  </button>
+              {mode === "password" ? (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
+                      <KeyRound className="h-3.5 w-3.5 text-white" />
+                      <span>PASSWORD</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((value) => !value)}
+                      className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-3 w-3" />
+                      ) : (
+                        <Eye className="h-3 w-3" />
+                      )}
+                      <span>{showPassword ? "HIDE" : "SHOW"}</span>
+                    </button>
+                  </div>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    dir="ltr"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                    className="auth-input w-full rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3 font-mono text-sm text-white outline-none transition-all placeholder:text-zinc-600 hover:bg-white/[0.05] focus:border-white/60 focus:bg-black/80"
+                  />
                 </div>
-                <CodeInput value={code} onChange={setCode} masked={masked} />
-                <p dir="rtl" className="mono mt-2 text-[10px] text-zinc-500">
-                  کد ۶ کاراکتری خود را وارد کن.
-                </p>
-              </div>
+              ) : (
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
+                      <KeyRound className="h-3.5 w-3.5 text-white" />
+                      <span>ACCESS CODE</span>
+                    </label>
+
+                    <button
+                      type="button"
+                      onClick={() => setShowCode(!showCode)}
+                      className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
+                    >
+                      {showCode ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      <span>{showCode ? "HIDE" : "SHOW"}</span>
+                    </button>
+                  </div>
+
+                  <div dir="ltr" className="grid grid-cols-6 gap-1.5 sm:gap-2" onPaste={handlePaste}>
+                    {otpDigits.map((digit, idx) => (
+                      <input
+                        key={idx}
+                        ref={(el) => {
+                          otpRefs.current[idx] = el;
+                        }}
+                        type={showCode ? "text" : "password"}
+                        inputMode="text"
+                        autoComplete="one-time-code"
+                        maxLength={1}
+                        value={digit}
+                        onChange={(e) => handleDigitChange(idx, e.target.value)}
+                        onKeyDown={(e) => handleDigitKeyDown(idx, e)}
+                        placeholder="•"
+                        className="auth-input h-11 rounded-xl border border-white/10 bg-white/[0.03] text-center font-mono text-base font-bold text-white outline-none transition-all placeholder:text-zinc-700 hover:bg-white/[0.06] focus:-translate-y-0.5 focus:scale-105 focus:border-white focus:bg-black sm:h-12"
+                      />
+                    ))}
+                  </div>
+
+                  <p className="mono mt-2 text-center text-[10px] text-zinc-500" dir="rtl">
+                    در صورت داشتن کد کامل، آن را Paste کنید
+                  </p>
+                </div>
+              )}
 
               {error && (
                 <p
