@@ -379,7 +379,7 @@ function DesktopTimetable({ bySubject }: { bySubject: Record<string, Assignment[
                   initial={{ scale: 0.85, y: 10 }}
                   animate={{ scale: 1, y: 0 }}
                   transition={{ duration: 0.32, delay: 0.16, ease: [0.16, 1, 0.3, 1] }}
-                  className={`w-64 rounded-2xl border-2 bg-black/95 p-4 text-white ${
+                  className={`w-64 rounded-2xl border-2 bg-bg-100 p-4 text-fg-100 ${
                     TONE_BORDER[tone]
                   } ${TONE_GLOW[tone]}`}
                 >
@@ -387,10 +387,10 @@ function DesktopTimetable({ bySubject }: { bySubject: Record<string, Assignment[
 
                   <div className="flex items-center gap-2.5">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/25 bg-white/10">
-                      <BookOpen size={16} className="text-white" />
+                      <BookOpen size={16} className="text-fg-100" />
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-white">{hover.subject.name}</p>
+                      <p className="truncate text-sm font-bold text-fg-100">{hover.subject.name}</p>
                       <p className="mono truncate text-[10px] tracking-wider text-fg-300">
                         {hover.subject.nameEn}
                       </p>
@@ -427,7 +427,7 @@ function DesktopTimetable({ bySubject }: { bySubject: Record<string, Assignment[
                             >
                               <div className="flex items-center gap-2">
                                 <GroupIcon category={a.category} size={13} />
-                                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-white">
+                                <span className="min-w-0 flex-1 truncate text-xs font-semibold text-fg-100">
                                   {a.title}
                                 </span>
                                 <span className={`h-2 w-2 shrink-0 rounded-full ${TONE_DOT[aTone]}`} />
@@ -586,7 +586,7 @@ const MobileDayRow = memo(function MobileDayRow({
                 className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.02] p-3.5 text-right transition-colors active:scale-[0.98] active:bg-white/[0.06]"
               >
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-white/12 bg-white/[0.05]">
-                  <BookOpen size={16} className="text-white" />
+                  <BookOpen size={16} className="text-fg-100" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-bold text-white">{entry.subject.name}</p>
