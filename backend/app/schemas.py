@@ -70,12 +70,12 @@ class PublicUserOut(BaseModel):
 
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=50)
-    code: str = Field(..., min_length=6, max_length=6)
+    code: str = Field(..., pattern=r"^[A-Z0-9]{6}$")
 
 
 class RegisterRequest(BaseModel):
     username: str = Field(..., min_length=2, max_length=50)
-    code: str = Field(..., min_length=6, max_length=6)
+    code: str = Field(..., pattern=r"^[A-Z0-9]{6}$")
 
 
 class LoginResponse(BaseModel):

@@ -12,7 +12,7 @@ interface AccessCodeInputProps {
 }
 
 function sanitize(value: string): string {
-  return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
 export default function AccessCodeInput({
@@ -110,15 +110,18 @@ export default function AccessCodeInput({
           }}
           type={masked ? "password" : "text"}
           inputMode="text"
+          pattern="[A-Za-z0-9]*"
           autoCapitalize="characters"
-          autoComplete={index === 0 ? "one-time-code" : "off"}
+          autoComplete="off"
           spellCheck={false}
           maxLength={1}
           value={digit}
           disabled={disabled}
           autoFocus={autoFocus && index === 0}
           aria-label={`Access code character ${index + 1}`}
-          onChange={(event) => handleChange(index, event.target.value)}
+          onChange={(event) =>
+            handleChange(index, event.target.value.toUpperCase())
+          }
           onKeyDown={(event) => handleKeyDown(index, event)}
           onPaste={(event) => handlePaste(index, event)}
           onFocus={(event) => event.currentTarget.select()}
