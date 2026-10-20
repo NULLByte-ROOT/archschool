@@ -25,7 +25,7 @@ export default function LoginPage() {
     document.body.style.overflow = "hidden";
     document.body.style.margin = "0";
     document.body.style.height = "100dvh";
-    document.body.style.width = "100vw";
+    document.body.style.width = "100%";
     return () => {
       document.body.style.overflow = previous.overflow;
       document.body.style.margin = previous.margin;
@@ -56,7 +56,7 @@ export default function LoginPage() {
   return (
     <div
       dir="ltr"
-      className="relative flex h-[100dvh] w-screen overflow-hidden bg-black text-white"
+      className="relative flex h-[100dvh] w-full max-w-full overflow-hidden bg-black text-white"
       style={{ fontFamily: "'Vazirmatn', system-ui, sans-serif" }}
     >
       <style>{`
@@ -163,7 +163,7 @@ export default function LoginPage() {
       </aside>
 
       {/* ===== فرم ===== */}
-      <main className="relative flex h-full w-full min-w-0 flex-1 items-start justify-center overflow-x-hidden overflow-y-auto px-5 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-8 md:px-10 lg:px-14">
+      <main className="relative flex h-full w-full min-w-0 flex-1 items-start justify-center overflow-x-hidden overflow-y-auto px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-8 md:px-10 lg:px-14">
         <div
           className="pointer-events-none absolute inset-0 hidden md:block"
           style={{
@@ -172,7 +172,7 @@ export default function LoginPage() {
           }}
         />
 
-        <div className="relative z-10 my-auto w-full max-w-[430px]">
+        <div className="relative z-10 my-auto w-full min-w-0 max-w-[430px]">
           {/* لوگو و عنوان موبایل */}
           <div className="mb-6 flex flex-col items-center gap-3 text-center md:hidden">
             <img
@@ -188,7 +188,7 @@ export default function LoginPage() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-transparent bg-transparent p-0 shadow-none md:border-white/10 md:bg-[#07070a]/95 md:p-9 md:shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)]">
+          <div className="w-full min-w-0 rounded-3xl border border-white/10 bg-[#07070a]/95 p-4 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)] sm:p-5 md:p-9">
             <div className="mb-7">
               <div className="mb-4 hidden items-center gap-2.5 md:flex">
                 <img
@@ -209,18 +209,18 @@ export default function LoginPage() {
               </p>
             </div>
 
-            <form className="space-y-5" onSubmit={handleSubmit}>
+            <form className="min-w-0 space-y-5" onSubmit={handleSubmit}>
               {/* نام کاربری */}
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                   <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
-                    <User className="h-3.5 w-3.5 text-white" />
+                    <User className="h-3.5 w-3.5 shrink-0 text-white" />
                     <span>USERNAME</span>
                   </label>
-                  <span className="mono text-[10px] text-zinc-500">ID // REQUIRED</span>
+                  <span className="mono shrink-0 text-[10px] text-zinc-500">ID // REQUIRED</span>
                 </div>
 
-                <div className="relative">
+                <div className="relative min-w-0">
                   <input
                     type="text"
                     dir="ltr"
@@ -236,17 +236,17 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div>
-                <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                   <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
-                    <KeyRound className="h-3.5 w-3.5 text-white" />
+                    <KeyRound className="h-3.5 w-3.5 shrink-0 text-white" />
                     <span>ACCESS CODE</span>
                   </label>
 
                   <button
                     type="button"
                     onClick={() => setShowCode(!showCode)}
-                    className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
+                    className="mono flex shrink-0 items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
                   >
                     {showCode ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                     <span>{showCode ? "HIDE" : "SHOW"}</span>
@@ -260,7 +260,7 @@ export default function LoginPage() {
                   disabled={loading}
                 />
 
-                <p className="mono mt-2 text-center text-[10px] text-zinc-500" dir="rtl">
+                <p className="mono mt-2 break-words text-center text-[10px] text-zinc-500" dir="rtl">
                   در صورت داشتن کد کامل، آن را Paste کنید
                 </p>
               </div>
@@ -268,7 +268,7 @@ export default function LoginPage() {
               {error && (
                 <p
                   dir="rtl"
-                  className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300"
+                  className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] break-words text-red-300"
                 >
                   {error}
                 </p>
@@ -278,7 +278,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={!canSubmit}
-                  className="auth-submit flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-xs font-extrabold text-black shadow-[0_0_30px_-5px_rgba(255,255,255,0.6)] transition-all hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
+                  className="auth-submit flex w-full min-w-0 cursor-pointer items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-xs font-extrabold text-black shadow-[0_0_30px_-5px_rgba(255,255,255,0.6)] transition-all hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
                 >
                   {loading ? (
                     <>
@@ -298,14 +298,14 @@ export default function LoginPage() {
             <Link
               to="/register"
               dir="rtl"
-              className="mt-5 flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-[12px] font-semibold text-zinc-300 transition hover:border-white/30 hover:text-white"
+              className="mt-5 flex min-w-0 flex-wrap items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-center text-[12px] font-semibold text-zinc-300 transition hover:border-white/30 hover:text-white"
             >
               حساب نداری؟ <span className="text-white underline decoration-white/40">ثبت‌نام کن</span>
             </Link>
 
             <div
               dir="ltr"
-              className="mono mt-7 flex items-center justify-center border-t border-white/10 pt-4 text-[10px] tracking-[0.18em] text-zinc-500"
+              className="mono mt-7 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t border-white/10 pt-4 text-[10px] tracking-[0.18em] break-words text-zinc-500"
             >
               <span className="flex items-center gap-1.5">
                 <Shield className="h-3.5 w-3.5 shrink-0 text-white" />

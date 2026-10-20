@@ -101,7 +101,7 @@ export default function AccessCodeInput({
   };
 
   return (
-    <div dir="ltr" className="grid grid-cols-6 gap-1.5 sm:gap-2">
+    <div dir="ltr" className="grid w-full min-w-0 grid-cols-6 gap-1.5 sm:gap-2">
       {value.map((digit, index) => (
         <input
           key={index}
@@ -126,7 +126,7 @@ export default function AccessCodeInput({
           onPaste={(event) => handlePaste(index, event)}
           onFocus={(event) => event.currentTarget.select()}
           placeholder="•"
-          className="auth-input h-11 w-full min-w-0 rounded-xl border border-white/10 bg-white/[0.03] px-0 text-center font-mono text-base font-bold text-white outline-none transition-all placeholder:text-zinc-700 hover:bg-white/[0.06] focus:-translate-y-0.5 focus:scale-105 focus:border-white focus:bg-black sm:h-12"
+          className="auth-input h-11 w-full min-w-0 max-w-full rounded-xl border border-white/10 bg-white/[0.03] px-0 text-center font-mono text-base font-bold text-white outline-none transition-all placeholder:text-zinc-700 hover:bg-white/[0.06] focus:border-white focus:bg-black sm:h-12"
         />
       ))}
     </div>

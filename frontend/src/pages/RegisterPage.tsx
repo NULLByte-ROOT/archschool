@@ -41,7 +41,7 @@ export default function RegisterPage() {
   return (
     <div
       dir="rtl"
-      className="relative flex min-h-[100dvh] w-full items-center justify-center overflow-x-hidden bg-black px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] text-white sm:px-5 sm:py-10"
+      className="relative flex min-h-[100dvh] w-full max-w-full items-center justify-center overflow-x-hidden bg-black px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))] text-white sm:px-5 sm:py-10"
       style={{ fontFamily: "'Vazirmatn', system-ui, sans-serif" }}
     >
       <div
@@ -56,7 +56,7 @@ export default function RegisterPage() {
       />
       <div className="pointer-events-none absolute -top-32 left-1/2 h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-white/[0.06] blur-[120px]" />
 
-      <div className="relative z-10 w-full max-w-[430px]">
+      <div className="relative z-10 w-full min-w-0 max-w-[430px]">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <img
             src="/logo.png"
@@ -71,9 +71,9 @@ export default function RegisterPage() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-white/10 bg-[#07070a]/95 p-5 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)] sm:p-8">
-          <form className="space-y-5" onSubmit={handleSubmit}>
-            <div>
+        <div className="w-full min-w-0 rounded-3xl border border-white/10 bg-[#07070a]/95 p-5 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.95)] sm:p-8">
+          <form className="min-w-0 space-y-5" onSubmit={handleSubmit}>
+            <div className="min-w-0">
               <label className="mono mb-2 flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
                 <User className="h-3.5 w-3.5" />
                 USERNAME
@@ -89,23 +89,23 @@ export default function RegisterPage() {
               {preview && (
                 <p className="mt-2 text-[11px] text-zinc-500">
                   نام نمایشی:{" "}
-                  <span className="font-semibold text-white" dir="ltr">
+                  <span className="max-w-full font-semibold break-words text-white" dir="ltr">
                     {preview}
                   </span>
                 </p>
               )}
             </div>
 
-            <div>
-              <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                 <label className="mono flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-zinc-300">
-                  <KeyRound className="h-3.5 w-3.5" />
+                  <KeyRound className="h-3.5 w-3.5 shrink-0" />
                   ACCESS CODE
                 </label>
                 <button
                   type="button"
                   onClick={() => setShowCode((value) => !value)}
-                  className="mono flex items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
+                  className="mono flex shrink-0 items-center gap-1 text-[11px] text-zinc-400 transition hover:text-white"
                 >
                   {showCode ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                   {showCode ? "HIDE" : "SHOW"}
@@ -117,13 +117,13 @@ export default function RegisterPage() {
                 masked={!showCode}
                 disabled={loading}
               />
-              <p className="mono mt-2 text-center text-[10px] text-zinc-500">
+              <p className="mono mt-2 break-words text-center text-[10px] text-zinc-500">
                 فقط حروف انگلیسی بزرگ و اعداد، دقیقاً ۶ کاراکتر
               </p>
             </div>
 
             {error && (
-              <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
+              <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] break-words text-red-300">
                 {error}
               </p>
             )}
@@ -131,18 +131,18 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={!canSubmit}
-              className="auth-submit flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-extrabold text-black shadow-[0_0_30px_-5px_rgba(255,255,255,0.6)] transition-all hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+              className="auth-submit flex w-full min-w-0 items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-extrabold text-black shadow-[0_0_30px_-5px_rgba(255,255,255,0.6)] transition-all hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
               ثبت‌نام و ورود
             </button>
           </form>
 
-          <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4 text-[11px]">
-            <Link to="/login" className="text-zinc-400 transition hover:text-white">
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-white/10 pt-4 text-[11px]">
+            <Link to="/login" className="min-w-0 text-zinc-400 transition hover:text-white">
               حساب داری؟ ورود
             </Link>
-            <span className="mono flex items-center gap-1.5 text-[10px] tracking-[0.16em] text-zinc-500">
+            <span className="mono flex shrink-0 items-center gap-1.5 text-[10px] tracking-[0.16em] text-zinc-500">
               <Shield size={12} />
               SECURE
             </span>
