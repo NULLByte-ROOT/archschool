@@ -100,25 +100,107 @@ docker compose exec -T db psql -U postgres -d archschool_db \
 It adds `users.password`, `users.avatar_url`, `users.bio` and
 `users.last_seen`. Both migrations are idempotent and only add columns.
 
-## Production
+## Production (blue-green)
 
-Standard deploy/update:
+Two identical slots (`blue` and `green`) run the same images on different
+internal ports. A deploy always builds and starts the **inactive** slot, waits
+until it is healthy, verifies it end-to-end, and only then flips the host
+Nginx upstream. The previous slot keeps running through a soak window so a bad
+release can be reverted by flipping traffic back.
 
-```bash
-git pull origin main
-docker compose up -d --build --remove-orphans
-docker image prune -f
+```
+Internet -> Host Nginx -> upstream archschool_app -> 127.0.0.1:6241 (blue)
+                                                  -> 127.0.0.1:6242 (green)
 ```
 
-Or use the interactive manager:
+- `archschool_db` and the `archschool_uploads` volume are **shared** by both
+  slots — the database is never duplicated.
+- Slots are Compose profiles, so a bare `docker compose up -d` only starts the
+  database. Always use `./deploy.sh`.
+- Frontend ports are published on `127.0.0.1` only; the only public entry point
+  is host Nginx.
+
+### Commands
 
 ```bash
-./deploy.sh   # option 5 = update from GitHub (pull + rebuild)
+sudo ./deploy.sh deploy      # pull + build inactive slot + verify + switch + soak
+sudo ./deploy.sh rollback    # move traffic back to the previous slot
+sudo ./deploy.sh status      # slots, health, image revisions, active target
+sudo ./deploy.sh cleanup     # delete the inactive slot's containers + images
+sudo ./deploy.sh             # interactive menu
 ```
 
-The backend expects PostgreSQL; connection settings live in
-`backend/.env` and are overridden by `docker-compose.yml`. Existing data is
-preserved because schema changes only add columns/tables.
+Useful flags: `--skip-pull`, `--soak=30`, `--no-soak`, `--keep-old`, `--yes`,
+`--timeout=180`.
+
+### What a deploy actually does
+
+1. `git pull` and stamp `GIT_SHA` into the images.
+2. Build the inactive slot's images (`archschool-*:<sha>`). Nothing running is
+   touched, so a build failure cannot cause downtime.
+3. Start it, then wait for both containers to report `healthy`
+   (backend `/api/health` checks the database).
+4. Smoke-test it: static frontend, `/version` == the new SHA, `/api/health`
+   through the frontend, and a WebSocket handshake against `/api/ws`.
+5. Rewrite `/etc/nginx/conf.d/00-archschool-upstream.conf`, run `nginx -t`,
+   then `systemctl reload nginx` (graceful — in-flight requests complete).
+6. Verify the public URL reports the new revision. On failure: automatic
+   rollback.
+7. Soak for 60s with continuous health probes. On failure: automatic rollback.
+8. Stop (but keep) the previous slot and its images for rollback, then prune
+   only dangling images.
+
+### One-time host Nginx change
+
+`deploy.sh` performs this automatically (timestamped backup, `nginx -t`, and an
+automatic revert if validation fails). The change is:
+
+```diff
+- proxy_pass http://127.0.0.1:6241;
++ proxy_pass http://archschool_app;
+```
+
+plus the managed upstream file:
+
+```nginx
+# /etc/nginx/conf.d/00-archschool-upstream.conf
+upstream archschool_app {
+    server 127.0.0.1:6242;
+}
+```
+
+If the script cannot find the expected line it prints the diff and exits
+without touching anything. Override detection with
+`NGINX_SITE_CONF=/etc/nginx/sites-available/archschool`.
+
+Keep `client_max_body_size 30m;` and the `Upgrade`/`Connection "upgrade"`
+headers in the site block — uploads and the chat socket depend on them.
+
+### Database rules for blue-green
+
+Both slots share one PostgreSQL, and the previous slot serves traffic for a
+short time (and may be restarted for a rollback). Therefore:
+
+- **Additive changes only per release** (add columns/tables, new nullable
+  fields). Destructive changes must ship one release later.
+- Startup migrations run under a Postgres advisory lock, so two instances can
+  never execute DDL at the same time.
+
+### Notes and limits
+
+- After the switch, sockets connected to the previous slot stop receiving new
+  chat broadcasts until it is stopped (60s later); clients then reconnect
+  automatically within ~1s.
+- A browser holding the previous `index.html` may 404 on a lazily loaded chunk
+  after a switch; a refresh fixes it. Deploy at low-traffic times.
+- Direct access to `http://SERVER_IP:6241` no longer works — slots bind to
+  loopback. Use the domain (or `docker port`).
+- Container picks are driven by Compose labels and the upstream file, so
+  `.deploy-state` can be deleted without breaking anything.
+
+The backend expects PostgreSQL; connection settings live in `backend/.env` and
+are overridden by `docker-compose.yml`. Existing data is preserved because
+schema changes only add columns/tables.
 
 After deploying, users should refresh the app (their role is re-fetched from
 `/api/auth/me` automatically).

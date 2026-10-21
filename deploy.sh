@@ -1,12 +1,65 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+
+# =============================================================================
+#  ArchSchool deployment manager — blue-green
+#
+#  Two identical slots ("blue" and "green") can run side by side. A deploy
+#  builds and starts the *inactive* slot, waits until it is genuinely healthy,
+#  verifies it end-to-end, and only then flips the host Nginx upstream. The old
+#  slot keeps running through a soak window so a bad release can be reverted by
+#  flipping the upstream back.
+#
+#  Traffic switch: /etc/nginx/conf.d/00-archschool-upstream.conf
+#    blue  -> 127.0.0.1:6241
+#    green -> 127.0.0.1:6242
+#
+#  The database and the uploads volume are shared by both slots on purpose.
+#  Schema changes must therefore stay backward compatible (expand/contract),
+#  because the previous slot keeps serving for a short time and may be
+#  restarted for a rollback.
+#
+#  Usage:
+#    ./deploy.sh                 interactive menu
+#    ./deploy.sh deploy          pull + build + start + verify + switch + soak
+#    ./deploy.sh rollback        switch back to the previous slot
+#    ./deploy.sh cleanup         remove the inactive slot's containers/images
+#    ./deploy.sh status          slot/traffic overview
+#    ./deploy.sh setup           first-time setup on a new server
+#    ./deploy.sh start|stop|restart|logs
+#
+#  Flags: --yes --skip-pull --soak=N --no-soak --keep-old --timeout=N
+# =============================================================================
 
 PROJECT_NAME="archschool"
-BRANCH="main"
+BRANCH="${BRANCH:-main}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/backend/.env"
 DB_URL="postgresql://postgres:postgres@archschool_db:5432/archschool_db"
 PRODUCTION_DOMAIN="${PRODUCTION_DOMAIN:-archschool.vidxsepehr.ir}"
+STATE_FILE="${SCRIPT_DIR}/.deploy-state"
+
+SLOT_BLUE_PORT=6241
+SLOT_GREEN_PORT=6242
+UPSTREAM_NAME="archschool_app"
+NGINX_UPSTREAM_CONF="${NGINX_UPSTREAM_CONF:-/etc/nginx/conf.d/00-archschool-upstream.conf}"
+NGINX_SITE_CONF="${NGINX_SITE_CONF:-}"
+
+GIT_SHA="${GIT_SHA:-unknown}"
+IMAGE_TAG="${IMAGE_TAG:-latest}"
+
+SOAK_SECONDS="${SOAK_SECONDS:-60}"
+SOAK_INTERVAL="${SOAK_INTERVAL:-5}"
+HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-180}"
+PUBLIC_TIMEOUT="${PUBLIC_TIMEOUT:-10}"
+
+COMMAND=""
+ASSUME_YES=0
+SKIP_PULL=0
+KEEP_OLD=0
+EDGE_MODE=1
+PROBE_MODE="local"
+PROBE_PORT="${SLOT_BLUE_PORT}"
 
 cd "${SCRIPT_DIR}"
 
@@ -22,6 +75,9 @@ info()    { printf "${BLUE}[INFO]${NC} %s\n" "$*"; }
 success() { printf "${GREEN}[ OK ]${NC} %s\n" "$*"; }
 warn()    { printf "${YELLOW}[WARN]${NC} %s\n" "$*"; }
 error()   { printf "${RED}[FAIL]${NC} %s\n" "$*" >&2; }
+plain()   { printf "%s\n" "$*"; }
+
+# ---------------------------------------------------------------- plumbing --
 
 run_privileged() {
     if [[ ${EUID} -eq 0 ]]; then
@@ -39,8 +95,23 @@ run_git() {
     fi
 }
 
+# Compose interpolation happens in the CLI process, so the image tag must be
+# passed explicitly — sudo resets the environment.
 compose() {
-    run_privileged docker compose -p "${PROJECT_NAME}" "$@"
+    run_privileged env \
+        IMAGE_TAG="${IMAGE_TAG}" \
+        GIT_SHA="${GIT_SHA}" \
+        docker compose -p "${PROJECT_NAME}" "$@"
+}
+
+slot_compose() {
+    local slot="$1"
+    shift
+    compose --profile "${slot}" "$@"
+}
+
+all_compose() {
+    compose --profile blue --profile green "$@"
 }
 
 check_sudo() {
@@ -56,6 +127,483 @@ check_sudo() {
         exit 1
     fi
 }
+
+slot_port() {
+    case "$1" in
+        blue)  printf '%s' "${SLOT_BLUE_PORT}" ;;
+        green) printf '%s' "${SLOT_GREEN_PORT}" ;;
+        *) return 1 ;;
+    esac
+}
+
+slot_other() {
+    if [[ "$1" == "blue" ]]; then printf 'green'; else printf 'blue'; fi
+}
+
+slot_frontend() { printf 'archschool_frontend_%s' "$1"; }
+slot_backend()  { printf 'archschool_backend_%s' "$1"; }
+
+port_to_slot() {
+    case "$1" in
+        "${SLOT_BLUE_PORT}")  printf 'blue' ;;
+        "${SLOT_GREEN_PORT}") printf 'green' ;;
+        *) return 1 ;;
+    esac
+}
+
+container_exists() {
+    run_privileged docker inspect "$1" >/dev/null 2>&1
+}
+
+container_state() {
+    run_privileged docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null || true
+}
+
+container_health() {
+    local value
+    value="$(run_privileged docker inspect \
+        -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+        "$1" 2>/dev/null || true)"
+    printf '%s' "${value:-missing}"
+}
+
+container_revision() {
+    local value
+    value="$(run_privileged docker inspect \
+        -f '{{index .Config.Labels "archschool.revision"}}' \
+        "$1" 2>/dev/null || true)"
+    printf '%s' "${value:-}"
+}
+
+container_running() {
+    [[ "$(container_state "$1")" == "running" ]]
+}
+
+legacy_exists() {
+    container_exists "archschool_frontend" || container_exists "archschool_backend"
+}
+
+state_get() {
+    [[ -f "${STATE_FILE}" ]] || return 0
+    awk -F= -v key="$1" '$1==key { sub(/^[^=]*=/, ""); print; exit }' "${STATE_FILE}"
+}
+
+# ------------------------------------------------------------- host nginx ---
+
+nginx_present() { command -v nginx >/dev/null 2>&1; }
+
+nginx_test() { run_privileged nginx -t >/dev/null 2>&1; }
+
+nginx_reload() {
+    if command -v systemctl >/dev/null 2>&1 \
+        && run_privileged systemctl is-active --quiet nginx 2>/dev/null; then
+        run_privileged systemctl reload nginx
+    else
+        run_privileged nginx -s reload
+    fi
+}
+
+read_upstream_port() {
+    [[ -n "${NGINX_UPSTREAM_CONF}" ]] || return 0
+    run_privileged grep -oE 'server[[:space:]]+127\.0\.0\.1:[0-9]+' \
+        "${NGINX_UPSTREAM_CONF}" 2>/dev/null \
+        | head -n1 | grep -oE '[0-9]+$' || true
+}
+
+write_upstream() {
+    local port="$1" tmp dir
+    dir="$(dirname "${NGINX_UPSTREAM_CONF}")"
+    run_privileged mkdir -p "${dir}"
+
+    tmp="$(mktemp)"
+    cat > "${tmp}" <<EOF
+# Managed by ArchSchool deploy.sh — do not edit by hand.
+# Points host Nginx at the active blue-green slot:
+#   6241 = blue, 6242 = green.
+upstream ${UPSTREAM_NAME} {
+    server 127.0.0.1:${port};
+}
+EOF
+    # Write to a sibling file, then rename: atomic for nginx.
+    run_privileged install -m 0644 "${tmp}" "${NGINX_UPSTREAM_CONF}.new"
+    run_privileged mv -f "${NGINX_UPSTREAM_CONF}.new" "${NGINX_UPSTREAM_CONF}"
+    rm -f "${tmp}"
+}
+
+restore_upstream() {
+    local previous="$1" backup="$2"
+    if [[ -n "${backup}" && -f "${backup}" ]]; then
+        run_privileged cp -p "${backup}" "${NGINX_UPSTREAM_CONF}"
+        rm -f "${backup}"
+    elif [[ -n "${previous}" ]]; then
+        write_upstream "${previous}"
+    fi
+    if nginx_test; then
+        nginx_reload || warn "Could not reload Nginx while restoring the previous upstream."
+    else
+        warn "Nginx configuration is invalid after the restore attempt."
+    fi
+}
+
+detect_nginx_site_conf() {
+    local candidate resolved
+    local -a candidates=()
+    if [[ -n "${NGINX_SITE_CONF}" ]]; then
+        candidates+=("${NGINX_SITE_CONF}")
+    fi
+    candidates+=(
+        /etc/nginx/sites-available/archschool
+        /etc/nginx/sites-enabled/archschool
+        /etc/nginx/conf.d/archschool.conf
+    )
+    for candidate in "${candidates[@]}"; do
+        if run_privileged test -f "${candidate}"; then
+            # Always edit the real file: `sed -i` on a symlink would replace
+            # the link with a regular file and silently unhook sites-enabled.
+            resolved="$(run_privileged readlink -f "${candidate}" 2>/dev/null || true)"
+            printf '%s' "${resolved:-${candidate}}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# One-time, idempotent, reversible: route the existing site through the
+# managed upstream so traffic can be switched without touching it again.
+ensure_edge() {
+    local conf current_port backup
+    EDGE_MODE=1
+
+    if ! nginx_present; then
+        warn "Host Nginx not detected — blue-green switching is unavailable."
+        EDGE_MODE=0
+        return 0
+    fi
+
+    if ! conf="$(detect_nginx_site_conf)"; then
+        error "Could not locate the ArchSchool Nginx site config."
+        error "Set it explicitly, e.g.: sudo NGINX_SITE_CONF=/etc/nginx/sites-available/archschool ./deploy.sh deploy"
+        return 1
+    fi
+    NGINX_SITE_CONF="${conf}"
+    info "Host Nginx site config: ${conf}"
+
+    if [[ -z "$(read_upstream_port)" ]]; then
+        current_port="$(detect_active_port || true)"
+        current_port="${current_port:-${SLOT_BLUE_PORT}}"
+        write_upstream "${current_port}"
+        success "Created ${NGINX_UPSTREAM_CONF} -> 127.0.0.1:${current_port}"
+    fi
+
+    if run_privileged grep -qE "proxy_pass[[:space:]]+http://${UPSTREAM_NAME}([;/]|\$)" "${conf}"; then
+        success "Site config already routes through the ${UPSTREAM_NAME} upstream."
+        return 0
+    fi
+
+    if ! run_privileged grep -qE "proxy_pass[[:space:]]+http://127\.0\.0\.1:${SLOT_BLUE_PORT}/?;" "${conf}"; then
+        error "Cannot find 'proxy_pass http://127.0.0.1:${SLOT_BLUE_PORT};' in ${conf}."
+        error "Blue-green switching needs that line to point at the '${UPSTREAM_NAME}' upstream."
+        plain ""
+        plain "Apply this change manually, then re-run:"
+        plain "  - proxy_pass http://127.0.0.1:${SLOT_BLUE_PORT};"
+        plain "  + proxy_pass http://${UPSTREAM_NAME};"
+        plain ""
+        plain "(The upstream itself is managed in ${NGINX_UPSTREAM_CONF}.)"
+        return 1
+    fi
+
+    backup="${conf}.bak.$(date +%Y%m%d%H%M%S)"
+    run_privileged cp -p "${conf}" "${backup}"
+    info "Backup written to ${backup}"
+
+    run_privileged sed -i -E \
+        "s|proxy_pass([[:space:]]+)http://127\.0\.0\.1:${SLOT_BLUE_PORT}/?;|proxy_pass\\1http://${UPSTREAM_NAME};|g" \
+        "${conf}"
+
+    if ! run_privileged grep -qE "proxy_pass[[:space:]]+http://${UPSTREAM_NAME}([;/]|\$)" "${conf}"; then
+        run_privileged cp -p "${backup}" "${conf}"
+        error "The automatic patch did not apply cleanly; the original config was restored."
+        return 1
+    fi
+
+    if ! nginx_test; then
+        run_privileged cp -p "${backup}" "${conf}"
+        error "nginx -t rejected the patched config; the original config was restored. Nothing was reloaded."
+        return 1
+    fi
+
+    if ! nginx_reload; then
+        run_privileged cp -p "${backup}" "${conf}"
+        nginx_reload || true
+        error "Nginx reload failed; the original config was restored."
+        return 1
+    fi
+
+    success "Host Nginx now routes through '${UPSTREAM_NAME}' (traffic unchanged)."
+}
+
+switch_traffic() {
+    local port="$1" previous backup
+    previous="$(read_upstream_port)"
+
+    if [[ "${EDGE_MODE}" != "1" ]]; then
+        warn "Host Nginx switching is disabled; skipping the traffic switch."
+        return 0
+    fi
+
+    if [[ "${previous}" == "${port}" ]]; then
+        success "Host Nginx already points at 127.0.0.1:${port}."
+        return 0
+    fi
+
+    backup=""
+    if run_privileged test -f "${NGINX_UPSTREAM_CONF}"; then
+        backup="$(mktemp)"
+        run_privileged cp -p "${NGINX_UPSTREAM_CONF}" "${backup}"
+    fi
+
+    info "Switching host Nginx upstream to 127.0.0.1:${port}..."
+    write_upstream "${port}"
+
+    if ! nginx_test; then
+        error "nginx -t rejected the new upstream; traffic was NOT switched."
+        restore_upstream "${previous}" "${backup}"
+        return 1
+    fi
+
+    if ! nginx_reload; then
+        error "Nginx reload failed; traffic was NOT switched."
+        restore_upstream "${previous}" "${backup}"
+        return 1
+    fi
+
+    [[ -n "${backup}" ]] && rm -f "${backup}"
+    success "Traffic now points at 127.0.0.1:${port}."
+}
+
+# ------------------------------------------------------------ slot helpers --
+
+detect_active_port() {
+    local port
+    port="$(read_upstream_port)"
+    if [[ -n "${port}" ]]; then
+        printf '%s' "${port}"
+        return 0
+    fi
+    if container_running "$(slot_frontend blue)"; then
+        printf '%s' "${SLOT_BLUE_PORT}"
+        return 0
+    fi
+    if container_running "$(slot_frontend green)"; then
+        printf '%s' "${SLOT_GREEN_PORT}"
+        return 0
+    fi
+    if container_running "archschool_frontend"; then
+        printf '%s' "${SLOT_BLUE_PORT}"
+        return 0
+    fi
+    return 1
+}
+
+detect_active_slot() {
+    local port
+    if ! port="$(detect_active_port)"; then
+        printf 'none'
+        return 0
+    fi
+    port_to_slot "${port}" || printf 'none'
+}
+
+choose_target_slot() {
+    case "$1" in
+        blue)  printf 'green' ;;
+        green) printf 'blue' ;;
+        *)     if legacy_exists; then printf 'green'; else printf 'blue'; fi ;;
+    esac
+}
+
+guard_port_free() {
+    local slot="$1" port owner
+    port="$(slot_port "${slot}")"
+    owner="$(run_privileged docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+        | grep -F ":${port}->" | awk '{print $1}' | head -n1 || true)"
+    if [[ -n "${owner}" && "${owner}" != "$(slot_frontend "${slot}")" ]]; then
+        error "Port ${port} is already published by container '${owner}'."
+        if [[ "${owner}" == "archschool_frontend" ]]; then
+            error "That is a pre-blue-green container. It will be removed after the next successful switch,"
+            error "or remove it now: docker rm -f ${owner}"
+        fi
+        return 1
+    fi
+}
+
+wait_container_healthy() {
+    local name="$1" deadline health
+    deadline=$((SECONDS + HEALTH_TIMEOUT))
+
+    while (( SECONDS < deadline )); do
+        health="$(container_health "${name}")"
+        case "${health}" in
+            healthy)
+                printf '\n'
+                success "${name} is healthy."
+                return 0
+                ;;
+            unhealthy|exited|dead|missing)
+                printf '\n'
+                error "${name} is '${health}'. Recent logs:"
+                run_privileged docker logs --tail=40 "${name}" 2>&1 | sed 's/^/    /' || true
+                return 1
+                ;;
+        esac
+        printf '.'
+        sleep 2
+    done
+
+    printf '\n'
+    error "Timed out after ${HEALTH_TIMEOUT}s waiting for ${name} (state: ${health:-unknown})."
+    return 1
+}
+
+wait_slot_healthy() {
+    local slot="$1"
+    info "Waiting for the ${slot} backend to become healthy (timeout ${HEALTH_TIMEOUT}s)..."
+    wait_container_healthy "$(slot_backend "${slot}")" || return 1
+    info "Waiting for the ${slot} frontend to become healthy..."
+    wait_container_healthy "$(slot_frontend "${slot}")" || return 1
+}
+
+slot_smoke() {
+    local slot="$1" port base failed=0 version ws_code body
+    port="$(slot_port "${slot}")"
+    base="http://127.0.0.1:${port}"
+
+    info "Smoke-testing the ${slot} slot on ${base} ..."
+
+    if ! curl -fsS --max-time 10 "${base}/healthz" >/dev/null 2>&1; then
+        error "  [${slot}] /healthz failed (frontend container is not serving)."
+        failed=1
+    else
+        success "  [${slot}] static frontend responds."
+    fi
+
+    if version="$(curl -fsS --max-time 10 "${base}/version" 2>/dev/null)"; then
+        version="${version//[[:space:]]/}"
+        if [[ "${version}" != "${GIT_SHA}" ]]; then
+            error "  [${slot}] /version is '${version}', expected '${GIT_SHA}'."
+            failed=1
+        else
+            success "  [${slot}] build revision ${version} is live in the image."
+        fi
+    else
+        error "  [${slot}] /version is unreachable."
+        failed=1
+    fi
+
+    if body="$(curl -fsS --max-time 15 "${base}/api/health" 2>/dev/null)"; then
+        if ! grep -q '"status":"ok"' <<<"${body}"; then
+            error "  [${slot}] /api/health is not ok: ${body}"
+            failed=1
+        elif ! grep -qF "\"revision\":\"${GIT_SHA}\"" <<<"${body}"; then
+            warn "  [${slot}] backend reports a different revision: ${body}"
+        else
+            success "  [${slot}] frontend -> backend -> database chain is healthy."
+        fi
+    else
+        error "  [${slot}] /api/health failed (frontend cannot reach its backend)."
+        failed=1
+    fi
+
+    # A dummy token is rejected after the upgrade, so 101/401/403/426 all prove
+    # that the WebSocket route is proxied end-to-end.
+    ws_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+        -H 'Connection: Upgrade' \
+        -H 'Upgrade: websocket' \
+        -H 'Sec-WebSocket-Version: 13' \
+        -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+        "${base}/api/ws?token=invalid&room=global" 2>/dev/null || true)"
+    case "${ws_code}" in
+        101|400|401|403|426) success "  [${slot}] WebSocket route is reachable (HTTP ${ws_code})." ;;
+        *)
+            error "  [${slot}] WebSocket handshake returned '${ws_code:-no response}'."
+            failed=1
+            ;;
+    esac
+
+    return "${failed}"
+}
+
+# --------------------------------------------------------------- probing ----
+
+public_health() {
+    curl -fsS --max-time "${PUBLIC_TIMEOUT}" \
+        --resolve "${PRODUCTION_DOMAIN}:443:127.0.0.1" \
+        "https://${PRODUCTION_DOMAIN}/api/health" 2>/dev/null
+}
+
+probe_health() {
+    if [[ "${PROBE_MODE}" == "public" ]]; then
+        public_health
+    else
+        curl -fsS --max-time "${PUBLIC_TIMEOUT}" \
+            "http://127.0.0.1:${PROBE_PORT}/api/health" 2>/dev/null
+    fi
+}
+
+resolve_probe_mode() {
+    PROBE_MODE="local"
+    if [[ "${EDGE_MODE}" == "1" ]] && public_health >/dev/null 2>&1; then
+        PROBE_MODE="public"
+        success "Public endpoint answers; post-switch probes will use https://${PRODUCTION_DOMAIN}."
+    else
+        warn "Public endpoint is not reachable from the host; post-switch probes will use the slot port directly."
+    fi
+}
+
+verify_public() {
+    local sha="$1" attempt body
+    [[ "${PROBE_MODE}" == "public" ]] || return 0
+
+    for attempt in 1 2 3 4 5; do
+        if body="$(public_health)" && grep -q '"status":"ok"' <<<"${body}"; then
+            if grep -qF "\"revision\":\"${sha}\"" <<<"${body}"; then
+                success "Public endpoint is serving revision ${sha}."
+            else
+                warn "Public endpoint is up but reports '${body}' (expected revision ${sha})."
+            fi
+            return 0
+        fi
+        sleep 1
+    done
+    return 1
+}
+
+soak() {
+    local remaining="${SOAK_SECONDS}" failures=0 body
+    if (( SOAK_SECONDS <= 0 )); then
+        warn "Soak window disabled."
+        return 0
+    fi
+
+    info "Soaking for ${SOAK_SECONDS}s (auto-rollback after 3 consecutive failures)..."
+    while (( remaining > 0 )); do
+        if body="$(probe_health)" && grep -q '"status":"ok"' <<<"${body}"; then
+            failures=0
+        else
+            failures=$((failures + 1))
+            warn "Health probe failed (${failures}/3)."
+            if (( failures >= 3 )); then
+                return 1
+            fi
+        fi
+        sleep "${SOAK_INTERVAL}"
+        remaining=$((remaining - SOAK_INTERVAL))
+    done
+
+    success "Soak window passed."
+}
+
+# ------------------------------------------------------------ prerequisites --
 
 install_packages() {
     if command -v apt-get >/dev/null 2>&1; then
@@ -108,10 +656,14 @@ install_docker() {
 }
 
 pull_code() {
+    local repo_url
     if run_git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
         if ! run_git remote get-url origin >/dev/null 2>&1; then
+            if (( ASSUME_YES )); then
+                warn "No 'origin' remote is configured; skipping the code pull."
+                return 0
+            fi
             warn "No 'origin' remote is configured."
-            local repo_url
             read -r -p "GitHub repository URL (leave blank to skip code pull): " repo_url || true
             if [[ -z "${repo_url}" ]]; then
                 warn "Skipping code pull. Using the files already on disk."
@@ -124,8 +676,12 @@ pull_code() {
         return 0
     fi
 
+    if (( ASSUME_YES )); then
+        warn "No Git repository found in ${SCRIPT_DIR}; skipping the code pull."
+        return 0
+    fi
+
     warn "No Git repository found in ${SCRIPT_DIR}."
-    local repo_url
     read -r -p "GitHub repository URL (leave blank to skip code pull): " repo_url || true
     if [[ -z "${repo_url}" ]]; then
         warn "Skipping code pull. Using the files already on disk."
@@ -206,9 +762,13 @@ ensure_env() {
 
 configure_domain() {
     echo
-    info "Domain setup (optional). ArchSchool listens only on port 6241."
-    local domain
-    read -r -p "Domain name (e.g. arch.example.com, leave blank to skip): " domain || true
+    info "Domain setup (optional). ArchSchool is reached through host Nginx -> slot port."
+    local domain=""
+    if (( ASSUME_YES )); then
+        warn "Non-interactive mode: skipping the domain prompt."
+    else
+        read -r -p "Domain name (e.g. arch.example.com, leave blank to skip): " domain || true
+    fi
 
     domain="${domain#http://}"
     domain="${domain#https://}"
@@ -220,7 +780,7 @@ configure_domain() {
     add_cors_origin "http://${PRODUCTION_DOMAIN}"
 
     if [[ -z "${domain}" ]]; then
-        warn "No domain configured. Use http://SERVER_IP:6241 to access the app."
+        warn "No domain configured. Use the configured Nginx upstream to reach the app."
         return 0
     fi
 
@@ -233,115 +793,608 @@ configure_domain() {
     add_cors_origin "http://${domain}"
 
     success "CORS_ORIGINS updated for ${domain}."
-    info "Point your existing Nginx/Apache virtual host for ${domain} to http://127.0.0.1:6241."
-    info "IMPORTANT: set 'client_max_body_size 30m;' in that host's Nginx server block,"
-    info "otherwise uploads larger than 1 MB fail with a 413 / 'Failed to fetch'."
-    info "Ports 80/443 are left untouched, so other projects remain isolated."
+    info "Point your host Nginx virtual host for ${domain} at the '${UPSTREAM_NAME}' upstream."
+    info "IMPORTANT: keep 'client_max_body_size 30m;' in that server block,"
+    info "otherwise uploads larger than 25 MB fail with a 413 / 'Failed to fetch'."
 }
 
-initial_setup() {
-    echo
-    printf "${BOLD}=== ArchSchool Initial Setup ===${NC}\n"
-    check_sudo
-    install_docker
-    pull_code
-    ensure_env
-    configure_domain
+read_revision() {
+    GIT_SHA="$(run_git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    IMAGE_TAG="${GIT_SHA}"
+    export GIT_SHA IMAGE_TAG
+    info "Deploying revision: ${GIT_SHA}"
 
-    info "Building and starting ArchSchool containers..."
-    compose up -d --build --remove-orphans
-
-    success "Initial setup complete."
-    info "Frontend: http://SERVER_IP:6241"
-    info "Change ADMIN_CODE in backend/.env (exactly 6 uppercase letters/numbers) before creating admin users."
-    echo
-    compose ps
+    if [[ -n "$(run_git status --porcelain 2>/dev/null || true)" ]]; then
+        warn "The working tree has uncommitted changes; the images will contain them."
+    fi
 }
 
-start_containers() {
+preflight() {
     check_sudo
-    ensure_env
-    info "Starting ArchSchool..."
-    compose up -d
-    success "ArchSchool started."
-    compose ps
-}
 
-stop_containers() {
-    check_sudo
-    info "Stopping ArchSchool (volumes and data are preserved)..."
-    compose stop
-    success "ArchSchool stopped."
-}
+    if ! command -v docker >/dev/null 2>&1 \
+        || ! run_privileged docker compose version >/dev/null 2>&1; then
+        error "Docker/Docker Compose is not installed. Run: ./deploy.sh setup"
+        return 1
+    fi
 
-restart_containers() {
-    check_sudo
-    info "Restarting ArchSchool..."
-    compose restart
-    success "ArchSchool restarted."
-    compose ps
-}
-
-update_from_github() {
-    check_sudo
+    if ! command -v curl >/dev/null 2>&1; then
+        error "curl is required for health checks. Install it and re-run."
+        return 1
+    fi
 
     if ! run_git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        error "This directory is not a Git repository. Run the initial setup first."
+        error "This directory is not a Git repository, so no revision can be stamped."
+        error "Run ./deploy.sh setup to initialise it."
         return 1
     fi
 
-    if ! run_git remote get-url origin >/dev/null 2>&1; then
-        error "No 'origin' remote is configured. Add it with: git remote add origin <url>"
-        return 1
+    local avail
+    avail="$(df -Pk "${SCRIPT_DIR}" | awk 'NR==2 {print $4}' || true)"
+    if [[ -n "${avail}" ]] && (( avail < 1048576 )); then
+        warn "Less than 1 GB of free space on the project volume; the image build may fail."
     fi
-
-    info "Pulling latest code from GitHub (origin/${BRANCH})..."
-    run_git pull origin "${BRANCH}"
-
-    ensure_env
-
-    info "Rebuilding and restarting containers..."
-    compose up -d --build --remove-orphans
-
-    info "Cleaning up unused Docker images..."
-    run_privileged docker image prune -f
-
-    success "Update complete. ArchSchool is running the latest code."
-    echo
-    compose ps
 }
 
-show_status() {
+# ----------------------------------------------------------------- deploy ---
+
+build_slot() {
+    local slot="$1"
+    info "Building the ${slot} slot images (tag: ${IMAGE_TAG}). The running slot is untouched."
+    if ! slot_compose "${slot}" build; then
+        error "Image build failed. The active slot is still serving traffic."
+        return 1
+    fi
+    success "Images built: archschool-backend:${IMAGE_TAG}, archschool-frontend:${IMAGE_TAG}"
+}
+
+ensure_database() {
+    if [[ "$(container_health archschool_db)" == "healthy" ]]; then
+        return 0
+    fi
+    info "Starting the database container..."
+    # --no-deps: never touch the app slots from here.
+    compose up -d --no-deps db || return 1
+    info "Waiting for PostgreSQL..."
+    wait_container_healthy archschool_db
+}
+
+# The backend is started before its frontend: the frontend's nginx resolves
+# its BACKEND_HOST at startup, so the container must already exist. --no-deps
+# on both calls keeps Compose from ever recreating the database container.
+start_slot() {
+    local slot="$1"
+    ensure_database || return 1
+
+    info "Starting backend-${slot}..."
+    if ! slot_compose "${slot}" up -d --no-build --force-recreate --no-deps \
+        "backend-${slot}"; then
+        error "Could not start backend-${slot}."
+        return 1
+    fi
+    if ! wait_container_healthy "$(slot_backend "${slot}")"; then
+        return 1
+    fi
+
+    info "Starting frontend-${slot}..."
+    if ! slot_compose "${slot}" up -d --no-build --force-recreate --no-deps \
+        "frontend-${slot}"; then
+        error "Could not start frontend-${slot}."
+        return 1
+    fi
+    wait_container_healthy "$(slot_frontend "${slot}")"
+}
+
+stop_slot() {
+    local slot="$1"
+    if ! container_exists "$(slot_frontend "${slot}")" \
+        && ! container_exists "$(slot_backend "${slot}")"; then
+        return 0
+    fi
+    info "Stopping the ${slot} slot (containers and images are kept for rollback)..."
+    # Service names are always explicit: `docker compose stop` without them
+    # would stop *every* container of the project — i.e. the live slot too.
+    slot_compose "${slot}" stop \
+        "frontend-${slot}" "backend-${slot}" || warn "Could not stop the ${slot} slot cleanly."
+}
+
+# Restart an existing (stopped) slot without recreating it. The backend is
+# started first so the frontend's nginx can resolve it at startup.
+resume_slot() {
+    local slot="$1"
+    ensure_database || return 1
+
+    slot_compose "${slot}" start "backend-${slot}" || return 1
+    wait_container_healthy "$(slot_backend "${slot}")" || return 1
+
+    slot_compose "${slot}" start "frontend-${slot}" || return 1
+    wait_container_healthy "$(slot_frontend "${slot}")"
+}
+
+remove_legacy_containers() {
+    legacy_exists || return 0
+    info "Removing the legacy (pre-blue-green) containers..."
+    run_privileged docker rm -f archschool_frontend archschool_backend >/dev/null 2>&1 || true
+    success "Legacy containers removed; port ${SLOT_BLUE_PORT} is free for the next deploy."
+}
+
+# Compose interpolates the image tag, so commands that touch an existing slot
+# (start/restart/status) must reuse the tag the containers were created with —
+# otherwise Compose would try to pull/build a different image.
+adopt_runtime_env() {
+    local slot revision
+    slot="$(detect_active_slot)"
+    if [[ "${slot}" == "none" ]]; then
+        return 0
+    fi
+    revision="$(container_revision "$(slot_frontend "${slot}")")"
+    if [[ -n "${revision}" && "${revision}" != "unknown" ]]; then
+        GIT_SHA="${revision}"
+        IMAGE_TAG="${revision}"
+        export GIT_SHA IMAGE_TAG
+    fi
+}
+
+write_state() {
+    local active_slot="$1" active_port="$2" active_rev="$3"
+    local previous_slot="$4" previous_port="$5" previous_rev="$6"
+    {
+        printf 'ACTIVE_SLOT=%s\n' "${active_slot}"
+        printf 'ACTIVE_PORT=%s\n' "${active_port}"
+        printf 'ACTIVE_REVISION=%s\n' "${active_rev}"
+        printf 'PREVIOUS_SLOT=%s\n' "${previous_slot}"
+        printf 'PREVIOUS_PORT=%s\n' "${previous_port}"
+        printf 'PREVIOUS_REVISION=%s\n' "${previous_rev}"
+        printf 'DEPLOYED_AT=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "${STATE_FILE}" 2>/dev/null || warn "Could not write ${STATE_FILE}"
+}
+
+print_summary() {
+    local slot="$1" port="$2" revision="$3"
+    echo
+    printf "${BOLD}=== Deployment summary ===${NC}\n"
+    plain "  Active slot : ${slot}"
+    plain "  Slot port   : 127.0.0.1:${port}"
+    plain "  Revision    : ${revision}"
+    if [[ "${EDGE_MODE}" == "1" ]]; then
+        plain "  Traffic     : https://${PRODUCTION_DOMAIN} -> ${UPSTREAM_NAME} -> 127.0.0.1:${port}"
+        plain "  Previous    : $(state_get PREVIOUS_SLOT) (kept for './deploy.sh rollback')"
+    else
+        plain "  Traffic     : http://SERVER_IP:${port} (no host Nginx switch)"
+    fi
+    plain ""
+}
+
+cmd_deploy() {
+    local active target active_port target_port old_rev
+
+    preflight || return 1
+
+    if (( SKIP_PULL == 0 )); then
+        pull_code || return 1
+    fi
+    ensure_env
+    read_revision
+
+    active="$(detect_active_slot)"
+    target="$(choose_target_slot "${active}")"
+    active_port="$(detect_active_port || true)"
+    active_port="${active_port:-}"
+
+    echo
+    info "Active slot: ${active}${active_port:+ (127.0.0.1:${active_port})}"
+    info "Target slot: ${target} (127.0.0.1:$(slot_port "${target}"))"
+    if legacy_exists; then
+        warn "Pre-blue-green containers found; they are removed after the switch succeeds."
+    fi
+
+    ensure_edge || return 1
+    resolve_probe_mode
+    PROBE_PORT="${active_port:-${SLOT_BLUE_PORT}}"
+
+    if [[ "${EDGE_MODE}" != "1" ]]; then
+        if [[ "${active}" != "none" && "$(slot_port "${target}")" != "${active_port}" ]]; then
+            error "Host Nginx is required to move traffic between slots. Aborting."
+            return 1
+        fi
+    fi
+
+    if ! guard_port_free "${target}"; then
+        return 1
+    fi
+
+    build_slot "${target}" || return 1
+
+    if ! start_slot "${target}"; then
+        error "The ${target} slot did not become healthy. Nothing was switched."
+        echo
+        slot_compose "${target}" logs --tail=40 \
+            "frontend-${target}" "backend-${target}" >&2 || true
+        stop_slot "${target}"
+        return 1
+    fi
+
+    if ! slot_smoke "${target}"; then
+        error "The ${target} slot failed its smoke test. Nothing was switched."
+        stop_slot "${target}"
+        return 1
+    fi
+
+    target_port="$(slot_port "${target}")"
+    old_rev="$(container_revision "$(slot_frontend "${active}")")"
+    [[ -n "${old_rev}" ]] || old_rev="$(state_get ACTIVE_REVISION)"
+    [[ -n "${old_rev}" ]] || old_rev="unknown"
+
+    if ! switch_traffic "${target_port}"; then
+        error "Traffic switch failed; the ${active} slot keeps serving."
+        stop_slot "${target}"
+        return 1
+    fi
+    PROBE_PORT="${target_port}"
+
+    if ! verify_public "${GIT_SHA}"; then
+        error "The public endpoint did not confirm the new revision; rolling back."
+        switch_traffic "${active_port:-${SLOT_BLUE_PORT}}" || warn "Could not switch traffic back automatically."
+        PROBE_PORT="${active_port:-${SLOT_BLUE_PORT}}"
+        stop_slot "${target}"
+        return 1
+    fi
+
+    if ! soak; then
+        error "Post-switch health checks failed; rolling back to the ${active} slot."
+        if switch_traffic "${active_port:-${SLOT_BLUE_PORT}}"; then
+            PROBE_PORT="${active_port:-${SLOT_BLUE_PORT}}"
+            stop_slot "${target}"
+            error "Rolled back. The previous slot is serving again."
+        else
+            error "Rollback switch failed! Manual action required: ${NGINX_UPSTREAM_CONF}"
+        fi
+        return 1
+    fi
+
+    # The pre-blue-green containers can never be a slot target (different
+    # names), so they are always safe to remove once traffic has moved.
+    remove_legacy_containers
+
+    if [[ "${active}" != "none" ]] && container_exists "$(slot_frontend "${active}")"; then
+        if (( KEEP_OLD == 1 )); then
+            warn "--keep-old: the ${active} slot is left running (chat sockets stay split until it stops)."
+        else
+            stop_slot "${active}"
+        fi
+    fi
+
+    write_state "${target}" "${target_port}" "${GIT_SHA}" "${active}" "${active_port:-}" "${old_rev}"
+
+    info "Pruning dangling images (tagged release images are kept)..."
+    run_privileged docker image prune -f >/dev/null 2>&1 || true
+
+    success "Deployment complete: ${target} is live on revision ${GIT_SHA}."
+    print_summary "${target}" "${target_port}" "${GIT_SHA}"
+    info "Rollback:  sudo ./deploy.sh rollback"
+    info "Cleanup:   sudo ./deploy.sh cleanup"
+}
+
+# --------------------------------------------------------------- rollback ---
+
+cmd_rollback() {
+    local active active_port previous previous_port previous_rev current_rev
+
     check_sudo
+    ensure_env
+
+    active="$(detect_active_slot)"
+    active_port="$(detect_active_port || true)"
+
+    if [[ "${active}" == "none" ]]; then
+        error "Could not determine the active slot (no upstream file and no running slot)."
+        return 1
+    fi
+
+    previous="$(slot_other "${active}")"
+    previous_port="$(slot_port "${previous}")"
+
+    previous_rev="$(container_revision "$(slot_frontend "${previous}")")"
+    if [[ -z "${previous_rev}" ]]; then
+        previous_rev="$(state_get PREVIOUS_REVISION)"
+    fi
+
+    if [[ -z "${previous_rev}" || "${previous_rev}" == "unknown" ]]; then
+        error "No rollback target is recorded."
+        error "If you just migrated from the pre-blue-green setup, redeploy the previous commit instead:"
+        error "  git checkout <previous-sha> && sudo ./deploy.sh deploy --skip-pull"
+        return 1
+    fi
+
     echo
-    printf "${BOLD}=== ArchSchool container status ===${NC}\n"
-    compose ps
+    info "Active slot : ${active} (127.0.0.1:${active_port})"
+    info "Rolling back to: ${previous} (127.0.0.1:${previous_port}, revision ${previous_rev})"
+    warn "Schema rollback is not automatic. Only revert if the newer release kept the database backward compatible."
+
+    if ! nginx_present; then
+        error "Host Nginx is required to move traffic between slots. Aborting."
+        return 1
+    fi
+
+    if [[ -z "$(read_upstream_port)" ]]; then
+        error "No managed upstream found (${NGINX_UPSTREAM_CONF}). Run a normal deploy first."
+        return 1
+    fi
+
+    IMAGE_TAG="${previous_rev}"
+    GIT_SHA="${previous_rev}"
+    export IMAGE_TAG GIT_SHA
+
+    if container_exists "$(slot_frontend "${previous}")" \
+        && container_exists "$(slot_backend "${previous}")"; then
+        info "Resuming the existing ${previous} containers..."
+        resume_slot "${previous}" || return 1
+    else
+        if ! run_privileged docker image inspect "archschool-frontend:${previous_rev}" >/dev/null 2>&1 \
+            || ! run_privileged docker image inspect "archschool-backend:${previous_rev}" >/dev/null 2>&1; then
+            error "Images for revision ${previous_rev} are gone (cleanup already removed them)."
+            error "Redeploy the previous commit instead: git checkout ${previous_rev} && sudo ./deploy.sh deploy --skip-pull"
+            return 1
+        fi
+        warn "The ${previous} containers were removed; recreating them from revision ${previous_rev}."
+        start_slot "${previous}" || return 1
+    fi
+
+    if ! wait_slot_healthy "${previous}"; then
+        error "The ${previous} slot did not become healthy; traffic was not switched."
+        return 1
+    fi
+
+    if ! slot_smoke "${previous}"; then
+        error "The ${previous} slot failed its smoke test; traffic was not switched."
+        return 1
+    fi
+
+    resolve_probe_mode
+    if ! switch_traffic "${previous_port}"; then
+        error "Could not switch traffic back. The ${active} slot is still serving."
+        return 1
+    fi
+    PROBE_PORT="${previous_port}"
+    verify_public "${previous_rev}" || warn "The public endpoint did not confirm revision ${previous_rev}; check it manually."
+
+    current_rev="$(container_revision "$(slot_frontend "${active}")")"
+    stop_slot "${active}"
+    write_state "${previous}" "${previous_port}" "${previous_rev}" "${active}" "${active_port:-}" "${current_rev:-unknown}"
+
+    success "Rollback complete. ${previous} (revision ${previous_rev}) is live."
+    print_summary "${previous}" "${previous_port}" "${previous_rev}"
+    info "Roll forward again with: sudo ./deploy.sh deploy"
+}
+
+# ---------------------------------------------------------------- cleanup ---
+
+cmd_cleanup() {
+    local active active_port target target_rev upstream_port
+
+    check_sudo
+    ensure_env
+
+    active="$(detect_active_slot)"
+    active_port="$(detect_active_port || true)"
+    upstream_port="$(read_upstream_port)"
+
+    if [[ "${active}" == "none" ]]; then
+        error "Cannot determine the active slot; refusing to clean up."
+        return 1
+    fi
+
+    if [[ -n "${upstream_port}" && "$(port_to_slot "${upstream_port}" || true)" != "${active}" ]]; then
+        error "Traffic target (${upstream_port}) and detected slot (${active}) disagree; refusing to clean up."
+        return 1
+    fi
+
+    if ! container_running "$(slot_frontend "${active}")"; then
+        error "The active ${active} slot is not running; refusing to clean up."
+        return 1
+    fi
+
+    target="$(slot_other "${active}")"
+    target_rev="$(container_revision "$(slot_frontend "${target}")")"
+
     echo
-    info "Port mapping: host 6241 -> frontend container 80"
-    info "Database container archschool_db is internal-only (no host port)."
+    info "Active slot: ${active} (127.0.0.1:${active_port})"
+    info "Removing the inactive ${target} slot${target_rev:+ (revision ${target_rev})}..."
+
+    if container_exists "$(slot_frontend "${target}")" \
+        || container_exists "$(slot_backend "${target}")"; then
+        slot_compose "${target}" rm -sf \
+            "frontend-${target}" "backend-${target}" >/dev/null 2>&1 \
+            || warn "Could not remove every ${target} container."
+    else
+        info "No ${target} containers to remove."
+    fi
+
+    if [[ -n "${target_rev}" && "${target_rev}" != "unknown" ]]; then
+        run_privileged docker image rm -f \
+            "archschool-frontend:${target_rev}" \
+            "archschool-backend:${target_rev}" >/dev/null 2>&1 \
+            || warn "Could not remove images for revision ${target_rev} (still in use?)."
+    fi
+
+    run_privileged docker image prune -f >/dev/null 2>&1 || true
+
+    write_state "${active}" "${active_port:-}" "$(container_revision "$(slot_frontend "${active}")")" \
+        "none" "" ""
+
+    success "Cleanup complete. Only the ${active} slot remains."
+    warn "Rollback is no longer possible from local containers/images for the removed slot."
+}
+
+# ----------------------------------------------------------------- status ---
+
+describe_slot() {
+    local slot="$1" frontend backend fh bh fe_state be_state revision marker
+    frontend="$(slot_frontend "${slot}")"
+    backend="$(slot_backend "${slot}")"
+    fe_state="$(container_state "${frontend}")"
+    be_state="$(container_state "${backend}")"
+    fh="$(container_health "${frontend}")"
+    bh="$(container_health "${backend}")"
+    revision="$(container_revision "${frontend}")"
+
+    marker=" "
+    if [[ "$(read_upstream_port)" == "$(slot_port "${slot}")" ]]; then
+        marker="*"
+    fi
+
+    printf "  %s %-5s port %-4s frontend=%-8s/%-8s backend=%-8s/%-8s rev=%s\n" \
+        "${marker}" "${slot}" "$(slot_port "${slot}")" \
+        "${fe_state:-missing}" "${fh}" \
+        "${be_state:-missing}" "${bh}" \
+        "${revision:-unknown}"
+}
+
+cmd_status() {
+    local active port
+    check_sudo
+    ensure_env
+    adopt_runtime_env
+
+    active="$(detect_active_slot)"
+    port="$(detect_active_port || true)"
+
+    echo
+    printf "${BOLD}=== ArchSchool blue-green status ===${NC}\n"
+    plain "  Active slot : ${active}"
+    plain "  Traffic     : Nginx upstream '${UPSTREAM_NAME}' -> 127.0.0.1:${port:-?}"
+    plain "  Upstream f. : ${NGINX_UPSTREAM_CONF}"
+    plain "  Deployed at : $(state_get DEPLOYED_AT)"
+    echo
+    printf "  (* = receiving traffic)\n"
+    describe_slot blue
+    describe_slot green
+    echo
+    all_compose ps
+}
+
+# ----------------------------------------------------- start/stop/restart ---
+
+cmd_start() {
+    local active
+    check_sudo
+    ensure_env
+    adopt_runtime_env
+
+    active="$(detect_active_slot)"
+    if [[ "${active}" == "none" ]]; then
+        active="blue"
+        warn "No active slot detected; defaulting to blue."
+    fi
+
+    info "Starting the ${active} slot (and the database)..."
+    slot_compose "${active}" up -d || return 1
+    success "Started."
+    cmd_status
+}
+
+cmd_stop() {
+    check_sudo
+    ensure_env
+    info "Stopping ArchSchool (volumes and data are preserved)..."
+    all_compose stop || return 1
+    success "Stopped."
+}
+
+cmd_restart() {
+    local active
+    check_sudo
+    ensure_env
+    adopt_runtime_env
+
+    active="$(detect_active_slot)"
+    if [[ "${active}" == "none" ]]; then
+        error "No active slot detected."
+        return 1
+    fi
+
+    info "Restarting the ${active} slot..."
+    slot_compose "${active}" restart "frontend-${active}" "backend-${active}" || return 1
+    success "Restarted."
+    cmd_status
 }
 
 show_logs() {
+    local choice
     check_sudo
     echo
-    echo "  1) All services"
-    echo "  2) Frontend"
-    echo "  3) Backend"
+    echo "  1) Active slot"
+    echo "  2) Blue slot"
+    echo "  3) Green slot"
     echo "  4) Database"
     echo "  0) Back"
-    local choice
     read -r -p "Select logs to follow: " choice || return 0
     case "${choice}" in
-        1) compose logs -f --tail=200 || true ;;
-        2) compose logs -f --tail=200 frontend || true ;;
-        3) compose logs -f --tail=200 backend || true ;;
+        1)
+            local active
+            active="$(detect_active_slot)"
+            [[ "${active}" == "none" ]] && active="blue"
+            slot_compose "${active}" logs -f --tail=200 || true
+            ;;
+        2) slot_compose blue logs -f --tail=200 || true ;;
+        3) slot_compose green logs -f --tail=200 || true ;;
         4) compose logs -f --tail=200 db || true ;;
         0) return 0 ;;
         *) warn "Invalid option." ;;
     esac
 }
 
+# ------------------------------------------------------------------ setup ---
+
+cmd_setup() {
+    echo
+    printf "${BOLD}=== ArchSchool initial setup (blue-green) ===${NC}\n"
+    check_sudo
+    install_docker || return 1
+    pull_code || return 1
+    ensure_env
+    configure_domain
+    cmd_deploy
+}
+
+# ------------------------------------------------------------------- menu ---
+
+usage() {
+    cat <<'EOF'
+ArchSchool deployment manager (blue-green)
+
+Usage:
+  ./deploy.sh [command] [flags]
+
+Commands:
+  deploy      Pull, build, start the inactive slot, verify, switch, soak
+  rollback    Switch traffic back to the previous slot
+  cleanup     Remove the inactive slot's containers and images
+  status      Show both slots and the active traffic target
+  setup       First-time setup (docker, code, env, domain, deploy)
+  start       Start the active slot
+  stop        Stop every container (data is preserved)
+  restart     Restart the active slot
+  logs        Follow logs
+  (no command) interactive menu
+
+Flags:
+  --yes, -y     Non-interactive (accept defaults, no prompts)
+  --skip-pull   Do not run git pull
+  --soak=N      Soak window in seconds (default 60)
+  --no-soak     Skip the soak window
+  --keep-old    Leave the previous slot running after the switch
+  --timeout=N   Health-check timeout in seconds (default 180)
+
+Environment:
+  PRODUCTION_DOMAIN   Public hostname (default archschool.vidxsepehr.ir)
+  NGINX_SITE_CONF     Host Nginx site file (default: auto-detect)
+  NGINX_UPSTREAM_CONF Upstream file (default /etc/nginx/conf.d/00-archschool-upstream.conf)
+EOF
+}
+
 show_menu() {
+    local active
     clear 2>/dev/null || true
     printf "${CYAN}${BOLD}"
     cat <<'EOF'
@@ -353,42 +1406,99 @@ show_menu() {
 \_| |_/_|  \___|\__,_|_| \____/|_| |_|\___/ \___/|_|
 EOF
     printf "${NC}\n"
-    echo "  ArchSchool deployment manager"
+    echo "  ArchSchool deployment manager — blue-green"
     echo "  ------------------------------------------------"
-    echo "  1) Initial setup (Docker, code, domain, start)"
-    echo "  2) Start containers"
-    echo "  3) Stop containers"
-    echo "  4) Restart containers"
-    echo "  5) Update from GitHub (git pull + rebuild)"
-    echo "  6) Show container status"
-    echo "  7) View live logs"
+    active="$(detect_active_slot 2>/dev/null || echo unknown)"
+    echo "  Active slot: ${active}   Traffic: $(read_upstream_port 2>/dev/null || true)"
+    echo "  ------------------------------------------------"
+    echo "  1) Initial setup (Docker, code, domain, first deploy)"
+    echo "  2) Deploy / update (zero downtime)"
+    echo "  3) Rollback to the previous slot"
+    echo "  4) Clean up the inactive slot"
+    echo "  5) Start the active slot"
+    echo "  6) Stop all containers"
+    echo "  7) Restart the active slot"
+    echo "  8) Status (slots + traffic)"
+    echo "  9) View live logs"
     echo "  0) Exit"
     echo
 }
 
-main() {
+interactive_menu() {
+    local choice
     check_sudo
     while true; do
         show_menu
-        local choice
-        if ! read -r -p "Select an option [0-7]: " choice; then
+        if ! read -r -p "Select an option [0-9]: " choice; then
             echo
             exit 0
         fi
         case "${choice}" in
-            1) initial_setup || warn "Initial setup failed. Check the output above." ;;
-            2) start_containers || warn "Could not start ArchSchool." ;;
-            3) stop_containers || warn "Could not stop ArchSchool." ;;
-            4) restart_containers || warn "Could not restart ArchSchool." ;;
-            5) update_from_github || warn "Update failed. Check the output above." ;;
-            6) show_status || warn "Could not read container status." ;;
-            7) show_logs || true ;;
+            1) cmd_setup || warn "Initial setup failed. Check the output above." ;;
+            2) cmd_deploy || warn "Deployment failed. The previous slot is still serving." ;;
+            3) cmd_rollback || warn "Rollback failed. Check the output above." ;;
+            4) cmd_cleanup || warn "Cleanup failed. Check the output above." ;;
+            5) cmd_start || warn "Could not start ArchSchool." ;;
+            6) cmd_stop || warn "Could not stop ArchSchool." ;;
+            7) cmd_restart || warn "Could not restart ArchSchool." ;;
+            8) cmd_status || warn "Could not read the status." ;;
+            9) show_logs || true ;;
             0) printf "${GREEN}Bye.${NC}\n"; exit 0 ;;
             *) warn "Invalid option: ${choice}" ;;
         esac
         echo
         read -r -p "Press Enter to return to the menu..." _ || true
     done
+}
+
+# ------------------------------------------------------------------- main ---
+
+parse_args() {
+    while (( $# )); do
+        case "$1" in
+            --yes|-y)     ASSUME_YES=1 ;;
+            --skip-pull)  SKIP_PULL=1 ;;
+            --soak=*)     SOAK_SECONDS="${1#*=}" ;;
+            --no-soak)    SOAK_SECONDS=0 ;;
+            --keep-old)   KEEP_OLD=1 ;;
+            --timeout=*)  HEALTH_TIMEOUT="${1#*=}" ;;
+            -h|--help)    usage; exit 0 ;;
+            deploy|update)   COMMAND="deploy" ;;
+            rollback)        COMMAND="rollback" ;;
+            cleanup|prune)   COMMAND="cleanup" ;;
+            status)          COMMAND="status" ;;
+            setup|install)   COMMAND="setup" ;;
+            start)           COMMAND="start" ;;
+            stop)            COMMAND="stop" ;;
+            restart)         COMMAND="restart" ;;
+            logs)            COMMAND="logs" ;;
+            -*)  error "Unknown option: $1"; usage; exit 2 ;;
+            *)   error "Unknown command: $1"; usage; exit 2 ;;
+        esac
+        shift
+    done
+}
+
+main() {
+    parse_args "$@"
+
+    if [[ -z "${COMMAND}" ]]; then
+        interactive_menu
+        exit 0
+    fi
+
+    case "${COMMAND}" in
+        deploy)   cmd_deploy ;;
+        rollback) cmd_rollback ;;
+        cleanup)  cmd_cleanup ;;
+        status)   cmd_status ;;
+        setup)    cmd_setup ;;
+        start)    cmd_start ;;
+        stop)     cmd_stop ;;
+        restart)  cmd_restart ;;
+        logs)     show_logs ;;
+        *)        usage; exit 2 ;;
+    esac
 }
 
 main "$@"

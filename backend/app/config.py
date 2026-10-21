@@ -6,6 +6,10 @@ class Settings(BaseSettings):
     APP_NAME: str = "ArchSchool API"
     DATABASE_URL: str = "sqlite:///./homework.db"
 
+    # Git SHA of the running build. Injected at image build time so the
+    # blue-green deploy script can prove which revision is actually live.
+    APP_REVISION: str = "unknown"
+
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",

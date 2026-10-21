@@ -46,3 +46,6 @@ Thumbs.db
 
 # Docker overrides and local data
 docker-compose.override.yml
+
+# Blue-green deployment state (written by deploy.sh on the server)
+.deploy-state

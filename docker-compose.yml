@@ -1,4 +1,79 @@
+# ArchSchool — blue-green deployment topology
+#
+#   db                  single shared PostgreSQL (never duplicated)
+#   backend-blue  + frontend-blue    slot "blue"   -> 127.0.0.1:6241
+#   backend-green + frontend-green   slot "green"  -> 127.0.0.1:6242
+#
+# IMPORTANT: the app services are guarded by Compose profiles, so a bare
+# `docker compose up -d` only starts the database. Always drive the stack
+# through ./deploy.sh (or pass --profile blue / --profile green explicitly).
+#
+# Traffic switching happens in the HOST nginx (see deploy.sh): it proxies to
+# the upstream written in /etc/nginx/conf.d/00-archschool-upstream.conf, which
+# points at the active slot's frontend port. Publishing the frontend ports on
+# loopback only keeps both slots unreachable from the internet directly.
+
 name: archschool
+
+x-backend-common: &backend-common
+  image: archschool-backend:${IMAGE_TAG:-latest}
+  build:
+    context: ./backend
+    dockerfile: Dockerfile
+    args:
+      GIT_SHA: ${GIT_SHA:-unknown}
+  restart: unless-stopped
+  env_file:
+    - ./backend/.env
+  environment:
+    DATABASE_URL: postgresql://postgres:postgres@archschool_db:5432/archschool_db
+    UPLOAD_DIR: /app/uploads
+  volumes:
+    - archschool_uploads:/app/uploads
+  depends_on:
+    db:
+      condition: service_healthy
+  expose:
+    - "8000"
+  networks:
+    - archschool_net
+  stop_grace_period: 20s
+  healthcheck:
+    # 503 (database unreachable) makes urlopen raise -> non-zero exit.
+    test:
+      [
+        "CMD",
+        "python",
+        "-c",
+        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)",
+      ]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 25s
+
+x-frontend-common: &frontend-common
+  image: archschool-frontend:${IMAGE_TAG:-latest}
+  build:
+    context: ./frontend
+    dockerfile: Dockerfile
+    args:
+      VITE_API_URL: /api
+      GIT_SHA: ${GIT_SHA:-unknown}
+  restart: unless-stopped
+  networks:
+    - archschool_net
+  stop_grace_period: 10s
+  healthcheck:
+    test:
+      [
+        "CMD-SHELL",
+        "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1",
+      ]
+    interval: 10s
+    timeout: 5s
+    retries: 6
+    start_period: 10s
 
 services:
   db:
@@ -20,47 +95,55 @@ services:
       retries: 5
       start_period: 10s
 
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: archschool_backend
-    restart: unless-stopped
-    env_file:
-      - ./backend/.env
-    environment:
-      DATABASE_URL: postgresql://postgres:postgres@archschool_db:5432/archschool_db
-      UPLOAD_DIR: /app/uploads
-    volumes:
-      - archschool_uploads:/app/uploads
-    depends_on:
-      db:
-        condition: service_healthy
-    expose:
-      - "8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-    networks:
-      - archschool_net
+  # ------------------------------------------------------------------ blue --
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_URL: /api
-    container_name: archschool_frontend
-    restart: unless-stopped
-    depends_on:
-      - backend
+  backend-blue:
+    <<: *backend-common
+    profiles: ["blue"]
+    container_name: archschool_backend_blue
+    labels:
+      archschool.slot: "blue"
+      archschool.revision: "${GIT_SHA:-unknown}"
+
+  frontend-blue:
+    <<: *frontend-common
+    profiles: ["blue"]
+    container_name: archschool_frontend_blue
+    labels:
+      archschool.slot: "blue"
+      archschool.revision: "${GIT_SHA:-unknown}"
+    environment:
+      BACKEND_HOST: archschool_backend_blue
     ports:
-      - "6241:80"
-    networks:
-      - archschool_net
+      - "127.0.0.1:6241:80"
+    depends_on:
+      backend-blue:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------- green --
+
+  backend-green:
+    <<: *backend-common
+    profiles: ["green"]
+    container_name: archschool_backend_green
+    labels:
+      archschool.slot: "green"
+      archschool.revision: "${GIT_SHA:-unknown}"
+
+  frontend-green:
+    <<: *frontend-common
+    profiles: ["green"]
+    container_name: archschool_frontend_green
+    labels:
+      archschool.slot: "green"
+      archschool.revision: "${GIT_SHA:-unknown}"
+    environment:
+      BACKEND_HOST: archschool_backend_green
+    ports:
+      - "127.0.0.1:6242:80"
+    depends_on:
+      backend-green:
+        condition: service_healthy
 
 networks:
   archschool_net:

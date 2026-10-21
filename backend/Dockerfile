@@ -15,6 +15,11 @@ COPY app ./app
 
 ENV PATH="/app/.venv/bin:$PATH"
 
+# Build revision stamped into the image; exposed by GET /api/health so the
+# blue-green deploy can verify which code is actually serving traffic.
+ARG GIT_SHA=unknown
+ENV APP_REVISION=${GIT_SHA}
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

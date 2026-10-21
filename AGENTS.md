@@ -16,11 +16,12 @@ ArchSchool is a social-network-style school workspace for a class team (11th gra
 - **Domain:** `https://archschool.vidxsepehr.ir`
 - **Ports:** 
   - Host Nginx runs on 80/443 (handles SSL via Certbot).
-  - Host Nginx proxies traffic to the Frontend container on `127.0.0.1:6241`.
+  - Host Nginx proxies to the `archschool_app` upstream, which points at the active blue-green slot: `127.0.0.1:6241` (blue) or `127.0.0.1:6242` (green).
+  - Both slot ports are bound to loopback only.
   - PostgreSQL is strictly internal to Docker (no host port exposed) to avoid conflicting with the server's existing databases.
-- **Docker Containers:** `archschool_db`, `archschool_backend`, `archschool_frontend`.
-- **Host Nginx Config:** Located at `/etc/nginx/sites-available/archschool`. Requires `client_max_body_size 30m;` and WebSocket headers (`Upgrade`, `Connection "upgrade"`) inside the `location /` block.
-- **Docker Nginx:** Inside the frontend container, `/api` and `/api/ws` routes must be marked as `location ^~ /api/` to prevent regex static file rules from hijacking image URLs.
+- **Docker Containers:** `archschool_db`, `archschool_backend_blue`, `archschool_frontend_blue`, `archschool_backend_green`, `archschool_frontend_green`. Only one slot runs at a time (the other is kept stopped for rollback).
+- **Host Nginx Config:** Located at `/etc/nginx/sites-available/archschool`. Requires `client_max_body_size 30m;` and WebSocket headers (`Upgrade`, `Connection "upgrade"`) inside the `location /` block. Its `proxy_pass` must point at `http://archschool_app` (managed in `/etc/nginx/conf.d/00-archschool-upstream.conf`).
+- **Docker Nginx:** Inside the frontend container, `/api` and `/api/ws` routes must be marked as `location ^~ /api/` to prevent regex static file rules from hijacking image URLs. `frontend/nginx.conf.template` is rendered at container start; `BACKEND_HOST` is injected per slot by Compose.
 
 ## 4. Authentication & Roles (RBAC)
 - **Access Code Only:** There are no passwords. Authentication is done via `username` + a **6-character alphanumeric uppercase Access Code** (e.g., `ROOT01`).
@@ -29,7 +30,7 @@ ArchSchool is a social-network-style school workspace for a class team (11th gra
 
 ## 5. Deployment Workflow & Scripts
 - **GitHub Repo:** `https://github.com/NULLByte-ROOT/archschool` (Branch: `main`).
-- **Deployment Script:** `./deploy.sh` on the server. Option `5` updates the project from GitHub, rebuilds Docker, and prunes old images.
+- **Deployment Script:** `./deploy.sh` on the server — blue-green. `./deploy.sh deploy` pulls, builds the inactive slot, verifies it, switches the host Nginx upstream and soaks; `rollback`, `cleanup`, `status` are the other subcommands. NEVER use `docker compose up -d`/`down`/`--remove-orphans` directly: slots are Compose profiles and the database is shared.
 - **Database Migrations:** Handled automatically via `Base.metadata.create_all` and custom `_ensure_columns()` logic in `main.py`. Explicit SQL scripts are in `backend/migrations/` (safe to run idempotently).
 
 ## 6. Core Features Implemented

@@ -1,3 +1,5 @@
+import logging
+from contextlib import contextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -10,7 +12,40 @@ from .config import settings
 from .database import Base, engine
 from .routers import assignments, attachments, auth, messages, uploads, users, ws
 
-Base.metadata.create_all(bind=engine)
+logger = logging.getLogger("archschool.boot")
+
+# Arbitrary but stable Postgres advisory-lock key ("ARCH"). Blue-green runs two
+# backend instances against one database; the lock makes sure only one of them
+# can execute DDL at a time.
+MIGRATION_LOCK_KEY = 0x41524348
+
+
+@contextmanager
+def _migration_lock():
+    """Serialize boot migrations across concurrently starting instances.
+
+    A session-level advisory lock is released explicitly (and automatically by
+    Postgres if the process dies), so a crashed boot can never wedge future
+    deploys. Non-Postgres backends (local SQLite) skip the lock entirely.
+    """
+    if engine.dialect.name != "postgresql":
+        yield
+        return
+
+    with engine.connect() as conn:
+        conn.execute(text("SELECT pg_advisory_lock(:key)"), {"key": MIGRATION_LOCK_KEY})
+        conn.commit()
+        try:
+            yield
+        finally:
+            try:
+                conn.execute(
+                    text("SELECT pg_advisory_unlock(:key)"),
+                    {"key": MIGRATION_LOCK_KEY},
+                )
+                conn.commit()
+            except Exception:  # pragma: no cover - connection already gone
+                logger.warning("Could not release the migration advisory lock")
 
 
 def _ensure_columns() -> None:
@@ -54,6 +89,12 @@ def _ensure_columns() -> None:
         if not missing:
             continue
         with engine.begin() as conn:
+            # Never let a deploy block live traffic behind a DDL lock for long;
+            # failing fast leaves the currently active slot serving.
+            try:
+                conn.execute(text("SET LOCAL lock_timeout = '10s'"))
+            except Exception:  # pragma: no cover - backend without the setting
+                pass
             for name, ddl in missing.items():
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
@@ -83,8 +124,14 @@ def _backfill_rbac_data() -> None:
                 pass
 
 
-_ensure_columns()
-_backfill_rbac_data()
+def _run_boot_migrations() -> None:
+    with _migration_lock():
+        Base.metadata.create_all(bind=engine)
+        _ensure_columns()
+        _backfill_rbac_data()
+
+
+_run_boot_migrations()
 
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -141,6 +188,25 @@ app.mount(
     MediaStaticFiles(directory=str(UPLOAD_DIR)),
     name="media",
 )
+
+
+@app.get("/api/health", include_in_schema=False)
+def health(response: Response):
+    """Readiness probe used by Docker healthchecks and the deploy script.
+
+    Returns 503 when the database is unreachable so a broken build can never be
+    promoted by the blue-green switch. The revision is the git SHA baked into
+    the image, which lets ``deploy.sh`` prove that the new build is live.
+    """
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("Health check failed: database is unreachable")
+        response.status_code = 503
+        return {"status": "degraded", "revision": settings.APP_REVISION}
+
+    return {"status": "ok", "revision": settings.APP_REVISION}
 
 
 @app.get("/")
