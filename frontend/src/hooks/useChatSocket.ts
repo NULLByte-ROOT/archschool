@@ -148,7 +148,17 @@ export function useChatSocket(
 
       let socket: WebSocket;
       try {
-        socket = new WebSocket(getWebSocketUrl(room));
+        const url = getWebSocketUrl(room);
+        if (!url) {
+          // No token in storage: the handshake can only be rejected, so ask the
+          // session probe to send the user to /login instead of reconnecting.
+          setStatus("auth-failed");
+          void fetchMe().catch(() => {
+            // 401 already cleared the session and redirected to /login.
+          });
+          return;
+        }
+        socket = new WebSocket(url);
       } catch (error) {
         console.error("[chat] could not open the WebSocket", error);
         failuresWithoutOpen += 1;

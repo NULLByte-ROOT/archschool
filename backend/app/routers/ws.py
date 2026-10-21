@@ -17,10 +17,17 @@ def _authenticate(token: str | None) -> models.User | None:
     payload = decode_token(token)
     if not payload or not payload.get("sub"):
         return None
+    # A malformed `sub` must be a clean 403 handshake rejection, never a 500:
+    # a 500 leaves the browser with an opaque failed handshake and the client
+    # retrying a token that can never work.
+    try:
+        user_id = int(payload["sub"])
+    except (TypeError, ValueError):
+        return None
     with SessionLocal() as db:
         user = (
             db.query(models.User)
-            .filter(models.User.id == int(payload["sub"]))
+            .filter(models.User.id == user_id)
             .first()
         )
         if not user or not user.is_active:

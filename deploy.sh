@@ -227,6 +227,38 @@ nginx_reload() {
     fi
 }
 
+# A reload only re-reads the config for *new* worker processes: the old workers
+# keep serving their keep-alive/WebSocket connections, so a switched upstream
+# can look "not applied" for a while. Blue-green switching therefore restarts
+# the master process, which tears down every old connection and forces fresh
+# ones against the new slot.
+nginx_restart() {
+    if command -v systemctl >/dev/null 2>&1 \
+        && run_privileged systemctl is-active --quiet nginx 2>/dev/null; then
+        run_privileged systemctl restart nginx
+    else
+        nginx_reload
+    fi
+}
+
+# Waits (up to ~15s) until the restarted master is active again, so the very
+# next probe cannot race the restart.
+wait_nginx_active() {
+    local i=0
+    if ! command -v systemctl >/dev/null 2>&1; then
+        sleep 1
+        return 0
+    fi
+    while (( i < 30 )); do
+        if run_privileged systemctl is-active --quiet nginx 2>/dev/null; then
+            return 0
+        fi
+        sleep 0.5
+        i=$((i + 1))
+    done
+    return 1
+}
+
 read_upstream_port() {
     [[ -n "${NGINX_UPSTREAM_CONF}" ]] || return 0
     run_privileged grep -oE 'server[[:space:]]+127\.0\.0\.1:[0-9]+' \
@@ -263,7 +295,11 @@ restore_upstream() {
         write_upstream "${previous}"
     fi
     if nginx_test; then
-        nginx_reload || warn "Could not reload Nginx while restoring the previous upstream."
+        if nginx_restart; then
+            wait_nginx_active || warn "Host Nginx did not report 'active' after the restart."
+        else
+            warn "Could not restart Nginx while restoring the previous upstream."
+        fi
     else
         warn "Nginx configuration is invalid after the restore attempt."
     fi
@@ -376,8 +412,16 @@ patch_nginx_ws() {
 host_ws_ok() {
     local conf="$1"
     run_privileged grep -qiE 'proxy_set_header[[:space:]]+Upgrade[[:space:]]+"?\$http_upgrade' "${conf}" 2>/dev/null \
-        && run_privileged grep -qE 'proxy_set_header[[:space:]]+Connection[[:space:]]+"?(upgrade|\$connection_upgrade)' "${conf}" 2>/dev/null \
+        && run_privileged grep -qiE 'proxy_set_header[[:space:]]+Connection[[:space:]]+"?(upgrade|\$connection_upgrade)' "${conf}" 2>/dev/null \
         && run_privileged grep -qE 'proxy_http_version[[:space:]]+1\.1' "${conf}" 2>/dev/null
+}
+
+# The single decisive signal: the proxying location forwards the Upgrade
+# header. Comment tags, language, quoting, indentation and extra blank lines
+# are irrelevant — a hand-written block is just as valid as ours.
+host_ws_upgrades() {
+    local conf="$1"
+    run_privileged grep -qiE 'proxy_set_header[[:space:]]+Upgrade[[:space:]]+"?\$http_upgrade' "${conf}" 2>/dev/null
 }
 
 print_ws_manual() {
@@ -406,8 +450,18 @@ ensure_host_ws() {
     fi
     NGINX_SITE_CONF="${conf}"
 
-    if host_ws_ok "${conf}" && ! run_privileged grep -qF "${NGINX_WS_MARKER_BEGIN}" "${conf}" 2>/dev/null; then
-        success "Host Nginx already upgrades WebSocket connections."
+    # Detection is header-based, never marker-based: a hand-written block (any
+    # language, any formatting) counts. Only patch when the Upgrade header is
+    # genuinely missing. A false failure here would block an entire deploy.
+    if host_ws_upgrades "${conf}"; then
+        if host_ws_ok "${conf}"; then
+            success "Host Nginx already upgrades WebSocket connections."
+        else
+            warn "Host Nginx forwards the Upgrade header but is missing"
+            warn "'proxy_http_version 1.1;' and/or 'proxy_set_header Connection \"upgrade\";'."
+            warn "Leaving the file untouched; add those two lines if the chat stays offline."
+            print_ws_manual "${conf}"
+        fi
         return 0
     fi
 
@@ -442,9 +496,11 @@ ensure_host_ws() {
             success "Host Nginx already upgrades WebSocket connections."
             return 0
         fi
+        # Not fatal: the deploy must not be blocked by a proxy quirk. The
+        # post-switch WebSocket probe reports the real state.
         warn "No proxying 'location' block could be patched automatically."
         print_ws_manual "${conf}"
-        return 1
+        return 0
     fi
 
     backup="${conf}.bak.$(date +%Y%m%d%H%M%S)"
@@ -462,12 +518,15 @@ ensure_host_ws() {
         print_ws_manual "${conf}"
         return 1
     fi
-    if ! nginx_reload; then
+    # Restart (not reload): the workers that predate the patch must not keep
+    # serving /api/ws without the upgrade headers.
+    if ! nginx_restart; then
         run_privileged cp -p "${backup}" "${conf}"
-        nginx_reload || true
-        error "Nginx reload failed; ${conf} was restored from ${backup}."
+        nginx_restart || true
+        error "Nginx restart failed; ${conf} was restored from ${backup}."
         return 1
     fi
+    wait_nginx_active || warn "Host Nginx did not report 'active' within 15s after the restart."
 
     success "WebSocket upgrade enabled in ${conf} (backup: ${backup})."
     return 0
@@ -542,14 +601,19 @@ ensure_edge() {
     # Chat sockets must be upgraded by the host proxy too (see ensure_host_ws).
     ensure_host_ws "${conf}" || return 1
 
-    if run_privileged grep -qE "proxy_pass[[:space:]]+http://${UPSTREAM_NAME}([;/]|\$)" "${conf}"; then
-        success "Site config already routes through the ${UPSTREAM_NAME} upstream."
-        return 0
-    fi
+    # Any literal slot port must go through the managed upstream, otherwise
+    # `switch_traffic` writes the upstream file and nginx happily keeps serving
+    # the *old* slot from the hardcoded proxy_pass. Check both ports, not just
+    # blue: a config edited by hand may point at either one.
+    local literal_re="proxy_pass[[:space:]]+http://127\\.0\\.0\\.1:(${SLOT_BLUE_PORT}|${SLOT_GREEN_PORT})/?;"
 
-    if ! run_privileged grep -qE "proxy_pass[[:space:]]+http://127\.0\.0\.1:${SLOT_BLUE_PORT}/?;" "${conf}"; then
-        error "Cannot find 'proxy_pass http://127.0.0.1:${SLOT_BLUE_PORT};' in ${conf}."
-        error "Blue-green switching needs that line to point at the '${UPSTREAM_NAME}' upstream."
+    if ! run_privileged grep -qE "${literal_re}" "${conf}"; then
+        if run_privileged grep -qE "proxy_pass[[:space:]]+http://${UPSTREAM_NAME}([;/]|$)" "${conf}"; then
+            success "Site config already routes through the ${UPSTREAM_NAME} upstream."
+            return 0
+        fi
+        error "Cannot find a '${UPSTREAM_NAME}' upstream or a literal '127.0.0.1:${SLOT_BLUE_PORT}' proxy_pass in ${conf}."
+        error "Blue-green switching needs the proxying 'location' blocks to use the '${UPSTREAM_NAME}' upstream."
         plain ""
         plain "Apply this change manually, then re-run:"
         plain "  - proxy_pass http://127.0.0.1:${SLOT_BLUE_PORT};"
@@ -563,13 +627,14 @@ ensure_edge() {
     run_privileged cp -p "${conf}" "${backup}"
     info "Backup written to ${backup}"
 
+    info "Routing every literal slot proxy_pass through the '${UPSTREAM_NAME}' upstream..."
     run_privileged sed -i -E \
-        "s|proxy_pass([[:space:]]+)http://127\.0\.0\.1:${SLOT_BLUE_PORT}/?;|proxy_pass\\1http://${UPSTREAM_NAME};|g" \
+        "s#${literal_re}#proxy_pass http://${UPSTREAM_NAME};#g" \
         "${conf}"
 
-    if ! run_privileged grep -qE "proxy_pass[[:space:]]+http://${UPSTREAM_NAME}([;/]|\$)" "${conf}"; then
+    if run_privileged grep -qE "${literal_re}" "${conf}"; then
         run_privileged cp -p "${backup}" "${conf}"
-        error "The automatic patch did not apply cleanly; the original config was restored."
+        error "Some proxy_pass lines still point at a literal slot port; the original config was restored."
         return 1
     fi
 
@@ -579,12 +644,13 @@ ensure_edge() {
         return 1
     fi
 
-    if ! nginx_reload; then
+    if ! nginx_restart; then
         run_privileged cp -p "${backup}" "${conf}"
-        nginx_reload || true
-        error "Nginx reload failed; the original config was restored."
+        nginx_restart || true
+        error "Nginx restart failed; the original config was restored."
         return 1
     fi
+    wait_nginx_active || warn "Host Nginx did not report 'active' after the restart."
 
     success "Host Nginx now routes through '${UPSTREAM_NAME}' (traffic unchanged)."
 }
@@ -618,8 +684,20 @@ switch_traffic() {
         return 1
     fi
 
-    if ! nginx_reload; then
-        error "Nginx reload failed; traffic was NOT switched."
+    # Restart, not reload: a reload leaves the old worker processes (and their
+    # keep-alive/WebSocket connections to the previous slot) alive, which both
+    # delays the switch and keeps chat sockets pinned to the dead slot.
+    if ! nginx_restart; then
+        error "Nginx restart failed; traffic was NOT switched."
+        restore_upstream "${previous}" "${backup}"
+        return 1
+    fi
+    if ! wait_nginx_active; then
+        warn "Host Nginx has not reported 'active' yet; probes will retry."
+    fi
+
+    if [[ "$(read_upstream_port)" != "${port}" ]]; then
+        error "${NGINX_UPSTREAM_CONF} does not point at 127.0.0.1:${port} after the switch."
         restore_upstream "${previous}" "${backup}"
         return 1
     fi
@@ -811,17 +889,32 @@ verify_public() {
     local sha="$1" attempt body
     [[ "${PROBE_MODE}" == "public" ]] || return 0
 
-    for attempt in 1 2 3 4 5; do
-        if body="$(public_health)" && grep -q '"status":"ok"' <<<"${body}"; then
+    for attempt in 1 2 3 4 5 6 7 8 9 10; do
+        body="$(public_health || true)"
+        if [[ -n "${body}" ]] && grep -q '"status":"ok"' <<<"${body}"; then
             if grep -qF "\"revision\":\"${sha}\"" <<<"${body}"; then
                 success "Public endpoint is serving revision ${sha}."
-            else
-                warn "Public endpoint is up but reports '${body}' (expected revision ${sha})."
+                return 0
             fi
-            return 0
+            if ! grep -q '"revision":"' <<<"${body}"; then
+                warn "Public endpoint is up but reports no revision; skipping the revision check."
+                return 0
+            fi
+            warn "Public endpoint still reports '${body}' (attempt ${attempt}/10, expected ${sha})."
+            # A reload can leave stale workers holding the old upstream; force a
+            # clean master that re-reads the upstream file, then keep probing.
+            if (( attempt == 4 )); then
+                info "Restarting host Nginx so it re-reads ${NGINX_UPSTREAM_CONF}..."
+                nginx_restart || warn "Could not restart Nginx."
+                wait_nginx_active || true
+            fi
+        else
+            warn "Public health probe failed (attempt ${attempt}/10)."
         fi
         sleep 1
     done
+
+    error "The public endpoint never served revision ${sha} (last response: ${body:-none})."
     return 1
 }
 
@@ -1448,6 +1541,15 @@ cmd_fix_nginx() {
     ensure_edge || return 1
     EDGE_MODE=1
 
+    # Workers started before the repair can still serve the old (non-upgrading)
+    # config; a restart makes the fix apply to every connection immediately.
+    info "Restarting host Nginx so every worker uses the repaired configuration..."
+    if nginx_restart; then
+        wait_nginx_active || warn "Host Nginx did not report 'active' within 15s."
+    else
+        warn "Could not restart Nginx; run 'sudo systemctl restart nginx' manually."
+    fi
+
     local port port_slot
     port="$(read_upstream_port)"
     if [[ -z "${port}" ]]; then
@@ -1564,20 +1666,32 @@ describe_slot() {
 }
 
 cmd_status() {
-    local active port
+    local active port public_rev site_conf
     check_sudo
     ensure_env
     adopt_runtime_env
 
     active="$(detect_active_slot)"
     port="$(detect_active_port || true)"
+    site_conf="$(detect_nginx_site_conf 2>/dev/null || true)"
+
+    # What the *public* URL really serves. When this differs from the active
+    # slot's revision, host Nginx is not reading the upstream file (a literal
+    # proxy_pass, a stale worker, or a file outside conf.d).
+    public_rev="$(public_health 2>/dev/null | grep -oE '"revision":"[^"]*"' | head -n1 | cut -d'"' -f4 || true)"
 
     echo
     printf "${BOLD}=== ArchSchool blue-green status ===${NC}\n"
     plain "  Active slot : ${active}"
     plain "  Traffic     : Nginx upstream '${UPSTREAM_NAME}' -> 127.0.0.1:${port:-?}"
     plain "  Upstream f. : ${NGINX_UPSTREAM_CONF}"
+    plain "  Site config : ${site_conf:-not found}"
+    plain "  Public rev  : ${public_rev:-unreachable}"
     plain "  Deployed at : $(state_get DEPLOYED_AT)"
+    if [[ -n "${site_conf}" ]] && run_privileged grep -qE 'proxy_pass[[:space:]]+http://127\.0\.0\.1:(6241|6242)' "${site_conf}" 2>/dev/null; then
+        warn "The site config still hardcodes a slot port; the upstream switch is ignored."
+        warn "Run 'sudo ./deploy.sh fix-nginx' to route it through '${UPSTREAM_NAME}'."
+    fi
     echo
     printf "  (* = receiving traffic)\n"
     describe_slot blue

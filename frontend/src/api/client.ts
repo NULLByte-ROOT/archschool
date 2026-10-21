@@ -556,13 +556,23 @@ export function resolveMediaUrl(url: string | null | undefined): string {
 }
 
 /**
- * Builds the WebSocket URL from the current page, so it automatically uses
- * `wss://` on HTTPS and `ws://` on HTTP, on localhost and in production.
+ * Builds the chat WebSocket URL from the current page.
+ *
+ * - `wss://` whenever the page is served over HTTPS (never `ws://`, which the
+ *   browser blocks as mixed content on an HTTPS deployment),
+ * - always the same origin as the page, so it matches the host proxy that
+ *   forwards `/api/ws` to the active slot,
+ * - returns an empty string when there is no token: connecting without one can
+ *   only ever be rejected, and the caller logs out instead of retrying.
  */
 export function getWebSocketUrl(room: string): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const url = new URL(`${protocol}//${window.location.host}/api/ws`);
-  url.searchParams.set("token", getToken() ?? "");
+  const token = getToken();
+  if (!token) return "";
+  const secure = window.location.protocol === "https:";
+  const url = new URL(`${secure ? "wss:" : "ws:"}//${window.location.host}/api/ws`);
+  // URLSearchParams percent-encodes the JWT (`+`, `/`, `=` included), so the
+  // query string arrives at FastAPI exactly as signed.
+  url.searchParams.set("token", token);
   url.searchParams.set("room", room);
   return url.toString();
 }
