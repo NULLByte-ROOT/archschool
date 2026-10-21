@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, UTC
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
@@ -9,6 +10,7 @@ from ..security import decode_token
 from ..ws_manager import manager
 
 router = APIRouter()
+logger = logging.getLogger("archschool.ws")
 
 
 def _authenticate(token: str | None) -> models.User | None:
@@ -42,20 +44,43 @@ def _authenticate(token: str | None) -> models.User | None:
 async def chat_socket(websocket: WebSocket):
     token = websocket.query_params.get("token")
     room = websocket.query_params.get("room", "global")
-    user = _authenticate(token)
 
+    # First line on purpose: proves the upgrade actually reached FastAPI and
+    # shows what the proxies in front of us forwarded. The token itself is
+    # never logged.
+    logger.info(
+        "ws handshake room=%s token=%s host=%s origin=%s xff=%s",
+        room,
+        "present" if token else "MISSING",
+        websocket.headers.get("host", "-"),
+        websocket.headers.get("origin", "-"),
+        websocket.headers.get("x-forwarded-for", "-"),
+    )
+
+    # Accept *before* validating. A close before the handshake completes is a
+    # failed HTTP response: the browser can only report it as 1006 (abnormal
+    # closure) and the app never learns why. Accepting first lets us close with
+    # 1008 + a reason the client can read and act on.
+    await websocket.accept()
+
+    user = _authenticate(token)
     if not user:
-        await websocket.close(code=1008)
+        logger.warning("ws rejected: invalid or expired token (room=%s)", room)
+        await websocket.close(code=1008, reason="invalid-token")
         return
 
     with SessionLocal() as db:
         try:
             room_fields = chat.resolve_room(db, room, user.id)
-        except HTTPException:
-            await websocket.close(code=1008)
+        except HTTPException as exc:
+            logger.warning(
+                "ws rejected: user=%s room=%s (%s)", user.id, room, exc.detail
+            )
+            await websocket.close(code=1008, reason="invalid-room")
             return
 
-    await manager.connect(websocket, room)
+    await manager.connect(websocket, room, accept=False)
+    logger.info("ws open: user=%s room=%s", user.id, room)
 
     try:
         while True:
@@ -144,6 +169,9 @@ async def chat_socket(websocket: WebSocket):
             await manager.broadcast_message(room, payload)
 
     except WebSocketDisconnect:
-        pass
+        logger.info("ws disconnect: user=%s room=%s", user.id, room)
+    except Exception:
+        logger.exception("ws error: user=%s room=%s", user.id, room)
+        raise
     finally:
         manager.disconnect(websocket, room)

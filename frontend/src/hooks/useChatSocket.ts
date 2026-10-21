@@ -80,6 +80,7 @@ export function useChatSocket(
     let retry = 0;
     let failuresWithoutOpen = 0;
     let openedThisAttempt = false;
+    let authCloses = 0;
     let lastAuthCheck = 0;
     let lastFrame = 0;
     let retryTimer: number | undefined;
@@ -205,6 +206,23 @@ export function useChatSocket(
         if (!openedThisAttempt) failuresWithoutOpen += 1;
         openedThisAttempt = false;
         setStatus("reconnecting");
+
+        if (AUTH_CLOSE_CODES.has(event.code)) {
+          authCloses += 1;
+        } else {
+          authCloses = 0;
+        }
+
+        // The server accepted the socket and then refused it with an auth
+        // close. If that happens repeatedly while /auth/me still says the
+        // session is valid, retrying cannot fix it (a proxy/misconfiguration
+        // is refusing this path) — stop hammering and let the REST poll keep
+        // the conversation alive.
+        if (authCloses >= 3) {
+          setStatus("auth-failed");
+          onAuthFailureRef.current?.();
+          return;
+        }
 
         const authSuspected =
           AUTH_CLOSE_CODES.has(event.code) || failuresWithoutOpen >= 2;

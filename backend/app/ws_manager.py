@@ -15,8 +15,14 @@ class ConnectionManager:
     def __init__(self) -> None:
         self._rooms: dict[str, set[WebSocket]] = defaultdict(set)
 
-    async def connect(self, websocket: WebSocket, room: str) -> None:
-        await websocket.accept()
+    async def connect(
+        self, websocket: WebSocket, room: str, *, accept: bool = True
+    ) -> None:
+        # `accept=False` is used when the caller already completed the
+        # handshake (e.g. to reject an invalid token with a real close code
+        # instead of a bare 403 handshake failure).
+        if accept:
+            await websocket.accept()
         self._rooms[room].add(websocket)
 
     def disconnect(self, websocket: WebSocket, room: str) -> None:
