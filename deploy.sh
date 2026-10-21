@@ -48,6 +48,14 @@ UPSTREAM_NAME="archschool_app"
 NGINX_UPSTREAM_CONF="${NGINX_UPSTREAM_CONF:-/etc/nginx/conf.d/00-archschool-upstream.conf}"
 NGINX_SITE_CONF="${NGINX_SITE_CONF:-}"
 
+# WebSocket (chat) forwarding. The host proxy must upgrade the connection for
+# /api/ws, otherwise browsers report
+#   "WebSocket is closed before the connection is established".
+# deploy.sh inserts this block into every proxying `location` of the site file.
+NGINX_WS_MARKER_BEGIN="# BEGIN archschool-websocket (managed by deploy.sh)"
+NGINX_WS_MARKER_END="# END archschool-websocket (managed by deploy.sh)"
+WS_PROBE_TIMEOUT="${WS_PROBE_TIMEOUT:-12}"
+
 # Backup / restore
 DB_CONTAINER="archschool_db"
 DB_NAME="archschool_db"
@@ -284,6 +292,226 @@ detect_nginx_site_conf() {
     return 1
 }
 
+# ------------------------------------------------- host nginx websockets ---
+#
+# Without these three directives the host proxy downgrades the request to
+# HTTP/1.0 and drops `Upgrade`, so /api/ws never reaches the app as a
+# WebSocket: browsers abort with "WebSocket is closed before the connection is
+# established" and the chat stops receiving messages.
+
+write_ws_block() {
+    local out="$1"
+    cat > "${out}" <<EOF
+    ${NGINX_WS_MARKER_BEGIN}
+    # Chat socket (wss://<domain>/api/ws). Keep this block inside the proxying
+    # location; deploy.sh re-adds it after every pull.
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 86400;
+    proxy_send_timeout 86400;
+    proxy_buffering off;
+    ${NGINX_WS_MARKER_END}
+EOF
+}
+
+# Rewrites an nginx config: drops a stale managed block and inserts a fresh one
+# into every `location` block that proxies, unless that block already upgrades.
+patch_nginx_ws() {
+    local src="$1" blockfile="$2"
+    awk -v blockfile="${blockfile}" \
+        -v mbegin="${NGINX_WS_MARKER_BEGIN}" \
+        -v mend="${NGINX_WS_MARKER_END}" '
+    function braces(s, wanted,   i, ch, c) {
+        c = 0
+        for (i = 1; i <= length(s); i++) {
+            ch = substr(s, i, 1)
+            if (ch == wanted) c++
+        }
+        return c
+    }
+    function emit(   i) {
+        # The block goes *last* inside the location: nginx keeps the last value
+        # for a repeated proxy_set_header, so this also overrides a stale
+        # `Connection ""` or a shorter proxy_read_timeout.
+        if (hasproxy && !(hasup && hasconn && hashttp)) {
+            for (i = 1; i < n; i++) print buf[i]
+            printf "%s", blk
+            print buf[n]
+        } else {
+            for (i = 1; i <= n; i++) print buf[i]
+        }
+    }
+    BEGIN {
+        blk = ""
+        while ((getline line < blockfile) > 0) blk = blk line "\n"
+        close(blockfile)
+        inmanaged = 0
+        inloc = 0
+    }
+    {
+        if (index($0, mbegin) > 0) { inmanaged = 1; next }
+        if (inmanaged) { if (index($0, mend) > 0) inmanaged = 0; next }
+
+        if (!inloc && $0 ~ /^[ \t]*location[ \t]/ && index($0, "{")) {
+            inloc = 1; depth = 0; n = 0
+            hasproxy = 0; hasup = 0; hasconn = 0; hashttp = 0
+        }
+        if (inloc) {
+            n++; buf[n] = $0
+            if ($0 ~ /proxy_pass/) hasproxy = 1
+            if (tolower($0) ~ /proxy_set_header[ \t]+upgrade[ \t]+"?\$http_upgrade/) hasup = 1
+            if (tolower($0) ~ /proxy_set_header[ \t]+connection[ \t]+"?(upgrade|\$connection_upgrade)/) hasconn = 1
+            if ($0 ~ /proxy_http_version/) hashttp = 1
+            depth += braces($0, "{") - braces($0, "}")
+            if (depth <= 0) { emit(); inloc = 0 }
+            next
+        }
+        print
+    }
+    END { if (inloc) for (i = 1; i <= n; i++) print buf[i] }
+    ' "${src}"
+}
+
+host_ws_ok() {
+    local conf="$1"
+    run_privileged grep -qiE 'proxy_set_header[[:space:]]+Upgrade[[:space:]]+"?\$http_upgrade' "${conf}" 2>/dev/null \
+        && run_privileged grep -qE 'proxy_set_header[[:space:]]+Connection[[:space:]]+"?(upgrade|\$connection_upgrade)' "${conf}" 2>/dev/null \
+        && run_privileged grep -qE 'proxy_http_version[[:space:]]+1\.1' "${conf}" 2>/dev/null
+}
+
+print_ws_manual() {
+    local conf="$1"
+    plain ""
+    plain "Add this inside the 'location /' block of ${conf}:"
+    plain "    proxy_http_version 1.1;"
+    plain "    proxy_set_header Upgrade \$http_upgrade;"
+    plain "    proxy_set_header Connection \"upgrade\";"
+    plain "    proxy_read_timeout 86400;"
+    plain "Then: sudo nginx -t && sudo systemctl reload nginx"
+    plain ""
+}
+
+# Idempotent: patches the host site config so /api/ws is upgraded end to end.
+ensure_host_ws() {
+    local conf="${1:-${NGINX_SITE_CONF}}"
+    local src tmp block backup
+
+    if [[ -z "${conf}" ]]; then
+        conf="$(detect_nginx_site_conf 2>/dev/null || true)"
+    fi
+    if [[ -z "${conf}" ]] || ! run_privileged test -f "${conf}"; then
+        warn "Could not locate the host Nginx site config; skipping the WebSocket check."
+        return 0
+    fi
+    NGINX_SITE_CONF="${conf}"
+
+    if host_ws_ok "${conf}" && ! run_privileged grep -qF "${NGINX_WS_MARKER_BEGIN}" "${conf}" 2>/dev/null; then
+        success "Host Nginx already upgrades WebSocket connections."
+        return 0
+    fi
+
+    src="$(mktemp)"
+    tmp="$(mktemp)"
+    block="$(mktemp)"
+
+    run_privileged cat "${conf}" > "${src}"
+    write_ws_block "${block}"
+    patch_nginx_ws "${src}" "${block}" > "${tmp}"
+
+    # Unusual layout (`location /` and `{` on separate lines): fall back to
+    # inserting the block right before the first proxy_pass at the same depth.
+    if ! host_ws_ok "${tmp}"; then
+        awk -v blockfile="${block}" '
+            BEGIN {
+                blk = ""
+                while ((getline l < blockfile) > 0) blk = blk l "\n"
+                close(blockfile)
+                done = 0
+            }
+            {
+                if (!done && $0 ~ /proxy_pass/) { printf "%s", blk; done = 1 }
+                print
+            }
+        ' "${tmp}" > "${tmp}.fb" && mv -f "${tmp}.fb" "${tmp}"
+    fi
+
+    if cmp -s "${src}" "${tmp}"; then
+        rm -f "${src}" "${tmp}" "${block}"
+        if host_ws_ok "${conf}"; then
+            success "Host Nginx already upgrades WebSocket connections."
+            return 0
+        fi
+        warn "No proxying 'location' block could be patched automatically."
+        print_ws_manual "${conf}"
+        return 1
+    fi
+
+    backup="${conf}.bak.$(date +%Y%m%d%H%M%S)"
+    info "Adding the WebSocket upgrade block to ${conf}..."
+    run_privileged cp -p "${conf}" "${backup}"
+    run_privileged cp "${tmp}" "${conf}.new"
+    run_privileged chmod 644 "${conf}.new"
+    run_privileged mv -f "${conf}.new" "${conf}"
+    rm -f "${src}" "${tmp}" "${block}"
+
+    if ! nginx_test; then
+        run_privileged cp -p "${backup}" "${conf}"
+        nginx_test || true
+        error "nginx -t rejected the WebSocket patch; ${conf} was restored from ${backup}."
+        print_ws_manual "${conf}"
+        return 1
+    fi
+    if ! nginx_reload; then
+        run_privileged cp -p "${backup}" "${conf}"
+        nginx_reload || true
+        error "Nginx reload failed; ${conf} was restored from ${backup}."
+        return 1
+    fi
+
+    success "WebSocket upgrade enabled in ${conf} (backup: ${backup})."
+    return 0
+}
+
+# A wrong host config answers 404/400/502 here instead of upgrading, so the
+# probe accepts only responses that prove the request reached the WS route.
+public_ws_code() {
+    curl -s -o /dev/null -w '%{http_code}' --max-time "${WS_PROBE_TIMEOUT}" \
+        --resolve "${PRODUCTION_DOMAIN}:443:127.0.0.1" \
+        -H 'Connection: Upgrade' \
+        -H 'Upgrade: websocket' \
+        -H 'Sec-WebSocket-Version: 13' \
+        -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+        "https://${PRODUCTION_DOMAIN}/api/ws?token=invalid&room=global" 2>/dev/null || true
+}
+
+verify_public_ws() {
+    local code
+    code="$(public_ws_code)"
+    case "${code}" in
+        101|401|403)
+            success "Public WebSocket endpoint upgrades correctly (HTTP ${code})."
+            return 0
+            ;;
+    esac
+    error "Public WebSocket endpoint did not upgrade (HTTP ${code:-no response})."
+    error "wss://${PRODUCTION_DOMAIN}/api/ws is broken for browsers."
+    print_ws_manual "${NGINX_SITE_CONF:-/etc/nginx/sites-available/archschool}"
+    return 1
+}
+
+check_public_ws() {
+    if [[ "${EDGE_MODE}" != "1" ]]; then
+        return 0
+    fi
+    if ! public_health >/dev/null 2>&1; then
+        warn "Skipping the public WebSocket probe (${PRODUCTION_DOMAIN} is not answering locally)."
+        return 0
+    fi
+    verify_public_ws
+}
+
+
 # One-time, idempotent, reversible: route the existing site through the
 # managed upstream so traffic can be switched without touching it again.
 ensure_edge() {
@@ -310,6 +538,9 @@ ensure_edge() {
         write_upstream "${current_port}"
         success "Created ${NGINX_UPSTREAM_CONF} -> 127.0.0.1:${current_port}"
     fi
+
+    # Chat sockets must be upgraded by the host proxy too (see ensure_host_ws).
+    ensure_host_ws "${conf}" || return 1
 
     if run_privileged grep -qE "proxy_pass[[:space:]]+http://${UPSTREAM_NAME}([;/]|\$)" "${conf}"; then
         success "Site config already routes through the ${UPSTREAM_NAME} upstream."
@@ -1064,6 +1295,14 @@ cmd_deploy() {
         return 1
     fi
 
+    # Chat depends on the host proxy upgrading /api/ws. A broken host config
+    # cannot be fixed by moving traffic back, so report it instead of rolling
+    # back (ensure_host_ws has already patched what it could).
+    if ! check_public_ws; then
+        warn "HTTP traffic stays on the ${target} slot; only WebSocket is affected."
+        warn "Re-run 'sudo ./deploy.sh fix-nginx' once the block above is fixed."
+    fi
+
     if ! soak; then
         error "Post-switch health checks failed; rolling back to the ${active} slot."
         if switch_traffic "${active_port:-${SLOT_BLUE_PORT}}"; then
@@ -1189,6 +1428,56 @@ cmd_rollback() {
     success "Rollback complete. ${previous} (revision ${previous_rev}) is live."
     print_summary "${previous}" "${previous_port}" "${previous_rev}"
     info "Roll forward again with: sudo ./deploy.sh deploy"
+}
+
+# --------------------------------------------------------------- fix-nginx ---
+
+# Repairs the host reverse proxy in place: managed upstream + WebSocket upgrade
+# headers, then reloads Nginx. No rebuild, no traffic switch, no downtime.
+cmd_fix_nginx() {
+    check_sudo
+
+    echo
+    printf "${BOLD}=== Host Nginx repair (upstream + WebSocket) ===${NC}\n"
+
+    if ! nginx_present; then
+        error "Host Nginx is not installed on this host."
+        return 1
+    fi
+
+    ensure_edge || return 1
+    EDGE_MODE=1
+
+    local port port_slot
+    port="$(read_upstream_port)"
+    if [[ -z "${port}" ]]; then
+        error "No managed upstream found in ${NGINX_UPSTREAM_CONF}."
+        return 1
+    fi
+    port_slot="$(port_to_slot "${port}" || true)"
+
+    echo
+    info "Traffic target: ${NGINX_UPSTREAM_CONF} -> 127.0.0.1:${port}${port_slot:+ (${port_slot})}"
+
+    # Slot-local handshake (proves frontend nginx + backend are fine).
+    if curl -s -o /dev/null -w '%{http_code}' --max-time "${WS_PROBE_TIMEOUT}" \
+        -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+        -H 'Sec-WebSocket-Version: 13' \
+        -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+        "http://127.0.0.1:${port}/api/ws?token=invalid&room=global" 2>/dev/null \
+        | grep -qE '^(101|401|403)$'; then
+        success "Slot WebSocket handshake works on 127.0.0.1:${port}."
+    else
+        warn "The slot itself did not upgrade the WebSocket; check the backend logs."
+    fi
+
+    if check_public_ws; then
+        echo
+        success "wss://${PRODUCTION_DOMAIN}/api/ws is ready. Reload the browser."
+    else
+        error "The WebSocket still fails through the host proxy. See the snippet above."
+        return 1
+    fi
 }
 
 # ---------------------------------------------------------------- cleanup ---
@@ -1706,6 +1995,7 @@ Commands:
   rollback    Switch traffic back to the previous slot
   cleanup     Remove the inactive slot's containers and images
   status      Show both slots and the active traffic target
+  fix-nginx   Repair host Nginx (upstream + WebSocket headers) and reload
   setup       First-time setup (docker, code, env, domain, deploy)
   backup      Database + uploads + .env into one .tar.gz in the project root
   restore     Restore a backup archive, then deploy (fresh-server migration)
@@ -1763,6 +2053,7 @@ EOF
     echo " 10) Backup now (database + uploads + .env)"
     echo " 11) Restore from a backup (overwrites data!)"
     echo " 12) List backups"
+    echo " 13) Fix host Nginx (upstream + WebSocket headers)"
     echo "  0) Exit"
     echo
 }
@@ -1772,7 +2063,7 @@ interactive_menu() {
     check_sudo
     while true; do
         show_menu
-        if ! read -r -p "Select an option [0-9, 10-12]: " choice; then
+        if ! read -r -p "Select an option [0-9, 10-13]: " choice; then
             echo
             exit 0
         fi
@@ -1798,6 +2089,7 @@ interactive_menu() {
                 fi
                 ;;
             12) cmd_list_backups || warn "Could not list the backups." ;;
+            13) cmd_fix_nginx || warn "Could not repair the host Nginx configuration." ;;
             0) printf "${GREEN}Bye.${NC}\n"; exit 0 ;;
             *) warn "Invalid option: ${choice}" ;;
         esac
@@ -1825,6 +2117,7 @@ parse_args() {
             cleanup|prune)   COMMAND="cleanup" ;;
             status)          COMMAND="status" ;;
             setup|install)   COMMAND="setup" ;;
+            fix-nginx|repair-nginx|fix-ws) COMMAND="fix-nginx" ;;
             backup)          COMMAND="backup" ;;
             restore)         COMMAND="restore" ;;
             list-backups|backups) COMMAND="list-backups" ;;
@@ -1861,6 +2154,7 @@ main() {
         cleanup)  cmd_cleanup ;;
         status)   cmd_status ;;
         setup)    cmd_setup ;;
+        fix-nginx) cmd_fix_nginx ;;
         backup)      cmd_backup ;;
         restore)     cmd_restore "${RESTORE_FILE}" ;;
         list-backups) cmd_list_backups ;;

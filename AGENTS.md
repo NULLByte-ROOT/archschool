@@ -30,7 +30,8 @@ ArchSchool is a social-network-style school workspace for a class team (11th gra
 
 ## 5. Deployment Workflow & Scripts
 - **GitHub Repo:** `https://github.com/NULLByte-ROOT/archschool` (Branch: `main`).
-- **Deployment Script:** `./deploy.sh` on the server — blue-green. `./deploy.sh deploy` pulls, builds the inactive slot, verifies it, switches the host Nginx upstream and soaks; `rollback`, `cleanup`, `status` are the other subcommands. NEVER use `docker compose up -d`/`down`/`--remove-orphans` directly: slots are Compose profiles and the database is shared.
+- **Deployment Script:** `./deploy.sh` on the server — blue-green. `./deploy.sh deploy` pulls, builds the inactive slot, verifies it, switches the host Nginx upstream and soaks; `rollback`, `cleanup`, `status`, `fix-nginx` are the other subcommands. NEVER use `docker compose up -d`/`down`/`--remove-orphans` directly: slots are Compose profiles and the database is shared.
+- **Host Nginx WebSocket:** `deploy.sh` inserts a managed `# BEGIN archschool-websocket` block (`proxy_http_version 1.1`, `Upgrade $http_upgrade`, `Connection "upgrade"`, `proxy_read_timeout 86400`) at the end of every proxying `location`; without it the chat fails with "WebSocket is closed before the connection is established". `./deploy.sh fix-nginx` repairs it in place (no rebuild).
 - **Database Migrations:** Handled automatically via `Base.metadata.create_all` and custom `_ensure_columns()` logic in `main.py`. Explicit SQL scripts are in `backend/migrations/` (safe to run idempotently).
 - **Backup / Restore:** `./deploy.sh backup` writes `archschool_backup_YYYY-MM-DD_HH-MM.tar.gz` in the project root (mode 600: `database.sql`, `uploads.tar.gz`, `.env`, `metadata.txt`). `./deploy.sh restore <archive>` restores on a fresh or existing server (confirmation required) and finishes with a standard deploy. Also `./deploy.sh list-backups`, `deploy --backup`, `--out=DIR`. Archives are git-ignored — never commit them.
 
