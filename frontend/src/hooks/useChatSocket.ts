@@ -1,21 +1,62 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Message } from "../api/client";
-import { getWebSocketUrl } from "../api/client";
+import { fetchMe, getWebSocketUrl } from "../api/client";
 
 export interface ChatSocketEvent {
   type: string;
   data?: unknown;
 }
 
+export type ChatSocketStatus =
+  | "connecting"
+  | "open"
+  | "reconnecting"
+  | "offline"
+  | "auth-failed";
+
+export interface UseChatSocketOptions {
+  /** Called after every successful (re)connect, including the first one. */
+  onOpen?: () => void;
+  /** Called once when the session is definitively rejected. */
+  onAuthFailure?: () => void;
+}
+
+const BASE_DELAY_MS = 1_000;
+const MAX_DELAY_MS = 15_000;
+const PING_INTERVAL_MS = 25_000;
+// A live socket always answers the ping within a few seconds. Silence for this
+// long means the connection was dropped by a proxy without a close frame
+// (common right after a blue-green switch), so we must rebuild it ourselves.
+const DEAD_SOCKET_MS = 65_000;
+const AUTH_CHECK_INTERVAL_MS = 15_000;
+// 1008 = policy violation (FastAPI closed before accepting, i.e. bad token).
+const AUTH_CLOSE_CODES = new Set([1008, 4001, 4003, 4401, 4403]);
+
+/**
+ * Keeps one chat socket alive for `room`.
+ *
+ * - reconnects with jittered exponential backoff (1s -> 15s),
+ * - pauses while the tab is hidden and resumes immediately when it returns,
+ * - re-reads the token on every attempt (a login in another tab is picked up),
+ * - distinguishes "session is invalid" (log out) from "network/proxy problem"
+ *   (keep retrying) by probing `/auth/me` after repeated failures,
+ * - pings the server and rebuilds the socket when it goes silent, so a
+ *   half-open connection cannot leave the UI stuck on "Connecting…".
+ */
 export function useChatSocket(
   room: string,
   onMessage: (message: Message) => void,
-  onEvent?: (event: ChatSocketEvent) => void
+  onEvent?: (event: ChatSocketEvent) => void,
+  options?: UseChatSocketOptions
 ) {
-  const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState<ChatSocketStatus>("connecting");
+  const [attempt, setAttempt] = useState(0);
   const socketRef = useRef<WebSocket | null>(null);
   const onMessageRef = useRef(onMessage);
   const onEventRef = useRef(onEvent);
+  const onOpenRef = useRef(options?.onOpen);
+  const onAuthFailureRef = useRef(options?.onAuthFailure);
+  const reconnectRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     onMessageRef.current = onMessage;
@@ -26,28 +67,76 @@ export function useChatSocket(
   }, [onEvent]);
 
   useEffect(() => {
-    let closed = false;
+    onOpenRef.current = options?.onOpen;
+  }, [options?.onOpen]);
+
+  useEffect(() => {
+    onAuthFailureRef.current = options?.onAuthFailure;
+  }, [options?.onAuthFailure]);
+
+  useEffect(() => {
+    let disposed = false;
+    let paused = false;
     let retry = 0;
+    let failuresWithoutOpen = 0;
+    let openedThisAttempt = false;
+    let lastAuthCheck = 0;
+    let lastFrame = 0;
     let retryTimer: number | undefined;
     let pingTimer: number | undefined;
 
-    function clearPing() {
-      if (pingTimer) {
-        window.clearInterval(pingTimer);
-        pingTimer = undefined;
-      }
+    function clearTimers() {
+      window.clearInterval(pingTimer);
+      pingTimer = undefined;
+      window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+    }
+
+    function verifySession(): Promise<boolean> {
+      const now = Date.now();
+      if (now - lastAuthCheck < AUTH_CHECK_INTERVAL_MS) return Promise.resolve(true);
+      lastAuthCheck = now;
+      return fetchMe()
+        .then(() => true)
+        .catch((error: unknown) => {
+          // `request()` clears the session and redirects to /login on a 401.
+          if (error instanceof Error && error.message === "Unauthorized") return false;
+          return true; // network hiccup: not an auth problem
+        });
     }
 
     function scheduleReconnect() {
-      if (closed) return;
-      window.clearTimeout(retryTimer);
-      const delay = Math.min(1000 * 2 ** retry, 15000);
+      if (disposed || paused) return;
+      if (navigator.onLine === false) {
+        setStatus("offline");
+        return;
+      }
+      const exponential = Math.min(BASE_DELAY_MS * 2 ** retry, MAX_DELAY_MS);
+      const jittered = Math.round(exponential * (0.8 + Math.random() * 0.4));
       retry += 1;
-      retryTimer = window.setTimeout(connect, delay);
+      setAttempt(retry);
+      setStatus("reconnecting");
+      window.clearTimeout(retryTimer);
+      retryTimer = window.setTimeout(connect, jittered);
+    }
+
+    function startHeartbeat(socket: WebSocket) {
+      window.clearInterval(pingTimer);
+      pingTimer = window.setInterval(() => {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        if (Date.now() - lastFrame > DEAD_SOCKET_MS) {
+          // Half-open socket: close it and rebuild on a clean timeline.
+          socket.close(4000, "heartbeat-timeout");
+          return;
+        }
+        socket.send("ping");
+      }, PING_INTERVAL_MS);
     }
 
     function connect() {
-      if (closed || document.visibilityState === "hidden") return;
+      if (disposed || paused) return;
+      if (document.visibilityState === "hidden") return;
+
       const existing = socketRef.current;
       if (
         existing &&
@@ -57,63 +146,145 @@ export function useChatSocket(
         return;
       }
 
-      const socket = new WebSocket(getWebSocketUrl(room));
+      let socket: WebSocket;
+      try {
+        socket = new WebSocket(getWebSocketUrl(room));
+      } catch (error) {
+        console.error("[chat] could not open the WebSocket", error);
+        failuresWithoutOpen += 1;
+        scheduleReconnect();
+        return;
+      }
       socketRef.current = socket;
+      openedThisAttempt = false;
 
       socket.onopen = () => {
+        if (disposed) return;
+        openedThisAttempt = true;
         retry = 0;
-        setConnected(true);
-        clearPing();
-        pingTimer = window.setInterval(() => {
-          if (socket.readyState === WebSocket.OPEN) socket.send("ping");
-        }, 30000);
+        failuresWithoutOpen = 0;
+        lastFrame = Date.now();
+        setAttempt(0);
+        setStatus("open");
+        startHeartbeat(socket);
+        onOpenRef.current?.();
       };
 
       socket.onmessage = (event) => {
+        lastFrame = Date.now();
         try {
-          const payload = JSON.parse(event.data);
+          const payload = JSON.parse(event.data as string) as ChatSocketEvent;
           if (payload?.type === "message" && payload.data) {
             onMessageRef.current(payload.data as Message);
           } else if (payload?.type && payload.type !== "pong") {
-            onEventRef.current?.(payload as ChatSocketEvent);
+            onEventRef.current?.(payload);
           }
         } catch {
           // ignore malformed frames
         }
       };
 
-      socket.onclose = () => {
-        clearPing();
-        setConnected(false);
+      socket.onclose = (event) => {
+        window.clearInterval(pingTimer);
+        pingTimer = undefined;
         if (socketRef.current === socket) socketRef.current = null;
-        scheduleReconnect();
+        if (disposed || paused) return;
+
+        // Only handshakes that never succeeded count as failures. A drop of an
+        // established socket is a network/proxy problem, not a token problem.
+        if (!openedThisAttempt) failuresWithoutOpen += 1;
+        openedThisAttempt = false;
+        setStatus("reconnecting");
+
+        const authSuspected =
+          AUTH_CLOSE_CODES.has(event.code) || failuresWithoutOpen >= 2;
+        if (!authSuspected) {
+          scheduleReconnect();
+          return;
+        }
+
+        void verifySession().then((valid) => {
+          if (disposed || paused) return;
+          if (!valid) {
+            setStatus("auth-failed");
+            onAuthFailureRef.current?.();
+            return;
+          }
+          scheduleReconnect();
+        });
       };
 
-      socket.onerror = () => socket.close();
+      socket.onerror = () => {
+        // `onclose` always follows and owns the reconnect/backoff logic.
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close();
+        }
+      };
     }
 
     function handleVisibility() {
       if (document.visibilityState === "hidden") {
-        window.clearTimeout(retryTimer);
-        socketRef.current?.close();
-      } else {
-        retry = 0;
-        window.clearTimeout(retryTimer);
-        connect();
+        paused = true;
+        clearTimers();
+        const socket = socketRef.current;
+        socketRef.current = null;
+        if (socket) {
+          socket.onclose = null;
+          socket.onerror = null;
+          socket.close(1000, "hidden");
+        }
+        return;
       }
+      paused = false;
+      retry = 0;
+      setAttempt(0);
+      setStatus("connecting");
+      clearTimers();
+      connect();
     }
+
+    function handleOnline() {
+      if (disposed || paused) return;
+      retry = 0;
+      setAttempt(0);
+      clearTimers();
+      connect();
+    }
+
+    reconnectRef.current = () => {
+      if (disposed || paused) return;
+      clearTimers();
+      const socket = socketRef.current;
+      socketRef.current = null;
+      if (socket) {
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.close(1000, "manual");
+      }
+      retry = 0;
+      setAttempt(0);
+      setStatus("connecting");
+      connect();
+    };
 
     connect();
     document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("online", handleOnline);
 
     return () => {
-      closed = true;
-      window.clearTimeout(retryTimer);
-      clearPing();
+      disposed = true;
+      clearTimers();
       document.removeEventListener("visibilitychange", handleVisibility);
-      socketRef.current?.close();
+      window.removeEventListener("online", handleOnline);
+      const socket = socketRef.current;
       socketRef.current = null;
-      setConnected(false);
+      if (socket) {
+        socket.onclose = null;
+        socket.onerror = null;
+        socket.onmessage = null;
+        socket.close(1000, "unmount");
+      }
+      setStatus("connecting");
     };
   }, [room]);
 
@@ -126,5 +297,7 @@ export function useChatSocket(
     return false;
   }, []);
 
-  return { connected, send };
+  const reconnect = useCallback(() => reconnectRef.current(), []);
+
+  return { connected: status === "open", status, attempt, send, reconnect };
 }

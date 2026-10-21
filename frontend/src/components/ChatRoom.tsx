@@ -641,6 +641,7 @@ export default function ChatRoom({
   const pressTimer = useRef<number | undefined>(undefined);
   const nearBottomRef = useRef(true);
   const initialScrollRef = useRef(true);
+  const roomKeyRef = useRef(room);
 
   const scope = assignmentId ? "assignment" : peerId ? "private" : "global";
 
@@ -650,11 +651,41 @@ export default function ChatRoom({
     toastTimer.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
 
-  const appendMessage = useCallback((message: Message) => {
-    setMessages((prev) =>
-      prev.some((item) => item.id === message.id) ? prev : [...prev, message]
-    );
+  /**
+   * Union of two message lists, ordered by `created_at` then `id`.
+   *
+   * The socket can deliver a message *before* the initial REST page resolves
+   * (and again after a reconnect). Replacing the state with the fetch result
+   * would silently drop those messages, leaving the chat stale until the user
+   * refreshes — so every load merges instead of overwriting.
+   */
+  const mergeMessages = useCallback((prev: Message[], incoming: Message[]) => {
+    if (!incoming.length) return prev;
+    const known = new Set(prev.map((item) => item.id));
+    const merged = prev.slice();
+    let changed = false;
+    for (const item of incoming) {
+      if (known.has(item.id)) continue;
+      known.add(item.id);
+      merged.push(item);
+      changed = true;
+    }
+    if (!changed) return prev;
+    merged.sort((a, b) => {
+      const ta = Date.parse(a.created_at);
+      const tb = Date.parse(b.created_at);
+      if (Number.isFinite(ta) && Number.isFinite(tb) && ta !== tb) return ta - tb;
+      return a.id - b.id;
+    });
+    return merged;
   }, []);
+
+  const appendMessage = useCallback(
+    (message: Message) => {
+      setMessages((prev) => mergeMessages(prev, [message]));
+    },
+    [mergeMessages]
+  );
 
   const handleEvent = useCallback((event: ChatSocketEvent) => {
     if (event.type === "delete") {
@@ -675,13 +706,34 @@ export default function ChatRoom({
     }
   }, []);
 
-  const { connected, send } = useChatSocket(room, appendMessage, handleEvent);
+  const refreshMessages = useCallback(() => {
+    fetchMessages({ scope, peerId, assignmentId, limit: 150 })
+      .then((data) => setMessages((prev) => mergeMessages(prev, data)))
+      .catch(() => {
+        // Transient failure: keep what we have and try again on the next
+        // (re)connect instead of blanking the conversation.
+      });
+  }, [scope, peerId, assignmentId, mergeMessages]);
+
+  const { connected, status, attempt, send } = useChatSocket(
+    room,
+    appendMessage,
+    handleEvent,
+    // After every (re)connect the latest page is re-fetched and merged, so
+    // anything broadcast while the socket was down is recovered without a
+    // page reload.
+    { onOpen: refreshMessages }
+  );
 
   useEffect(() => {
     let active = true;
+    if (roomKeyRef.current !== room) {
+      roomKeyRef.current = room;
+      setMessages([]);
+    }
     fetchMessages({ scope, peerId, assignmentId, limit: 150 })
       .then((data) => {
-        if (active) setMessages(data);
+        if (active) setMessages((prev) => mergeMessages(prev, data));
       })
       .catch((e: unknown) => {
         if (active) setError(e instanceof Error ? e.message : "خطا در بارگذاری گفتگو");
@@ -692,7 +744,18 @@ export default function ChatRoom({
     return () => {
       active = false;
     };
-  }, [scope, peerId, assignmentId, room]);
+  }, [scope, peerId, assignmentId, room, mergeMessages]);
+
+  // Safety net: if the socket is not up (proxy hiccup, blocked upgrade, tab
+  // resumed after being suspended), poll the REST endpoint so new messages
+  // still show up without a page reload. Merging keeps it duplicate-free.
+  useEffect(() => {
+    if (connected) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshMessages();
+    }, 10_000);
+    return () => window.clearInterval(id);
+  }, [connected, refreshMessages]);
 
   useEffect(() => {
     if (loading) return;
@@ -966,6 +1029,28 @@ export default function ChatRoom({
     }
   }
 
+  const connectionLabel = connected
+    ? "آنلاین"
+    : status === "reconnecting"
+      ? attempt > 1
+        ? `اتصال مجدد (${attempt})…`
+        : "اتصال مجدد…"
+      : status === "offline"
+        ? "آفلاین"
+        : status === "auth-failed"
+          ? "ورود مجدد…"
+          : "در حال اتصال…";
+  const connectionTone = connected
+    ? "text-[#4dcd5e]"
+    : status === "offline" || status === "auth-failed"
+      ? "text-danger"
+      : "text-fg-500";
+  const connectionDot = connected
+    ? "bg-[#4dcd5e]"
+    : status === "offline" || status === "auth-failed"
+      ? "bg-danger"
+      : "bg-fg-500";
+
   return (
     <section
       className={`chat-room relative flex min-h-0 w-full flex-col overflow-hidden bg-black ${
@@ -999,13 +1084,9 @@ export default function ChatRoom({
           <h2 className="truncate text-[15px] font-bold text-white">{title}</h2>
           <p className="flex items-center gap-1.5 truncate text-[11px]">
             <span
-              className={`h-1.5 w-1.5 rounded-full ${
-                connected ? "bg-[#4dcd5e]" : "bg-fg-500"
-              }`}
+              className={`h-1.5 w-1.5 rounded-full ${connectionDot}`}
             />
-            <span className={connected ? "text-[#4dcd5e]" : "text-fg-500"}>
-              {connected ? "آنلاین" : "در حال اتصال…"}
-            </span>
+            <span className={connectionTone}>{connectionLabel}</span>
             {subtitle && <span className="truncate text-fg-500">· {subtitle}</span>}
           </p>
         </div>
