@@ -127,6 +127,7 @@ sudo ./deploy.sh deploy      # pull + build inactive slot + verify + switch + so
 sudo ./deploy.sh rollback    # move traffic back to the previous slot
 sudo ./deploy.sh status      # slots, health, image revisions, active target
 sudo ./deploy.sh cleanup     # delete the inactive slot's containers + images
+sudo ./deploy.sh fix-nginx   # repair host Nginx upstream + WebSocket headers
 sudo ./deploy.sh backup      # database + uploads + .env -> one archive
 sudo ./deploy.sh restore F   # restore that archive, then deploy
 sudo ./deploy.sh             # interactive menu
@@ -144,10 +145,11 @@ Useful flags: `--skip-pull`, `--soak=30`, `--no-soak`, `--keep-old`, `--yes`,
    (backend `/api/health` checks the database).
 4. Smoke-test it: static frontend, `/version` == the new SHA, `/api/health`
    through the frontend, and a WebSocket handshake against `/api/ws`.
-5. Rewrite `/etc/nginx/conf.d/00-archschool-upstream.conf`, run `nginx -t`,
-   then `systemctl reload nginx` (graceful — in-flight requests complete).
-6. Verify the public URL reports the new revision. On failure: automatic
-   rollback.
+5. Rewrite `/etc/nginx/conf.d/00-archschool-upstream.conf`, ensure the site file
+   upgrades `/api/ws`, run `nginx -t`, then `systemctl reload nginx` (graceful —
+   in-flight requests complete).
+6. Verify the public URL reports the new revision and that
+   `wss://<domain>/api/ws` upgrades. On a revision mismatch: automatic rollback.
 7. Soak for 60s with continuous health probes. On failure: automatic rollback.
 8. Stop (but keep) the previous slot and its images for rollback, then prune
    only dangling images.
@@ -171,12 +173,53 @@ upstream archschool_app {
 }
 ```
 
+`deploy.sh` also inserts a managed WebSocket block into every proxying
+`location` of the site file, because without it `/api/ws` never upgrades and the
+chat stops working ("WebSocket is closed before the connection is established"):
+
+```nginx
+# BEGIN archschool-websocket (managed by deploy.sh)
+proxy_http_version 1.1;
+proxy_set_header Upgrade $http_upgrade;
+proxy_set_header Connection "upgrade";
+proxy_read_timeout 86400;
+proxy_send_timeout 86400;
+proxy_buffering off;
+# END archschool-websocket (managed by deploy.sh)
+```
+
+The block is placed **last** inside the location on purpose: nginx keeps the
+last value of a repeated `proxy_set_header`, so it also overrides a stale
+`Connection ""`/`close`. It is re-added after every pull, and a config that
+already upgrades correctly is never touched.
+
 If the script cannot find the expected line it prints the diff and exits
 without touching anything. Override detection with
 `NGINX_SITE_CONF=/etc/nginx/sites-available/archschool`.
 
 Keep `client_max_body_size 30m;` and the `Upgrade`/`Connection "upgrade"`
 headers in the site block — uploads and the chat socket depend on them.
+
+Repair an existing host without rebuilding or switching slots:
+
+```bash
+sudo ./deploy.sh fix-nginx
+```
+
+It re-applies the upstream pointer and the WebSocket block, reloads Nginx, then
+probes both `http://127.0.0.1:<slot>/api/ws` and
+`wss://<domain>/api/ws` and tells you if the handshake still fails.
+
+### WebSocket troubleshooting
+
+| Symptom in the browser | Meaning | Fix |
+| --- | --- | --- |
+| `WebSocket is closed before the connection is established` | Host Nginx did not upgrade the request (`/api/ws` answered 404/400) | `sudo ./deploy.sh fix-nginx` |
+| `Error during WebSocket handshake: Unexpected response code: 403` | Upgrade worked, the token/room was rejected | Session expired — re-login |
+| Connects, then drops every 60s | A proxy is closing idle sockets; `proxy_read_timeout` is too low | `sudo ./deploy.sh fix-nginx` |
+
+Every deploy now verifies the public socket after the switch and prints a
+failure (traffic stays on the new slot; only the chat is affected).
 
 ### Database rules for blue-green
 
