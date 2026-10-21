@@ -145,11 +145,16 @@ Useful flags: `--skip-pull`, `--soak=30`, `--no-soak`, `--keep-old`, `--yes`,
    (backend `/api/health` checks the database).
 4. Smoke-test it: static frontend, `/version` == the new SHA, `/api/health`
    through the frontend, and a WebSocket handshake against `/api/ws`.
-5. Rewrite `/etc/nginx/conf.d/00-archschool-upstream.conf`, ensure the site file
-   upgrades `/api/ws`, run `nginx -t`, then `systemctl reload nginx` (graceful —
-   in-flight requests complete).
+5. Rewrite `/etc/nginx/conf.d/00-archschool-upstream.conf`, make sure every
+   proxying `location` goes through the `archschool_app` upstream (literal
+   `127.0.0.1:6241/6242` proxy_pass lines are rewritten too), ensure the site
+   file upgrades `/api/ws`, run `nginx -t`, then `systemctl restart nginx`.
+   A restart (not a reload) is deliberate: reloaded workers keep serving their
+   old upstream and old sockets, which makes a switch look "not applied".
 6. Verify the public URL reports the new revision and that
-   `wss://<domain>/api/ws` upgrades. On a revision mismatch: automatic rollback.
+   `wss://<domain>/api/ws` upgrades. A stale revision is retried (with one extra
+   Nginx restart), then rolled back — a switch that did not land is never
+   reported as a success.
 7. Soak for 60s with continuous health probes. On failure: automatic rollback.
 8. Stop (but keep) the previous slot and its images for rollback, then prune
    only dangling images.
@@ -173,29 +178,34 @@ upstream archschool_app {
 }
 ```
 
-`deploy.sh` also inserts a managed WebSocket block into every proxying
-`location` of the site file, because without it `/api/ws` never upgrades and the
-chat stops working ("WebSocket is closed before the connection is established"):
+`deploy.sh` also makes sure every proxying `location` forwards the WebSocket
+upgrade, because without it `/api/ws` never upgrades and the chat stops working
+("WebSocket is closed before the connection is established"):
 
 ```nginx
-# BEGIN archschool-websocket (managed by deploy.sh)
 proxy_http_version 1.1;
 proxy_set_header Upgrade $http_upgrade;
 proxy_set_header Connection "upgrade";
 proxy_read_timeout 86400;
-proxy_send_timeout 86400;
-proxy_buffering off;
-# END archschool-websocket (managed by deploy.sh)
 ```
 
-The block is placed **last** inside the location on purpose: nginx keeps the
-last value of a repeated `proxy_set_header`, so it also overrides a stale
-`Connection ""`/`close`. It is re-added after every pull, and a config that
-already upgrades correctly is never touched.
+Detection is **header-based, never comment-based**: if the file already
+contains `proxy_set_header Upgrade $http_upgrade;` anywhere, it counts as
+correct and is left byte-for-byte untouched — a hand-written block with your own
+comments (in any language) is perfectly fine. Only a file that genuinely lacks
+the header gets a managed block, inserted **last** inside the location (nginx
+keeps the last value of a repeated `proxy_set_header`, so it also overrides a
+stale `Connection ""`). A failed automatic patch is a warning, never a reason to
+abort a deployment.
 
-If the script cannot find the expected line it prints the diff and exits
-without touching anything. Override detection with
-`NGINX_SITE_CONF=/etc/nginx/sites-available/archschool`.
+If the site file has no `archschool_app` upstream at all, the script rewrites
+every `proxy_pass http://127.0.0.1:6241;` **and** `...:6242;` to
+`proxy_pass http://archschool_app;` (timestamped backup + `nginx -t` + automatic
+revert). Without that, Nginx keeps serving the hardcoded slot even after the
+upstream file is switched, which is exactly how a deploy can "succeed" while the
+public URL still reports the old revision.
+
+Override detection with `NGINX_SITE_CONF=/etc/nginx/sites-available/archschool`.
 
 Keep `client_max_body_size 30m;` and the `Upgrade`/`Connection "upgrade"`
 headers in the site block — uploads and the chat socket depend on them.
