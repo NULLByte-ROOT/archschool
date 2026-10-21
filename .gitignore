@@ -49,3 +49,7 @@ docker-compose.override.yml
 
 # Blue-green deployment state (written by deploy.sh on the server)
 .deploy-state
+
+# Backup archives written by ./deploy.sh backup (contain secrets)
+archschool_backup_*.tar.gz
+**/archschool_backup_*.tar.gz

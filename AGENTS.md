@@ -32,6 +32,7 @@ ArchSchool is a social-network-style school workspace for a class team (11th gra
 - **GitHub Repo:** `https://github.com/NULLByte-ROOT/archschool` (Branch: `main`).
 - **Deployment Script:** `./deploy.sh` on the server — blue-green. `./deploy.sh deploy` pulls, builds the inactive slot, verifies it, switches the host Nginx upstream and soaks; `rollback`, `cleanup`, `status` are the other subcommands. NEVER use `docker compose up -d`/`down`/`--remove-orphans` directly: slots are Compose profiles and the database is shared.
 - **Database Migrations:** Handled automatically via `Base.metadata.create_all` and custom `_ensure_columns()` logic in `main.py`. Explicit SQL scripts are in `backend/migrations/` (safe to run idempotently).
+- **Backup / Restore:** `./deploy.sh backup` writes `archschool_backup_YYYY-MM-DD_HH-MM.tar.gz` in the project root (mode 600: `database.sql`, `uploads.tar.gz`, `.env`, `metadata.txt`). `./deploy.sh restore <archive>` restores on a fresh or existing server (confirmation required) and finishes with a standard deploy. Also `./deploy.sh list-backups`, `deploy --backup`, `--out=DIR`. Archives are git-ignored — never commit them.
 
 ## 6. Core Features Implemented
 - **Dashboard:** CTA, activity charts, recent chats, upcoming deadlines.

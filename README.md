@@ -127,11 +127,13 @@ sudo ./deploy.sh deploy      # pull + build inactive slot + verify + switch + so
 sudo ./deploy.sh rollback    # move traffic back to the previous slot
 sudo ./deploy.sh status      # slots, health, image revisions, active target
 sudo ./deploy.sh cleanup     # delete the inactive slot's containers + images
+sudo ./deploy.sh backup      # database + uploads + .env -> one archive
+sudo ./deploy.sh restore F   # restore that archive, then deploy
 sudo ./deploy.sh             # interactive menu
 ```
 
 Useful flags: `--skip-pull`, `--soak=30`, `--no-soak`, `--keep-old`, `--yes`,
-`--timeout=180`.
+`--timeout=180`, `--backup`, `--out=DIR`.
 
 ### What a deploy actually does
 
@@ -204,3 +206,84 @@ schema changes only add columns/tables.
 
 After deploying, users should refresh the app (their role is re-fetched from
 `/api/auth/me` automatically).
+
+## Backup & restore (server migration)
+
+`./deploy.sh backup` captures the entire application state in one archive in the
+project root:
+
+```
+archschool_backup_2026-10-21_22-16.tar.gz
+├── database.sql     pg_dump --clean --if-exists (importable into an empty PG 17)
+├── uploads.tar.gz   the archschool_uploads volume (avatars, assignment files)
+├── .env             backend/.env — SECRET_KEY, ADMIN_CODE, upload limits
+└── metadata.txt     created_at, revision, host, Postgres version
+```
+
+Docker images and `node_modules` are **not** included — the deploy that follows a
+restore rebuilds them — so the archive stays small.
+
+### Create a backup
+
+```bash
+sudo ./deploy.sh backup                        # ./archschool_backup_YYYY-MM-DD_HH-MM.tar.gz
+sudo ./deploy.sh backup --out=/root/backups    # anywhere else
+sudo ./deploy.sh list-backups                  # size + timestamp overview
+```
+
+- The database dump is a consistent snapshot; the uploads volume is read while
+  the app runs, so a file written in that exact second may be missing.
+- The archive is mode `600` because it contains `SECRET_KEY` and `ADMIN_CODE`.
+  `archschool_backup_*.tar.gz` is git-ignored — never commit or publish it.
+- Copy it off the server: `scp root@old-server:/opt/archschool/archschool_backup_*.tar.gz .`
+
+### Restore on a fresh server (0 → 100)
+
+```bash
+# 1. New server: DNS pointed at it, code cloned
+git clone https://github.com/NULLByte-ROOT/archschool.git /opt/archschool
+cd /opt/archschool
+
+# 2. Bring the archive over
+scp user@old-server:/opt/archschool/archschool_backup_2026-10-21_22-16.tar.gz .
+
+# 3. Restore, then let it deploy
+sudo ./deploy.sh restore archschool_backup_2026-10-21_22-16.tar.gz
+```
+
+`restore` performs, in this order:
+
+1. Prints the archive contents and requires typing `RESTORE` (`--yes` skips it).
+2. Installs Docker first if the host does not have it yet.
+3. Extracts to a temp dir and copies `.env` to `backend/.env`; the previous file
+   is kept as `backend/.env.pre-restore.<timestamp>`.
+4. Stops both app slots so nothing holds the database open.
+5. Starts **only** `archschool_db` and waits until it reports `healthy`.
+6. Imports `database.sql` with `psql -v ON_ERROR_STOP=1`, so a SQL error aborts
+   instead of leaving a half-imported database.
+7. Clears and refills the `archschool_uploads` volume.
+8. Runs the standard `./deploy.sh deploy` (build → health gate → Nginx switch).
+
+Sessions survive a migration because `SECRET_KEY` comes from the restored
+`.env`; `deploy.sh` only generates a new one when it is missing.
+
+Finish the new server with Nginx + TLS (site block as in
+[One-time host Nginx change](#one-time-host-nginx-change)) and run
+`sudo ./deploy.sh deploy` to publish the domain.
+
+### Restore in place (undo a bad state)
+
+The same command works on a running server: it **overwrites** the database, the
+uploads volume and `backend/.env`. Everything created after the backup is lost,
+and the app is offline while the data is imported.
+
+### Safety rules
+
+- Take a snapshot before risky changes:
+  `sudo ./deploy.sh deploy --backup` creates a backup first and aborts the deploy
+  if the backup fails.
+- Keep backups outside the repository and rotate them, e.g. in root's crontab:
+  `0 3 * * * cd /opt/archschool && ./deploy.sh backup --out=/root/archschool-backups`
+- Test the restore path before you need it: `./deploy.sh list-backups`, then
+  extract an archive and check `metadata.txt` and `database.sql` are readable.
+

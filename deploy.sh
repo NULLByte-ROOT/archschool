@@ -26,9 +26,12 @@ set -Eeuo pipefail
 #    ./deploy.sh cleanup         remove the inactive slot's containers/images
 #    ./deploy.sh status          slot/traffic overview
 #    ./deploy.sh setup           first-time setup on a new server
+#    ./deploy.sh backup          database + uploads + .env -> one .tar.gz
+#    ./deploy.sh restore FILE    restore that archive on a fresh server
 #    ./deploy.sh start|stop|restart|logs
 #
 #  Flags: --yes --skip-pull --soak=N --no-soak --keep-old --timeout=N
+#         --backup --out=DIR
 # =============================================================================
 
 PROJECT_NAME="archschool"
@@ -44,6 +47,19 @@ SLOT_GREEN_PORT=6242
 UPSTREAM_NAME="archschool_app"
 NGINX_UPSTREAM_CONF="${NGINX_UPSTREAM_CONF:-/etc/nginx/conf.d/00-archschool-upstream.conf}"
 NGINX_SITE_CONF="${NGINX_SITE_CONF:-}"
+
+# Backup / restore
+DB_CONTAINER="archschool_db"
+DB_NAME="archschool_db"
+DB_USER="postgres"
+UPLOADS_VOLUME="archschool_uploads"
+# Any image already on the server that ships tar+sh (the database image is
+# guaranteed to exist, so a restore never needs to pull anything).
+HELPER_IMAGE="${HELPER_IMAGE:-postgres:17-alpine}"
+BACKUP_PREFIX="archschool_backup"
+BACKUP_OUT_DIR="${BACKUP_OUT_DIR:-}"
+BACKUP_BEFORE_DEPLOY=0
+RESTORE_FILE=""
 
 GIT_SHA="${GIT_SHA:-unknown}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
@@ -976,6 +992,14 @@ cmd_deploy() {
     ensure_env
     read_revision
 
+    if (( BACKUP_BEFORE_DEPLOY )); then
+        info "Creating a pre-deploy backup (--backup)..."
+        if ! cmd_backup; then
+            error "The pre-deploy backup failed; aborting so nothing is lost."
+            return 1
+        fi
+    fi
+
     active="$(detect_active_slot)"
     target="$(choose_target_slot "${active}")"
     active_port="$(detect_active_port || true)"
@@ -1344,6 +1368,317 @@ show_logs() {
     esac
 }
 
+# ------------------------------------------------------- backup / restore ---
+
+# Owner that should receive files written as root via sudo.
+real_user_name() {
+    if [[ ${EUID} -eq 0 && -n "${SUDO_USER:-}" ]]; then
+        printf '%s' "${SUDO_USER}"
+    fi
+}
+
+give_to_real_user() {
+    local path="$1" owner
+    owner="$(real_user_name)"
+    [[ -n "${owner}" ]] || return 0
+    run_privileged chown -R "${owner}:" "${path}" 2>/dev/null || true
+}
+
+human_size() {
+    local target="$1"
+    [[ -e "${target}" ]] || return 0
+    du -h "${target}" 2>/dev/null | awk 'NR==1 {print $1}'
+}
+
+backup_dir() {
+    local dir="${BACKUP_OUT_DIR:-${SCRIPT_DIR}}"
+    (cd "${dir}" 2>/dev/null && pwd)
+}
+
+backup_file_name() {
+    local dir="$1" stamp name n=1
+    stamp="$(date +%Y-%m-%d_%H-%M)"
+    name="${BACKUP_PREFIX}_${stamp}.tar.gz"
+    while [[ -e "${dir}/${name}" ]]; do
+        n=$((n + 1))
+        name="${BACKUP_PREFIX}_${stamp}_${n}.tar.gz"
+    done
+    printf '%s' "${name}"
+}
+
+latest_backup() {
+    local dir
+    dir="$(backup_dir)" || return 0
+    ls -1t "${dir}"/${BACKUP_PREFIX}_*.tar.gz 2>/dev/null | head -n1 || true
+}
+
+cmd_list_backups() {
+    local dir file found=0
+    dir="$(backup_dir)" || return 1
+
+    shopt -s nullglob
+    local -a files=("${dir}"/${BACKUP_PREFIX}_*.tar.gz)
+    shopt -u nullglob
+
+    echo
+    printf "${BOLD}=== Backups in %s ===${NC}\n" "${dir}"
+    for file in "${files[@]}"; do
+        printf "  %-48s %s\n" "$(basename "${file}")" "$(human_size "${file}")"
+        found=1
+    done
+    (( found )) || plain "  (none yet — run: ./deploy.sh backup)"
+}
+
+# Creates archschool_backup_YYYY-MM-DD_HH-MM.tar.gz containing:
+#   database.sql     -- pg_dump --clean --if-exists --no-owner
+#   uploads.tar.gz   -- contents of the archschool_uploads volume
+#   .env             -- backend/.env (secrets included: keep it private)
+#   metadata.txt     -- revision, host, timestamp, postgres version
+cmd_backup() {
+    local dir work name archive rev
+
+    check_sudo
+    ensure_env
+
+    # Recorded in metadata.txt so an archive can be traced to a release.
+    rev="$(run_git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    rev="${rev:-unknown}"
+
+    if ! dir="$(backup_dir)"; then
+        error "Backup directory does not exist: ${BACKUP_OUT_DIR:-${SCRIPT_DIR}}"
+        return 1
+    fi
+
+    if ! ensure_database; then
+        error "The database container is not available; cannot create a backup."
+        return 1
+    fi
+
+    work="$(mktemp -d)" || return 1
+
+    info "Dumping PostgreSQL database '${DB_NAME}'..."
+    if ! run_privileged docker exec "${DB_CONTAINER}" \
+        pg_dump -U "${DB_USER}" -d "${DB_NAME}" \
+        --clean --if-exists --no-owner --no-privileges \
+        >"${work}/database.sql"; then
+        error "pg_dump failed."
+        rm -rf "${work}"
+        return 1
+    fi
+    if [[ ! -s "${work}/database.sql" ]]; then
+        error "pg_dump produced an empty file; aborting."
+        rm -rf "${work}"
+        return 1
+    fi
+    success "  database.sql ($(human_size "${work}/database.sql"))"
+
+    info "Archiving the uploads volume '${UPLOADS_VOLUME}'..."
+    if run_privileged docker volume inspect "${UPLOADS_VOLUME}" >/dev/null 2>&1; then
+        if ! run_privileged docker run --rm \
+            -v "${UPLOADS_VOLUME}:/data:ro" \
+            -v "${work}:/backup" \
+            "${HELPER_IMAGE}" \
+            tar czf /backup/uploads.tar.gz -C /data .; then
+            error "Could not archive the uploads volume."
+            rm -rf "${work}"
+            return 1
+        fi
+    else
+        warn "Volume ${UPLOADS_VOLUME} does not exist; storing an empty archive."
+        run_privileged tar -czf "${work}/uploads.tar.gz" --files-from /dev/null
+    fi
+    success "  uploads.tar.gz ($(human_size "${work}/uploads.tar.gz"))"
+
+    if [[ -f "${ENV_FILE}" ]]; then
+        run_privileged cp -p "${ENV_FILE}" "${work}/.env"
+        success "  .env"
+    else
+        warn "backend/.env is missing; the archive will not contain configuration."
+    fi
+
+    {
+        printf 'app=archschool\n'
+        printf 'format=1\n'
+        printf 'created_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        printf 'revision=%s\n' "${rev}"
+        printf 'hostname=%s\n' "$(hostname 2>/dev/null || echo unknown)"
+        printf 'database=%s\n' "${DB_NAME}"
+        printf 'postgres=%s\n' "$(
+            run_privileged docker exec "${DB_CONTAINER}" postgres --version 2>/dev/null \
+                | tr -d '\r' | tr '\n' ' ' || true
+        )"
+    } >"${work}/metadata.txt"
+
+    name="$(backup_file_name "${dir}")"
+    archive="${dir}/${name}"
+
+    info "Compressing into ${name}..."
+    if ! run_privileged tar -czf "${archive}" -C "${work}" .; then
+        error "Could not create the archive."
+        rm -rf "${work}"
+        rm -f "${archive}"
+        return 1
+    fi
+
+    # The archive holds SECRET_KEY and ADMIN_CODE: private, and never committed.
+    run_privileged chmod 600 "${archive}" 2>/dev/null || true
+    give_to_real_user "${archive}"
+
+    if ! run_privileged tar -tzf "${archive}" >/dev/null 2>&1; then
+        error "The archive failed its integrity check."
+        rm -rf "${work}"
+        return 1
+    fi
+
+    rm -rf "${work}"
+
+    echo
+    success "Backup complete: ${archive}"
+    plain "  Size     : $(human_size "${archive}")"
+    plain "  Contents : database.sql, uploads.tar.gz, .env, metadata.txt"
+    plain "  Restore  : sudo ./deploy.sh restore $(basename "${archive}")"
+    warn "The archive contains secrets (mode 600). Do not commit or share it publicly."
+}
+
+# Restores a backup created above. Intended for a fresh server, but also
+# usable in place: the current data WILL be replaced.
+cmd_restore() {
+    local archive="$1" work members answer
+    local keep
+
+    check_sudo
+
+    if [[ -z "${archive}" ]]; then
+        error "Usage: sudo ./deploy.sh restore <archschool_backup_YYYY-MM-DD_HH-MM.tar.gz>"
+        return 1
+    fi
+    if [[ ! -f "${archive}" ]]; then
+        error "Backup file not found: ${archive}"
+        return 1
+    fi
+    archive="$(cd "$(dirname "${archive}")" && pwd)/$(basename "${archive}")"
+
+    if ! run_privileged tar -tzf "${archive}" >/dev/null 2>&1; then
+        error "${archive} is not a readable .tar.gz archive."
+        return 1
+    fi
+    members="$(run_privileged tar -tzf "${archive}")"
+    if ! grep -qE '(^\./)?database\.sql$' <<<"${members}"; then
+        error "The archive has no database.sql — this is not an ArchSchool backup."
+        return 1
+    fi
+
+    echo
+    printf "${BOLD}=== Restore preview ===${NC}\n"
+    plain "  Archive : ${archive}"
+    plain "  Size    : $(human_size "${archive}")"
+    plain "  Contains: $(tr '\n' ' ' <<<"${members}" | sed 's|\./||g' | tr -s ' ')"
+    echo
+
+    if (( ! ASSUME_YES )); then
+        warn "This will OVERWRITE the database, the uploads volume and backend/.env."
+        warn "The running app slots will be stopped while the data is restored."
+        read -r -p "Type RESTORE to continue (anything else aborts): " answer || true
+        if [[ "${answer}" != "RESTORE" ]]; then
+            warn "Restore cancelled. Nothing was changed."
+            return 1
+        fi
+    fi
+
+    work="$(mktemp -d)" || return 1
+
+    if ! command -v docker >/dev/null 2>&1; then
+        info "Docker is not installed yet; installing it before the restore..."
+        install_docker || { rm -rf "${work}"; return 1; }
+    fi
+
+    info "Extracting the archive..."
+    if ! run_privileged tar -xzf "${archive}" -C "${work}" --no-same-owner; then
+        error "Extraction failed."
+        rm -rf "${work}"
+        return 1
+    fi
+    give_to_real_user "${work}"
+
+    # .env first: Compose cannot parse the stack without backend/.env.
+    if [[ -f "${work}/.env" ]]; then
+        if [[ -f "${ENV_FILE}" ]]; then
+            keep="${ENV_FILE}.pre-restore.$(date +%Y%m%d%H%M%S)"
+            run_privileged cp -p "${ENV_FILE}" "${keep}" || true
+            info "Previous backend/.env saved as $(basename "${keep}")."
+        fi
+        mkdir -p "$(dirname "${ENV_FILE}")"
+        run_privileged cp -f "${work}/.env" "${ENV_FILE}"
+        give_to_real_user "${ENV_FILE}"
+        success "backend/.env restored."
+    else
+        warn "The archive has no .env; keeping the existing configuration."
+    fi
+    ensure_env
+
+    info "Stopping the application slots so nothing holds the database..."
+    stop_slot blue
+    stop_slot green
+
+    if ! ensure_database; then
+        error "Could not start the database container."
+        rm -rf "${work}"
+        return 1
+    fi
+
+    info "Restoring the database (this can take a while)..."
+    if ! run_privileged docker exec -i "${DB_CONTAINER}" \
+        psql -v ON_ERROR_STOP=1 -U "${DB_USER}" -d "${DB_NAME}" \
+        <"${work}/database.sql" >"${work}/psql.log" 2>&1; then
+        error "psql restore failed. Last lines:"
+        tail -n 25 "${work}/psql.log" 2>/dev/null | sed 's/^/    /' >&2 || true
+        error "The database may be in a partially restored state."
+        error "Extracted files are kept in ${work} for inspection."
+        return 1
+    fi
+    success "Database restored."
+
+    if [[ -f "${work}/uploads.tar.gz" ]]; then
+        info "Restoring uploads into volume '${UPLOADS_VOLUME}'..."
+        if ! run_privileged docker volume inspect "${UPLOADS_VOLUME}" >/dev/null 2>&1; then
+            run_privileged docker volume create "${UPLOADS_VOLUME}" >/dev/null || {
+                error "Could not create the uploads volume."
+                rm -rf "${work}"
+                return 1
+            }
+        fi
+        if ! run_privileged docker run --rm \
+            -v "${UPLOADS_VOLUME}:/data" \
+            -v "${work}:/backup:ro" \
+            "${HELPER_IMAGE}" \
+            sh -c 'find /data -mindepth 1 -delete 2>/dev/null; tar xzf /backup/uploads.tar.gz -C /data'; then
+            error "Could not restore the uploads volume."
+            rm -rf "${work}"
+            return 1
+        fi
+        success "Uploads restored."
+    else
+        warn "The archive has no uploads.tar.gz; uploads were not restored."
+    fi
+
+    rm -rf "${work}"
+
+    success "Data restore finished."
+    info "Deploying the application on top of the restored data..."
+
+    if ! cmd_deploy; then
+        error "The data was restored, but the deploy failed."
+        error "Fix the error above, then run: sudo ./deploy.sh deploy"
+        plain ""
+        plain "  On a brand-new server, 'sudo ./deploy.sh setup' installs Docker and"
+        plain "  prepares the host; the restored database and uploads are kept."
+        return 1
+    fi
+
+    echo
+    success "Migration complete. ArchSchool is live with the restored data."
+}
+
 # ------------------------------------------------------------------ setup ---
 
 cmd_setup() {
@@ -1372,6 +1707,9 @@ Commands:
   cleanup     Remove the inactive slot's containers and images
   status      Show both slots and the active traffic target
   setup       First-time setup (docker, code, env, domain, deploy)
+  backup      Database + uploads + .env into one .tar.gz in the project root
+  restore     Restore a backup archive, then deploy (fresh-server migration)
+  list-backups  List the archives found in the backup directory
   start       Start the active slot
   stop        Stop every container (data is preserved)
   restart     Restart the active slot
@@ -1385,6 +1723,8 @@ Flags:
   --no-soak     Skip the soak window
   --keep-old    Leave the previous slot running after the switch
   --timeout=N   Health-check timeout in seconds (default 180)
+  --backup      Take a backup before deploying
+  --out=DIR     Directory for `backup` / `list-backups` (default: project root)
 
 Environment:
   PRODUCTION_DOMAIN   Public hostname (default archschool.vidxsepehr.ir)
@@ -1420,16 +1760,19 @@ EOF
     echo "  7) Restart the active slot"
     echo "  8) Status (slots + traffic)"
     echo "  9) View live logs"
+    echo " 10) Backup now (database + uploads + .env)"
+    echo " 11) Restore from a backup (overwrites data!)"
+    echo " 12) List backups"
     echo "  0) Exit"
     echo
 }
 
 interactive_menu() {
-    local choice
+    local choice file answer
     check_sudo
     while true; do
         show_menu
-        if ! read -r -p "Select an option [0-9]: " choice; then
+        if ! read -r -p "Select an option [0-9, 10-12]: " choice; then
             echo
             exit 0
         fi
@@ -1443,6 +1786,18 @@ interactive_menu() {
             7) cmd_restart || warn "Could not restart ArchSchool." ;;
             8) cmd_status || warn "Could not read the status." ;;
             9) show_logs || true ;;
+            10) cmd_backup || warn "Backup failed. Check the output above." ;;
+            11)
+                file="$(latest_backup)"
+                read -r -p "Backup file [${file:-path/to/archschool_backup_*.tar.gz}]: " answer || true
+                [[ -n "${answer}" ]] && file="${answer}"
+                if [[ -n "${file}" ]]; then
+                    cmd_restore "${file}" || warn "Restore failed. Check the output above."
+                else
+                    warn "No backup selected."
+                fi
+                ;;
+            12) cmd_list_backups || warn "Could not list the backups." ;;
             0) printf "${GREEN}Bye.${NC}\n"; exit 0 ;;
             *) warn "Invalid option: ${choice}" ;;
         esac
@@ -1462,18 +1817,31 @@ parse_args() {
             --no-soak)    SOAK_SECONDS=0 ;;
             --keep-old)   KEEP_OLD=1 ;;
             --timeout=*)  HEALTH_TIMEOUT="${1#*=}" ;;
+            --backup)     BACKUP_BEFORE_DEPLOY=1 ;;
+            --out=*)      BACKUP_OUT_DIR="${1#*=}" ;;
             -h|--help)    usage; exit 0 ;;
             deploy|update)   COMMAND="deploy" ;;
             rollback)        COMMAND="rollback" ;;
             cleanup|prune)   COMMAND="cleanup" ;;
             status)          COMMAND="status" ;;
             setup|install)   COMMAND="setup" ;;
+            backup)          COMMAND="backup" ;;
+            restore)         COMMAND="restore" ;;
+            list-backups|backups) COMMAND="list-backups" ;;
             start)           COMMAND="start" ;;
             stop)            COMMAND="stop" ;;
             restart)         COMMAND="restart" ;;
             logs)            COMMAND="logs" ;;
             -*)  error "Unknown option: $1"; usage; exit 2 ;;
-            *)   error "Unknown command: $1"; usage; exit 2 ;;
+            *)
+                if [[ "${COMMAND}" == "restore" && -z "${RESTORE_FILE}" ]]; then
+                    RESTORE_FILE="$1"
+                else
+                    error "Unknown command: $1"
+                    usage
+                    exit 2
+                fi
+                ;;
         esac
         shift
     done
@@ -1493,6 +1861,9 @@ main() {
         cleanup)  cmd_cleanup ;;
         status)   cmd_status ;;
         setup)    cmd_setup ;;
+        backup)      cmd_backup ;;
+        restore)     cmd_restore "${RESTORE_FILE}" ;;
+        list-backups) cmd_list_backups ;;
         start)    cmd_start ;;
         stop)     cmd_stop ;;
         restart)  cmd_restart ;;
