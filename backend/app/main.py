@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -13,6 +14,15 @@ from .database import Base, engine
 from .routers import assignments, attachments, auth, messages, uploads, users, ws
 
 logger = logging.getLogger("archschool.boot")
+
+# uvicorn only configures its own "uvicorn.*" loggers and leaves the root logger
+# at WARNING with no handler, so every `logger.info(...)` from app code would be
+# silently dropped. The WebSocket handshake log is the primary diagnostic for
+# "the browser shows 1006 and nobody knows why", so make sure it is printed.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(levelname)s:     %(name)s - %(message)s",
+)
 
 # Arbitrary but stable Postgres advisory-lock key ("ARCH"). Blue-green runs two
 # backend instances against one database; the lock makes sure only one of them

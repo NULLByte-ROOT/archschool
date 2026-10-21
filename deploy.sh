@@ -416,14 +416,6 @@ host_ws_ok() {
         && run_privileged grep -qE 'proxy_http_version[[:space:]]+1\.1' "${conf}" 2>/dev/null
 }
 
-# The single decisive signal: the proxying location forwards the Upgrade
-# header. Comment tags, language, quoting, indentation and extra blank lines
-# are irrelevant — a hand-written block is just as valid as ours.
-host_ws_upgrades() {
-    local conf="$1"
-    run_privileged grep -qiE 'proxy_set_header[[:space:]]+Upgrade[[:space:]]+"?\$http_upgrade' "${conf}" 2>/dev/null
-}
-
 print_ws_manual() {
     local conf="$1"
     plain ""
@@ -450,20 +442,15 @@ ensure_host_ws() {
     fi
     NGINX_SITE_CONF="${conf}"
 
-    # Detection is header-based, never marker-based: a hand-written block (any
-    # language, any formatting) counts. Only patch when the Upgrade header is
-    # genuinely missing. A false failure here would block an entire deploy.
-    if host_ws_upgrades "${conf}"; then
-        if host_ws_ok "${conf}"; then
-            success "Host Nginx already upgrades WebSocket connections."
-        else
-            warn "Host Nginx forwards the Upgrade header but is missing"
-            warn "'proxy_http_version 1.1;' and/or 'proxy_set_header Connection \"upgrade\";'."
-            warn "Leaving the file untouched; add those two lines if the chat stays offline."
-            print_ws_manual "${conf}"
-        fi
-        return 0
-    fi
+    # Patch per location, not per file. Header detection is what decides, never
+    # a comment tag: `patch_nginx_ws` leaves locations that already upgrade
+    # byte-for-byte untouched and only adds the block to proxying locations
+    # that lack it. A file that is already correct produces an identical copy
+    # and is never written.
+    #
+    # Per-location matters because `location /` upgrading does not help if a
+    # more specific `location ^~ /api/` also proxies: /api/ws then takes that
+    # branch, arrives at FastAPI as a plain HTTP GET and answers 404.
 
     src="$(mktemp)"
     tmp="$(mktemp)"
@@ -534,8 +521,13 @@ ensure_host_ws() {
 
 # A wrong host config answers 404/400/502 here instead of upgrading, so the
 # probe accepts only responses that prove the request reached the WS route.
+#
+# `--http1.1` is mandatory: WebSocket upgrades do not exist in HTTP/2, and over
+# h2 curl/nginx silently drop `Connection: Upgrade`, so the request reaches
+# FastAPI as a plain GET and answers 404 — a probe-only false negative.
 public_ws_code() {
     curl -s -o /dev/null -w '%{http_code}' --max-time "${WS_PROBE_TIMEOUT}" \
+        --http1.1 \
         --resolve "${PRODUCTION_DOMAIN}:443:127.0.0.1" \
         -H 'Connection: Upgrade' \
         -H 'Upgrade: websocket' \
@@ -548,12 +540,20 @@ verify_public_ws() {
     local code
     code="$(public_ws_code)"
     case "${code}" in
-        101|401|403)
+        # 101 = upgraded; 400/401/403/426 = the upgrade reached FastAPI, which
+        # then rejected the dummy token/room. All prove the proxy path works.
+        101|400|401|403|426)
             success "Public WebSocket endpoint upgrades correctly (HTTP ${code})."
             return 0
             ;;
     esac
     error "Public WebSocket endpoint did not upgrade (HTTP ${code:-no response})."
+    if [[ "${code}" == "404" ]]; then
+        error "404 on /api/ws means FastAPI saw a plain HTTP GET, not an upgrade:"
+        error "the location that matches /api/ws is not forwarding Upgrade/Connection."
+    elif [[ "${code}" == "502" || "${code}" == "503" || "${code}" == "504" ]]; then
+        error "The proxy reached Nginx but the upstream slot is not answering."
+    fi
     error "wss://${PRODUCTION_DOMAIN}/api/ws is broken for browsers."
     print_ws_manual "${NGINX_SITE_CONF:-/etc/nginx/sites-available/archschool}"
     return 1
@@ -839,9 +839,9 @@ slot_smoke() {
         failed=1
     fi
 
-    # A dummy token is rejected after the upgrade, so 101/401/403/426 all prove
-    # that the WebSocket route is proxied end-to-end.
-    ws_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    # A dummy token is rejected after the upgrade, so 101/400/401/403/426 all
+    # prove that the WebSocket route is proxied end-to-end.
+    ws_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 --http1.1 \
         -H 'Connection: Upgrade' \
         -H 'Upgrade: websocket' \
         -H 'Sec-WebSocket-Version: 13' \
@@ -1562,16 +1562,21 @@ cmd_fix_nginx() {
     info "Traffic target: ${NGINX_UPSTREAM_CONF} -> 127.0.0.1:${port}${port_slot:+ (${port_slot})}"
 
     # Slot-local handshake (proves frontend nginx + backend are fine).
-    if curl -s -o /dev/null -w '%{http_code}' --max-time "${WS_PROBE_TIMEOUT}" \
+    if curl -s -o /dev/null -w '%{http_code}' --max-time "${WS_PROBE_TIMEOUT}" --http1.1 \
         -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
         -H 'Sec-WebSocket-Version: 13' \
         -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
         "http://127.0.0.1:${port}/api/ws?token=invalid&room=global" 2>/dev/null \
-        | grep -qE '^(101|401|403)$'; then
+        | grep -qE '^(101|400|401|403|426)$'; then
         success "Slot WebSocket handshake works on 127.0.0.1:${port}."
     else
         warn "The slot itself did not upgrade the WebSocket; check the backend logs."
     fi
+
+    # Diagnostic that separates the two failure modes: with a *valid* token the
+    # handshake must stay open, not close immediately.
+    info "Backend WebSocket logs (last 10 lines):"
+    slot_compose "${port_slot:-blue}" logs --tail=10 "backend-${port_slot:-blue}" 2>/dev/null || true
 
     if check_public_ws; then
         echo
