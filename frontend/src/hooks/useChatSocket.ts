@@ -92,6 +92,47 @@ export function useChatSocket(
     let retryTimer: number | undefined;
     let pingTimer: number | undefined;
 
+    function hasLiveSocket(): boolean {
+      const socket = socketRef.current;
+      return (
+        socket !== null &&
+        (socket.readyState === WebSocket.OPEN ||
+          socket.readyState === WebSocket.CONNECTING)
+      );
+    }
+
+    // Every status transition goes through here, tagged with its trigger, so
+    // a misbehaving cycle is immediately visible in the console:
+    //   [chat] status open -> reconnecting (close:code=1006 reason=-)
+    function setStatusTraced(
+      status: ChatSocketStatus,
+      trigger: string
+    ) {
+      setStatus((prev) => {
+        if (prev !== status) {
+          console.info(`[chat] status ${prev} -> ${status} (${trigger})`);
+        }
+        return status;
+      });
+    }
+
+    // Low-frequency contradiction healer: the header may only disagree with
+    // the socket for 15s. This guarantees "Online" holds even if some unlisted
+    // code path flips the state, and never resurrects a closed socket.
+    const reconcilerTimer = window.setInterval(() => {
+      if (disposed || paused) return;
+      const socket = socketRef.current;
+      setStatus((prev) => {
+        const live =
+          socket !== null && socket.readyState === WebSocket.OPEN;
+        if (live && prev !== "open") {
+          console.info("[chat] reconciled status -> open (socket was live)");
+          return "open";
+        }
+        return prev;
+      });
+    }, 15_000);
+
     function clearTimers() {
       window.clearInterval(pingTimer);
       pingTimer = undefined;
@@ -115,14 +156,19 @@ export function useChatSocket(
     function scheduleReconnect() {
       if (disposed || paused) return;
       if (navigator.onLine === false) {
-        setStatus("offline");
+        setStatusTraced("offline", "schedule:navigator.offline");
         return;
       }
+      // Never schedule a redial behind a live socket: a stale close event or a
+      // slow verifySession() resolving late would otherwise flip the header to
+      // "Reconnecting" while the current socket is already healthy — and
+      // nothing would ever flip it back (connect() no-ops on live sockets).
+      if (hasLiveSocket()) return;
       const exponential = Math.min(BASE_DELAY_MS * 2 ** retry, MAX_DELAY_MS);
       const jittered = Math.round(exponential * (0.8 + Math.random() * 0.4));
       retry += 1;
       setAttempt(retry);
-      setStatus("reconnecting");
+      setStatusTraced("reconnecting", `schedule:retry=${retry}`);
       window.clearTimeout(retryTimer);
       retryTimer = window.setTimeout(connect, jittered);
     }
@@ -160,7 +206,7 @@ export function useChatSocket(
           // No token in storage: the handshake can only be rejected, so ask the
           // session probe to send the user to /login instead of reconnecting.
           stopped = true;
-          setStatus("auth-failed");
+          setStatusTraced("auth-failed", "connect:no-token");
           void fetchMe().catch(() => {
             // 401 already cleared the session and redirected to /login.
           });
@@ -185,7 +231,7 @@ export function useChatSocket(
         failuresWithoutOpen = 0;
         lastFrame = Date.now();
         setAttempt(0);
-        setStatus("open");
+        setStatusTraced("open", "onopen");
         startHeartbeat(socket);
         onOpenRef.current?.();
       };
@@ -220,11 +266,26 @@ export function useChatSocket(
             " applied=" + (openedThisAttempt ? "open" : "handshake")
         );
 
+        // A stale close from an abandoned/orphan socket must not touch the
+        // status: if a different, still-live socket already owns this hook,
+        // the drop it belongs to is ancient history.
+        if (
+          socketRef.current !== null &&
+          socketRef.current !== socket &&
+          hasLiveSocket()
+        ) {
+          console.info("[chat] ignore stale close (a newer socket is live)");
+          return;
+        }
+
         // Only handshakes that never succeeded count as failures. A drop of an
         // established socket is a network/proxy problem, not a token problem.
         if (!openedThisAttempt) failuresWithoutOpen += 1;
         openedThisAttempt = false;
-        setStatus("reconnecting");
+        setStatusTraced(
+          "reconnecting",
+          "close:code=" + event.code + " reason=" + (event.reason || "-")
+        );
 
         if (AUTH_CLOSE_CODES.has(event.code)) {
           authCloses += 1;
@@ -239,7 +300,7 @@ export function useChatSocket(
         // the conversation alive.
         if (authCloses >= 3) {
           stopped = true;
-          setStatus("auth-failed");
+          setStatusTraced("auth-failed", "close:" + event.code + " x" + authCloses);
           onAuthFailureRef.current?.();
           return;
         }
@@ -255,10 +316,13 @@ export function useChatSocket(
           if (disposed || paused) return;
           if (!valid) {
             stopped = true;
-            setStatus("auth-failed");
+            setStatusTraced("auth-failed", "verify:/auth/me");
             onAuthFailureRef.current?.();
             return;
           }
+          // The socket may have been re-established while /auth/me was in
+          // flight; scheduleReconnect() itself refuses to run behind a live
+          // socket, so this cannot regress the state any more.
           scheduleReconnect();
         });
       };
@@ -316,7 +380,10 @@ export function useChatSocket(
       // label: after the first load this is a "reconnecting", not a "connecting".
       retry = 0;
       clearTimers();
-      setStatus(hasEverOpened ? "reconnecting" : "connecting");
+      setStatusTraced(
+        hasEverOpened ? "reconnecting" : "connecting",
+        "visibility:resume"
+      );
       connect();
     }
 
@@ -345,7 +412,7 @@ export function useChatSocket(
       }
       retry = 0;
       setAttempt(0);
-      setStatus(hasEverOpened ? "reconnecting" : "connecting");
+      setStatusTraced(hasEverOpened ? "reconnecting" : "connecting", "reconnect:manual");
       connect();
     };
 
@@ -356,6 +423,7 @@ export function useChatSocket(
     return () => {
       disposed = true;
       clearTimers();
+      window.clearInterval(reconcilerTimer);
       document.removeEventListener("visibilitychange", handleVisibility);
       window.removeEventListener("online", handleOnline);
       const socket = socketRef.current;
