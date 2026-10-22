@@ -56,7 +56,9 @@ export default function SettingsPage() {
           ? "مالک (Owner)"
           : user?.role === "admin" || user?.is_admin
             ? "ادمین"
-            : "عضو",
+            : user?.role === "friend"
+              ? "دوست (Friend)"
+              : "عضو",
       mono: false,
     },
     {
@@ -69,7 +71,7 @@ export default function SettingsPage() {
       icon: Calendar,
       label: "MEMBER SINCE",
       value: user?.created_at
-        ? parseDue(user.created_at).toLocaleDateString("fa-IR")
+        ? parseDue(user.created_at).toLocaleDateString("fa-IR-u-nu-latn")
         : "—",
       mono: false,
     },

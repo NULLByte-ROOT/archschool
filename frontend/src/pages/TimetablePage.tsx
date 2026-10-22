@@ -36,7 +36,7 @@ export default function TimetablePage() {
           <span className="badge">
             <Clock size={11} />
             <span className="mono tabular-nums" dir="ltr">
-              {new Date(now).toLocaleTimeString("fa-IR", {
+              {new Date(now).toLocaleTimeString("fa-IR-u-nu-latn", {
                 hour: "2-digit",
                 minute: "2-digit",
               })}

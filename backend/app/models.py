@@ -14,18 +14,20 @@ from datetime import datetime
 
 from .database import Base
 
-# RBAC roles. "owner" is the top role (server stats + system settings),
-# "admin" manages assignments and users, "member" is the read-only default
-# (can only mark assignments as done/attended). The legacy "editor" role is
-# retired; boot migrations convert those users to "admin".
+# RBAC roles. "owner" is a special account (server stats + code management),
+# "admin" manages assignments/users and deletes any chat message, "friend"
+# chats and comments but never manages assignments, "member" is read-only
+# except completion toggles and assignment comments. The legacy "editor" role
+# is retired; boot migrations convert those users to "admin".
 ROLE_OWNER = "owner"
 ROLE_ADMIN = "admin"
+ROLE_FRIEND = "friend"
 ROLE_MEMBER = "member"
-VALID_ROLES = (ROLE_OWNER, ROLE_ADMIN, ROLE_MEMBER)
+VALID_ROLES = (ROLE_OWNER, ROLE_ADMIN, ROLE_FRIEND, ROLE_MEMBER)
 
 
 def is_staff(user: "User") -> bool:
-    """True for every role that may manage assignments and chat."""
+    """True for every role that may manage assignments, users and chat."""
     return bool(user.is_admin or user.role in (ROLE_ADMIN, ROLE_OWNER))
 
 

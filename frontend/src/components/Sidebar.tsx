@@ -191,7 +191,9 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
                 ? "owner"
                 : user?.is_admin || user?.role === "admin"
                   ? "admin"
-                  : "member"}
+                  : user?.role === "friend"
+                    ? "friend"
+                    : "member"}
             </p>
           </div>
           <motion.button

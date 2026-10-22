@@ -1153,6 +1153,72 @@ ensure_owner_env() {
     fi
 }
 
+# Menu option 14: explicitly (re)set the Owner credentials. The backend .env
+# is the source of truth for the Owner account and the code is re-applied on
+# the next backend boot.
+set_owner_credentials() {
+    local owner_username owner_code reply confirm
+
+    if [[ ! -f "${ENV_FILE}" ]]; then
+        error "backend/.env not found — run the initial setup (menu option 1) first."
+        return 1
+    fi
+
+    echo
+    info "Owner credentials — the backend applies these on every boot."
+    echo
+
+    while true; do
+        read -r -p "OWNER_USERNAME: " owner_username || return 1
+        owner_username="$(echo "${owner_username}" | tr -d '[:space:]')"
+        [[ -n "${owner_username}" ]] && break
+        warn "Username cannot be empty."
+    done
+
+    while true; do
+        read -r -p "OWNER_ACCESS_CODE (6 chars: A-Z and 0-9): " owner_code || return 1
+        owner_code="$(echo "${owner_code}" | tr -d '[:space:]' | tr '[:lower:]' '[:upper:]')"
+        if [[ "${owner_code}" =~ ^[A-Z0-9]{6}$ ]]; then
+            break
+        fi
+        warn "Invalid code — it must be exactly 6 uppercase English letters/digits."
+    done
+
+    echo
+    warn "New Owner: username «${owner_username}» with access code «${owner_code}»."
+    read -r -p "Save to backend/.env? [y/N]: " confirm || confirm=""
+    if [[ ! "${confirm}" =~ ^[Yy] ]]; then
+        warn "Cancelled — nothing was changed."
+        return 1
+    fi
+
+    if grep -q '^OWNER_USERNAME=' "${ENV_FILE}"; then
+        sed -i "s|^OWNER_USERNAME=.*|OWNER_USERNAME=${owner_username}|" "${ENV_FILE}"
+    else
+        printf 'OWNER_USERNAME=%s\n' "${owner_username}" >> "${ENV_FILE}"
+    fi
+    if grep -q '^OWNER_ACCESS_CODE=' "${ENV_FILE}"; then
+        sed -i "s|^OWNER_ACCESS_CODE=.*|OWNER_ACCESS_CODE=${owner_code}|" "${ENV_FILE}"
+    else
+        printf 'OWNER_ACCESS_CODE=%s\n' "${owner_code}" >> "${ENV_FILE}"
+    fi
+
+    success "Owner credentials saved to backend/.env."
+    warn "The change applies on the next backend boot. The previous login code stops working once the backend restarts (keep a deploy slot in mind: a restart is brief)."
+
+    read -r -p "Restart the backend now to apply? [Y/n]: " confirm || confirm=""
+    if [[ ! "${confirm}" =~ ^[Nn] ]]; then
+        if cmd_restart; then
+            success "Backend restarted — the new Owner credentials are live."
+        else
+            warn "Restart failed. Run menu option 7 (Restart) after checking the logs."
+        fi
+    else
+        info "Skipped restart. Use menu option 7 later to apply the change."
+    fi
+    return 0
+}
+
 configure_domain() {
     echo
     info "Domain setup (optional). ArchSchool is reached through host Nginx -> slot port."
@@ -2226,6 +2292,7 @@ EOF
     echo " 11) Restore from a backup (overwrites data!)"
     echo " 12) List backups"
     echo " 13) Fix host Nginx (upstream + WebSocket headers)"
+    echo " 14) Set Owner Credentials (Username & Access Code)"
     echo "  0) Exit"
     echo
 }
@@ -2235,7 +2302,7 @@ interactive_menu() {
     check_sudo
     while true; do
         show_menu
-        if ! read -r -p "Select an option [0-9, 10-13]: " choice; then
+        if ! read -r -p "Select an option [0-14]: " choice; then
             echo
             exit 0
         fi
@@ -2262,6 +2329,7 @@ interactive_menu() {
                 ;;
             12) cmd_list_backups || warn "Could not list the backups." ;;
             13) cmd_fix_nginx || warn "Could not repair the host Nginx configuration." ;;
+            14) set_owner_credentials || warn "Owner credentials were not changed." ;;
             0) printf "${GREEN}Bye.${NC}\n"; exit 0 ;;
             *) warn "Invalid option: ${choice}" ;;
         esac

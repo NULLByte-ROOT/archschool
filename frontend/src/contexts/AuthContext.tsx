@@ -12,8 +12,10 @@ interface AuthContextType {
   isAuthenticated: boolean;
   /** admin or owner — manages assignments, users and chat. */
   isAdmin: boolean;
-  /** owner — server stats, system settings, role grants above admin. */
+  /** owner — server stats, code changes, role grants above admin. */
   isOwner: boolean;
+  /** friend — chats + comments, but never manages assignments. */
+  isFriend: boolean;
   /** plain member — read-only everywhere except their own completion toggles. */
   isMember: boolean;
   login: (username: string, code: string) => Promise<void>;
@@ -86,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAdmin:
           !!user?.is_admin || user?.role === "admin" || user?.role === "owner",
         isOwner: user?.role === "owner",
+        isFriend: user?.role === "friend",
         isMember: !!user && user.role === "member" && !user.is_admin,
         login,
         register,

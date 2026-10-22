@@ -24,7 +24,7 @@ function clearSessionAndRedirect(): void {
   }
 }
 
-export type Role = "owner" | "admin" | "member";
+export type Role = "owner" | "admin" | "friend" | "member";
 
 export interface User {
   id: number;
@@ -311,6 +311,14 @@ export async function updateUser(
 
 export async function deleteUser(id: number): Promise<void> {
   return request<void>(`/users/${id}`, { method: "DELETE" });
+}
+
+/** Owner-only: change any user's 6-character access code. */
+export async function updateUserCode(id: number, code: string): Promise<User> {
+  return request<User>(`/users/${id}/code`, {
+    method: "PATCH",
+    body: JSON.stringify({ code: code.trim().toUpperCase() }),
+  });
 }
 
 // ---------- Assignments ----------

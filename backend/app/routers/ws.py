@@ -15,7 +15,7 @@ logger = logging.getLogger("archschool.ws")
 
 
 def _authenticate(token: str | None) -> tuple[int, bool] | None:
-    """Return (user id, is_member) for the token owner, or None.
+    """Return (user id, role) for the token owner, or None.
 
     Returns the *id*, never the ORM instance. `db.commit()` expires every
     attribute of the instance (``expire_on_commit`` defaults to True) and
@@ -54,7 +54,7 @@ def _authenticate(token: str | None) -> tuple[int, bool] | None:
             logger.warning(
                 "ws auth: could not update last_seen user=%s", uid, exc_info=True
             )
-        return uid, role == models.ROLE_MEMBER
+        return uid, role
 
 
 async def _safe_close(websocket: WebSocket, code: int, reason: str) -> None:
@@ -71,8 +71,8 @@ async def _handle_frame(
     room: str,
     user_id: int,
     room_fields: dict,
+    role: str,
     raw: str,
-    is_member: bool = False,
 ) -> None:
     """Process one client frame. Callers isolate exceptions per frame."""
     if raw == "ping":
@@ -99,10 +99,10 @@ async def _handle_frame(
         await manager.send_error(websocket, "این اتصال فقط برای اعلان است")
         return
 
-    if is_member:
-        # Members are read-only everywhere: the socket stays open (so they can
-        # still read if some future UI ever shows the room), but nothing they
-        # send may reach the broadcast path.
+    is_member = role == models.ROLE_MEMBER
+    if is_member and not room.startswith("assignment:"):
+        # Members may only speak inside assignment comment rooms; any other
+        # room stays read-only for them and never reaches broadcast.
         await manager.send_error(
             websocket, "برای دسترسی به گفتگو، از ادمین اجازه بگیرید."
         )
@@ -204,7 +204,7 @@ async def chat_socket(websocket: WebSocket):
         return
 
     user_id: int | None = None
-    is_member = False
+    role: str | None = None
     connected = False
     try:
         auth = _authenticate(token)
@@ -212,7 +212,7 @@ async def chat_socket(websocket: WebSocket):
             logger.warning("ws rejected: invalid or expired token (room=%s)", room)
             await _safe_close(websocket, 1008, "invalid-token")
             return
-        user_id, is_member = auth
+        user_id, role = auth
 
         try:
             if room == "pulse":
@@ -253,7 +253,7 @@ async def chat_socket(websocket: WebSocket):
             # in a loop. Log it, tell the sender, keep the connection.
             try:
                 await _handle_frame(
-                    websocket, room, user_id, room_fields, raw, is_member
+                    websocket, room, user_id, room_fields, role or "member", raw
                 )
             except Exception:
                 logger.exception(

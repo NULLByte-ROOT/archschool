@@ -11,7 +11,7 @@ function sameDay(a: Date, b: Date) {
 /** ساعت کوتاه برای حباب پیام: ۱۴:۳۲ */
 export function chatTime(value: string | Date): string {
   const date = typeof value === "string" ? new Date(value) : value;
-  return date.toLocaleTimeString("fa-IR", { hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleTimeString("fa-IR-u-nu-latn", { hour: "2-digit", minute: "2-digit" });
 }
 
 /** برچسب روز شناور: امروز / دیروز / تاریخ شمسی */
@@ -23,7 +23,7 @@ export function chatDayLabel(value: string | Date): string {
 
   if (sameDay(date, today)) return "امروز";
   if (sameDay(date, yesterday)) return "دیروز";
-  return date.toLocaleDateString("fa-IR", { day: "numeric", month: "long" });
+  return date.toLocaleDateString("fa-IR-u-nu-latn", { day: "numeric", month: "long" });
 }
 
 /** زمان آخرین پیام در لیست گفتگوها: ۱۴:۳۲ / دیروز / ۱۲ مهر */
@@ -37,9 +37,9 @@ export function conversationTime(value?: string | null): string {
   if (sameDay(date, today)) return chatTime(date);
   if (sameDay(date, yesterday)) return "دیروز";
   if (date.getFullYear() === today.getFullYear()) {
-    return date.toLocaleDateString("fa-IR", { day: "numeric", month: "long" });
+    return date.toLocaleDateString("fa-IR-u-nu-latn", { day: "numeric", month: "long" });
   }
-  return date.toLocaleDateString("fa-IR", {
+  return date.toLocaleDateString("fa-IR-u-nu-latn", {
     year: "numeric",
     month: "numeric",
     day: "numeric",

@@ -82,7 +82,7 @@ function AttachmentMeta({
         </span>
         <span>·</span>
         <span>
-          {parseDue(attachment.created_at).toLocaleDateString("fa-IR")}
+          {parseDue(attachment.created_at).toLocaleDateString("fa-IR-u-nu-latn")}
         </span>
       </span>
     </span>

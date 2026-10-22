@@ -176,7 +176,7 @@ export default function DueDatePicker({ value, onChange, subjectId }: DueDatePic
                   const date = dateAt(viewWeek, day.index);
                   const isSelected = selected ? sameDay(date, selected) : false;
                   const isSubjectDay = subjectDay === day.index;
-                  const dateLabel = date.toLocaleDateString("fa-IR", {
+                  const dateLabel = date.toLocaleDateString("fa-IR-u-nu-latn", {
                     day: "numeric",
                     month: "long",
                   });

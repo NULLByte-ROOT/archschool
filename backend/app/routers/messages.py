@@ -12,12 +12,17 @@ from ..ws_manager import manager
 
 router = APIRouter()
 
-# Members are read-only by design: they can never post, reply or pin anything.
+# Members are chat-locked everywhere EXCEPT assignment comment rooms;
+# friends chat but can never delete messages. Admin/owner are unrestricted.
 CHAT_LOCK_DETAIL = "برای دسترسی به گفتگو، از ادمین اجازه بگیرید."
+DELETE_LOCK_DETAIL = "حذف پیام فقط برای ادمین مجاز است"
 
 
-def _require_chat_writer(user: models.User) -> None:
-    if not models.is_staff(user):
+def _require_chat_writer(user: models.User, assignment_room: bool = False) -> None:
+    """Members may only speak inside assignment comment rooms."""
+    if assignment_room:
+        return
+    if not models.is_staff(user) and user.role != models.ROLE_FRIEND:
         raise HTTPException(status_code=403, detail=CHAT_LOCK_DETAIL)
 
 
@@ -291,7 +296,6 @@ async def create_message(
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
-    _require_chat_writer(current)
     content = data.content.strip()
     chat.validate_file_url(data.file_url)
 
@@ -303,6 +307,9 @@ async def create_message(
         )
     if data.receiver_id == current.id:
         raise HTTPException(status_code=400, detail="به خودت نمی‌تونی پیام بدی")
+
+    # Members can only speak in assignment comment rooms; global/DM is staff+friend.
+    _require_chat_writer(current, assignment_room=bool(data.assignment_id))
 
     room = chat.room_from_message(current.id, data.receiver_id, data.assignment_id)
     room_fields = chat.resolve_room(db, room, current.id)
@@ -402,10 +409,9 @@ async def delete_message(
     current: models.User = Depends(get_current_user),
 ):
     message = chat.load_visible_message(db, message_id, current.id)
-    if message.sender_id != current.id and not models.is_staff(current):
-        raise HTTPException(
-            status_code=403, detail="فقط فرستنده می‌تواند پیام را حذف کند"
-        )
+    # ویرایش‌گرها (Friend) اجازهٔ حذف ندارند؛ فقط ادمین و Owner (فرستنده یا هر پیام).
+    if not models.is_staff(current):
+        raise HTTPException(status_code=403, detail=DELETE_LOCK_DETAIL)
     room = chat.message_room(message)
     db.delete(message)
     db.commit()
@@ -419,7 +425,8 @@ async def pin_message(
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
-    _require_chat_writer(current)
+    # پین کردن یک اعمال گفتگویی است: اعضای معمولی اجازه ندارند.
+    _require_chat_writer(current, assignment_room=True)
     message = chat.load_visible_message(db, message_id, current.id)
     room = chat.message_room(message)
     db.query(models.Message).filter(_room_filter(message)).update(
@@ -439,7 +446,7 @@ async def unpin_message(
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
-    _require_chat_writer(current)
+    _require_chat_writer(current, assignment_room=True)
     message = chat.load_visible_message(db, message_id, current.id)
     room = chat.message_room(message)
     message.is_pinned = False

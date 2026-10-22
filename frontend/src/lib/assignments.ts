@@ -427,7 +427,7 @@ export const TONE_DOT: Record<DeadlineTone, string> = {
 // ------------------------------------------------------------------
 export function formatDue(due?: string | null): string {
   if (!due) return "بدون مهلت";
-  return parseDue(due).toLocaleDateString("fa-IR", {
+  return parseDue(due).toLocaleDateString("fa-IR-u-nu-latn", {
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -474,7 +474,7 @@ export function relativeDue(due?: string | null, now: number = Date.now()): stri
 
 /** تاریخ کامل شمسیِ امروز، مثلاً «پنجشنبه ۲۶ مهر» */
 export function jalaliToday(now: number = Date.now()): string {
-  return new Date(now).toLocaleDateString("fa-IR", {
+  return new Date(now).toLocaleDateString("fa-IR-u-nu-latn", {
     weekday: "long",
     day: "numeric",
     month: "long",
@@ -483,7 +483,7 @@ export function jalaliToday(now: number = Date.now()): string {
 
 /** ساعت جاری به‌صورت شمسی، مثلاً «۱۴:۳۰» */
 export function jalaliTime(now: number = Date.now()): string {
-  return new Date(now).toLocaleTimeString("fa-IR", {
+  return new Date(now).toLocaleTimeString("fa-IR-u-nu-latn", {
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -491,5 +491,5 @@ export function jalaliTime(now: number = Date.now()): string {
 
 export function shortDayLabel(due?: string | null): string {
   if (!due) return "—";
-  return parseDue(due).toLocaleDateString("fa-IR", { day: "numeric", month: "short" });
+  return parseDue(due).toLocaleDateString("fa-IR-u-nu-latn", { day: "numeric", month: "short" });
 }

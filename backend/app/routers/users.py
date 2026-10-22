@@ -132,7 +132,7 @@ def create_user(
     if role not in models.VALID_ROLES:
         raise HTTPException(status_code=400, detail="نقش نامعتبر است")
 
-    # Only an owner may mint another owner; admins manage member/admin only.
+    # Only an owner may mint another owner; admins manage member/friend/admin.
     if role == models.ROLE_OWNER and not models.is_owner(current_user):
         raise HTTPException(
             status_code=403, detail="فقط Owner می‌تواند نقش Owner بسازد"
@@ -181,7 +181,13 @@ def update_user(
             )
     if updates.get("username"):
         updates["username"] = normalize_username(updates["username"])
-    if updates.get("code"):
+    if "code" in updates and updates["code"] is not None:
+        # کد دسترسی فقط از مسیر Owner قابل تغییر است
+        if not models.is_owner(current_user):
+            raise HTTPException(
+                status_code=403,
+                detail="فقط Owner می‌تواند کد دسترسی را تغییر دهد",
+            )
         updates["code"] = normalize_access_code(updates["code"])
         if not is_valid_access_code(updates["code"]):
             raise HTTPException(
@@ -200,6 +206,8 @@ def update_user(
             raise HTTPException(
                 status_code=400, detail="این کد دسترسی قبلاً استفاده شده است"
             )
+    else:
+        updates.pop("code", None)
 
     for key, value in updates.items():
         setattr(user, key, value)
@@ -212,6 +220,54 @@ def update_user(
     elif "is_admin" in updates and not models.is_owner(user):
         user.role = models.ROLE_ADMIN if user.is_admin else models.ROLE_MEMBER
 
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.patch("/{user_id}/code", response_model=schemas.UserOut)
+def change_user_code(
+    user_id: int,
+    data: schemas.UserCodeUpdate,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_owner),
+):
+    """Change any user's 6-character access code. Owner-only by design."""
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    code = normalize_access_code(data.code)
+    if not is_valid_access_code(code):
+        raise HTTPException(
+            status_code=400,
+            detail="کد دسترسی باید دقیقاً ۶ کاراکتر و فقط شامل اعداد و حروف انگلیسی بزرگ باشد",
+        )
+    code_taken = (
+        db.query(models.User)
+        .filter(func.upper(models.User.code) == code, models.User.id != user.id)
+        .first()
+    )
+    if code_taken:
+        raise HTTPException(status_code=400, detail="این کد دسترسی قبلاً استفاده شده است")
+
+    # Respect the environment: the .env is the source of truth for the Owner's
+    # own account and a later boot re-applies that value.
+    if models.is_owner(user):
+        owner_env_code = ""
+        try:
+            from ..config import settings
+
+            owner_env_code = normalize_access_code(settings.OWNER_ACCESS_CODE or "")
+        except Exception:  # pragma: no cover - normalize never raises
+            owner_env_code = ""
+        if models.is_owner(current) and current.id == user.id and owner_env_code:
+            raise HTTPException(
+                status_code=403,
+                detail="کد حساب Owner از backend/.env کنترل می‌شود؛ از منوی سرور تغییر دهید",
+            )
+
+    user.code = code
     db.commit()
     db.refresh(user)
     return user

@@ -14,7 +14,7 @@ import Corners from "../components/Corners";
 
 const POLL_MS = 2000;
 
-const fa = new Intl.NumberFormat("fa-IR");
+const fa = new Intl.NumberFormat("en-US");
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "۰";

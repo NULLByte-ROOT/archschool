@@ -27,7 +27,7 @@ function lastSeenLabel(value?: string | null): string {
   if (hours < 24) return `${hours} ساعت پیش`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} روز پیش`;
-  return date.toLocaleDateString("fa-IR", { day: "numeric", month: "long" });
+  return date.toLocaleDateString("fa-IR-u-nu-latn", { day: "numeric", month: "long" });
 }
 
 export default function UserProfileModal({
@@ -160,7 +160,7 @@ export default function UserProfileModal({
                     <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-2.5 text-center">
                       <CalendarDays size={14} className="mx-auto mb-1 text-fg-500" />
                       <p className="text-[11px] font-bold text-white">
-                        {parseDue(profile.created_at).toLocaleDateString("fa-IR", {
+                        {parseDue(profile.created_at).toLocaleDateString("fa-IR-u-nu-latn", {
                           month: "short",
                           year: "2-digit",
                         })}

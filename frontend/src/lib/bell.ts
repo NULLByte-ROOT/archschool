@@ -143,7 +143,7 @@ export interface DueCountdown {
   short: string;
 }
 
-const fa = new Intl.NumberFormat("fa-IR");
+const fa = new Intl.NumberFormat("en-US");
 const HOUR_MS = 3_600_000;
 
 function humanLeft(ms: number): string {
@@ -238,7 +238,7 @@ export function dueCountdown(
       ? "امروز"
       : dayDiff === 1
         ? "فردا"
-        : dueDate.toLocaleDateString("fa-IR", {
+        : dueDate.toLocaleDateString("fa-IR-u-nu-latn", {
             day: "numeric",
             month: "long",
           });

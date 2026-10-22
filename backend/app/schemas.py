@@ -28,6 +28,12 @@ class UserSelfUpdate(BaseModel):
     bio: Optional[str] = Field(None, max_length=500)
 
 
+class UserCodeUpdate(BaseModel):
+    """Owner-only access-code change."""
+
+    code: str = Field(..., pattern=r"^[A-Z0-9]{6}$")
+
+
 class UserOut(UserBase):
     id: int
     is_admin: bool

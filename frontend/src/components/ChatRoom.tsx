@@ -1352,7 +1352,7 @@ export default function ChatRoom({
             />
             <ContextMenu
               menu={menu}
-              canDelete={isAdmin || menu.message.sender_id === user?.id}
+              canDelete={isAdmin}
               onClose={() => setMenu(null)}
               onReply={() => startReply(menu.message)}
               onCopy={() => handleCopy(menu.message)}

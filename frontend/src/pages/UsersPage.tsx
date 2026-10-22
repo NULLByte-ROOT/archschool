@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Plus, Trash2, Copy, Check, Power, Loader2, ShieldCheck, KeyRound } from "lucide-react";
 import {
-  Plus,
-  Trash2,
-  Copy,
-  Check,
-  Power,
-  Loader2,
-  ShieldCheck,
-} from "lucide-react";
-import { fetchUsers, createUser, updateUser, deleteUser } from "../api/client";
+  fetchUsers,
+  createUser,
+  updateUser,
+  updateUserCode,
+  deleteUser,
+} from "../api/client";
 import type { Role, User } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import Avatar from "../components/Avatar";
@@ -22,10 +20,11 @@ const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
   {
     value: "owner",
     label: "Owner (مالک)",
-    description: "دسترسی کامل + آمار سرور",
+    description: "دسترسی کامل + آمار سرور + تغییر کدها",
   },
   { value: "admin", label: "مدیر (Admin)", description: "مدیریت تکالیف و کاربران" },
-  { value: "member", label: "عضو (Member)", description: "فقط مشاهده و اعلام انجام" },
+  { value: "friend", label: "دوست (Friend)", description: "گفتگو و کامنت، بدون مدیریت تکلیف" },
+  { value: "member", label: "عضو (Member)", description: "فقط مشاهده، اعلام انجام و کامنت تکلیف" },
 ];
 
 const ADMIN_SELECTABLE: { value: Role; label: string; description: string }[] =
@@ -34,6 +33,7 @@ const ADMIN_SELECTABLE: { value: Role; label: string; description: string }[] =
 const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
   admin: "Admin",
+  friend: "Friend",
   member: "Member",
 };
 
@@ -48,6 +48,33 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
   const [savingRole, setSavingRole] = useState<number | null>(null);
+  // «تغییر کد» — فقط Owner
+  const [codeTarget, setCodeTarget] = useState<User | null>(null);
+  const [newCodeValue, setNewCodeValue] = useState("");
+  const [savingCode, setSavingCode] = useState(false);
+
+  async function handleChangeCode() {
+    if (!codeTarget) return;
+    const code = newCodeValue.trim().toUpperCase();
+    if (!/^[A-Z0-9]{6}$/.test(code)) {
+      setError("کد دسترسی باید دقیقاً ۶ کاراکتر انگلیسی بزرگ باشد");
+      return;
+    }
+    setSavingCode(true);
+    setError(null);
+    try {
+      const updated = await updateUserCode(codeTarget.id, code);
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      setCopied(updated.id);
+      setTimeout(() => setCopied(null), 1500);
+      setCodeTarget(null);
+      setNewCodeValue("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "تغییر کد ناموفق بود");
+    } finally {
+      setSavingCode(false);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -209,6 +236,63 @@ export default function UsersPage() {
         </motion.p>
       )}
 
+      {/* تغییر کد دسترسی — فقط Owner */}
+      <AnimatePresence>
+        {codeTarget && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            className="mb-6"
+          >
+            <div className="panel relative p-4">
+              <Corners />
+              <p className="mono-label mb-3">// CHANGE ACCESS CODE</p>
+              <div className="grid gap-3 sm:grid-cols-[auto_1fr_auto]">
+                <div className="flex min-w-0 items-center gap-2 self-center">
+                  <Avatar name={codeTarget.username} src={codeTarget.avatar_url} size="sm" />
+                  <span className="mono truncate text-sm text-white" dir="ltr">
+                    {codeTarget.username}
+                  </span>
+                </div>
+                <input
+                  value={newCodeValue}
+                  onChange={(e) => setNewCodeValue(e.target.value.toUpperCase())}
+                  placeholder="کد ۶ کاراکتری"
+                  dir="ltr"
+                  maxLength={6}
+                  className="input mono tracking-widest"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleChangeCode}
+                    disabled={savingCode || newCodeValue.trim().length !== 6}
+                    className="btn-primary"
+                  >
+                    {savingCode ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+                    ذخیره
+                  </button>
+                  <button
+                    onClick={() => {
+                      setCodeTarget(null);
+                      setNewCodeValue("");
+                    }}
+                    className="btn-ghost"
+                  >
+                    انصراف
+                  </button>
+                </div>
+              </div>
+              <p className="mt-2 text-[11px] text-fg-500">
+                کد باید ۶ کاراکتر و فقط حروف انگلیسی بزرگ/اعداد باشد. کد حساب Owner از
+                backend/.env کنترل می‌شود.
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="panel relative overflow-hidden">
         <Corners />
         {loading ? (
@@ -250,7 +334,9 @@ export default function UsersPage() {
                                 ? "border-amber-300/50 text-amber-300"
                                 : user.role === "admin"
                                   ? "border-white/40 text-white"
-                                  : ""
+                                  : user.role === "friend"
+                                    ? "border-sky-300/40 text-sky-300"
+                                    : ""
                             }`}
                           >
                             <span className="dot" />
@@ -259,7 +345,7 @@ export default function UsersPage() {
                           </span>
                         </div>
                         <p className="mono text-[11px] text-fg-500">
-                          {parseDue(user.created_at).toLocaleDateString("fa-IR")}
+                          {parseDue(user.created_at).toLocaleDateString("fa-IR-u-nu-latn")}
                         </p>
                       </div>
                     </div>
@@ -292,6 +378,22 @@ export default function UsersPage() {
 
                     {/* کنترل‌ها: وضعیت + کد + دکمه‌ها — موبایل در یک ردیف */}
                     <div className="flex items-center gap-2 overflow-hidden sm:gap-1">
+                      {isOwner && (
+                        <motion.button
+                          whileHover={{ scale: 1.1 }}
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() => {
+                            setCodeTarget(user);
+                            setNewCodeValue("");
+                          }}
+                          className="icon-btn hover:border-white/40 hover:text-white"
+                          title="تغییر کد دسترسی"
+                          aria-label={`تغییر کد دسترسی ${user.username}`}
+                        >
+                          <KeyRound size={15} />
+                        </motion.button>
+                      )}
+
                       <span
                         className={`mono shrink-0 rounded-md border px-2 py-0.5 text-[10px] tracking-wider ${
                           user.is_active
