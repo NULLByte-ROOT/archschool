@@ -176,6 +176,16 @@ class ChatOverview(BaseModel):
     directs: list[DirectPreview] = []
 
 
+class UnreadRoom(BaseModel):
+    room: str
+    unread_count: int
+
+
+class UnreadSummary(BaseModel):
+    rooms: list[UnreadRoom] = []
+    total: int = 0
+
+
 class AttachmentOut(BaseModel):
     id: int
     assignment_id: int

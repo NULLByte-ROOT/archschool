@@ -246,9 +246,34 @@ class Message(Base):
         return self.assignment.title if self.assignment else None
 
 
+class ChatReadState(Base):
+    """Per-user bookmark of when a chat room was last read.
+
+    Rooms follow the same key layout as the WebSocket rooms:
+    ``global``, ``dm:<low>:<high>`` and ``assignment:<id>``. Unread count for a
+    room is every message in it with ``created_at > last_read_at`` that was not
+    written by the reader.
+    """
+
+    __tablename__ = "chat_read_states"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    room = Column(String(80), nullable=False, index=True)
+    last_read_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "room", name="uq_chat_read_user_room"),
+    )
+
+
 class Attachment(Base):
     __tablename__ = "attachments"
-
     id = Column(Integer, primary_key=True, index=True)
     assignment_id = Column(
         Integer,

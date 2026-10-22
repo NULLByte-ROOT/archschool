@@ -91,6 +91,12 @@ async def _handle_frame(
         await websocket.send_json({"type": "pong"})
         return
 
+    if room == "pulse":
+        # The pulse channel is read-only: it only receives unread pings and
+        # keeps the session warm with pings. Nothing else is accepted.
+        await manager.send_error(websocket, "این اتصال فقط برای اعلان است")
+        return
+
     content = str(data.get("content") or "").strip()[:5000]
     file_url = data.get("file_url")
     if file_url is not None and not isinstance(file_url, str):
@@ -156,6 +162,7 @@ async def _handle_frame(
         payload = chat.message_payload(message)
 
     await manager.broadcast_message(room, payload)
+    await manager.notify_message_pulses(payload)
 
 
 @router.websocket("/api/ws")
@@ -195,8 +202,14 @@ async def chat_socket(websocket: WebSocket):
             return
 
         try:
-            with SessionLocal() as db:
-                room_fields = chat.resolve_room(db, room, user_id)
+            if room == "pulse":
+                # Notifications-only channel: no room membership required.
+                # It exists so unread counts can reach the user anywhere in
+                # the app, not just inside the chat page.
+                room_fields = {}
+            else:
+                with SessionLocal() as db:
+                    room_fields = chat.resolve_room(db, room, user_id)
         except HTTPException as exc:
             logger.warning(
                 "ws rejected: user=%s room=%s (%s)", user_id, room, exc.detail
@@ -204,7 +217,9 @@ async def chat_socket(websocket: WebSocket):
             await _safe_close(websocket, 1008, "invalid-room")
             return
 
-        await manager.connect(websocket, room, accept=False)
+        await manager.connect(
+            websocket, room, accept=False, user_id=user_id
+        )
         connected = True
         logger.info("ws open: user=%s room=%s", user_id, room)
 

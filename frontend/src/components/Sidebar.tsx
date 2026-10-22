@@ -14,6 +14,7 @@ import {
   Trophy,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
+import { useUnread } from "../lib/unread";
 import Avatar from "./Avatar";
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
@@ -36,7 +37,7 @@ function LinkList({
   onClose,
   delayBase = 0,
 }: {
-  links: { to: string; label: string; icon: typeof Users }[];
+  links: { to: string; label: string; icon: typeof Users; badge?: number }[];
   onClose?: () => void;
   delayBase?: number;
 }) {
@@ -60,6 +61,11 @@ function LinkList({
                     className={`shrink-0 transition-transform duration-300 ${isActive ? "" : "group-hover:scale-110"}`}
                   />
                   <span>{link.label}</span>
+                  {Boolean(link.badge) && (
+                    <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-white px-1.5 text-[10px] font-black tabular-nums text-black shadow-[0_0_14px_rgba(255,255,255,0.35)]">
+                      {(link.badge ?? 0) > 99 ? "99+" : link.badge}
+                    </span>
+                  )}
                 </>
               )}
             </NavLink>
@@ -73,12 +79,13 @@ function LinkList({
 function SidebarContent({ onClose }: { onClose?: () => void }) {
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
+  const unread = useUnread();
 
   const links = [
     { to: "/", label: "داشبورد", icon: LayoutDashboard },
     { to: "/timetable", label: "برنامه هفتگی", icon: CalendarDays },
     { to: "/assignments", label: "تکالیف و پروژه‌ها", icon: CheckSquare },
-    { to: "/chat", label: "گفتگوها", icon: MessageCircle },
+    { to: "/chat", label: "گفتگوها", icon: MessageCircle, badge: unread.total },
     { to: "/leaderboard", label: "جدول امتیازها", icon: Trophy },
     { to: "/settings", label: "تنظیمات", icon: Settings },
   ];

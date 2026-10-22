@@ -49,6 +49,7 @@ import { chatDayLabel, chatTime } from "../lib/chat";
 import Avatar from "./Avatar";
 import UserProfileModal from "./UserProfileModal";
 import { openImageGallery } from "./ImageViewer";
+import { markRoomRead, setActiveRoom } from "../lib/unread";
 
 const IMAGE_RE = /\.(png|jpe?g|jfif|gif|webp|avif|bmp)(\?|$)/i;
 const UPLOAD_ACCEPT = "image/*,video/*,application/pdf";
@@ -694,8 +695,10 @@ export default function ChatRoom({
   const appendMessage = useCallback(
     (message: Message) => {
       setMessages((prev) => mergeMessages(prev, [message]));
+      // The room is open: everything arriving in it is instantly read.
+      markRoomRead(room);
     },
-    [mergeMessages]
+    [mergeMessages, room]
   );
 
   const handleEvent = useCallback((event: ChatSocketEvent) => {
@@ -742,6 +745,10 @@ export default function ChatRoom({
       roomKeyRef.current = room;
       setMessages([]);
     }
+    // Opening a room = reading it: zero its badge right away, then let the
+    // server persist the bookmark. Leaving the room clears "active".
+    setActiveRoom(room);
+    markRoomRead(room);
     fetchMessages({ scope, peerId, assignmentId, limit: 150 })
       .then((data) => {
         if (active) setMessages((prev) => mergeMessages(prev, data));
@@ -754,6 +761,7 @@ export default function ChatRoom({
       });
     return () => {
       active = false;
+      if (roomKeyRef.current === room) setActiveRoom(null);
     };
   }, [scope, peerId, assignmentId, room, mergeMessages]);
 

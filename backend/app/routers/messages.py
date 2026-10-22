@@ -1,7 +1,8 @@
+from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import and_, or_
+from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import Session
 
 from .. import chat, models, schemas
@@ -30,6 +31,141 @@ def _room_filter(message: models.Message):
         models.Message.receiver_id.is_(None),
         models.Message.assignment_id.is_(None),
     )
+
+
+@router.get("/unread", response_model=schemas.UnreadSummary)
+def unread_summary(
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Unread message counts per room for the current user.
+
+    A room entry only appears when its unread count is >= 1 — the client
+    hides badges for zero. The comparison is a single date-time per room
+    (the user's bookmark), so orphaned/renamed rooms cost nothing.
+    """
+    marks = {
+        state.room: state.last_read_at
+        for state in (
+            db.query(models.ChatReadState)
+            .filter(models.ChatReadState.user_id == current.id)
+            .all()
+        )
+    }
+    epoch = datetime(1970, 1, 1)
+    rooms: list[schemas.UnreadRoom] = []
+
+    # ---- global ----
+    global_count = (
+        db.query(func.count(models.Message.id))
+        .filter(
+            models.Message.receiver_id.is_(None),
+            models.Message.assignment_id.is_(None),
+            models.Message.sender_id != current.id,
+            models.Message.created_at > marks.get("global", epoch),
+        )
+        .scalar()
+    ) or 0
+    if global_count > 0:
+        rooms.append(
+            schemas.UnreadRoom(room="global", unread_count=global_count)
+        )
+
+    # ---- private rooms (dm:<low>:<high>) ----
+    low = func.least(models.Message.sender_id, models.Message.receiver_id)
+    high = func.greatest(models.Message.sender_id, models.Message.receiver_id)
+    dm_room_expr = func.concat(
+        "dm:", cast(low, String), ":", cast(high, String)
+    )
+    dm_rows = (
+        db.query(dm_room_expr, func.count(models.Message.id))
+        .outerjoin(
+            models.ChatReadState,
+            and_(
+                models.ChatReadState.user_id == current.id,
+                models.ChatReadState.room == dm_room_expr,
+            ),
+        )
+        .filter(
+            models.Message.receiver_id == current.id,
+            models.Message.sender_id != current.id,
+            or_(
+                models.ChatReadState.last_read_at.is_(None),
+                models.Message.created_at
+                > models.ChatReadState.last_read_at,
+            ),
+        )
+        .group_by(dm_room_expr)
+        .all()
+    )
+    for room, count in dm_rows:
+        if room and count:
+            rooms.append(schemas.UnreadRoom(room=room, unread_count=count))
+
+    # ---- assignment comment rooms ----
+    assignment_room_expr = func.concat(
+        "assignment:", cast(models.Message.assignment_id, String)
+    )
+    assignment_rows = (
+        db.query(assignment_room_expr, func.count(models.Message.id))
+        .outerjoin(
+            models.ChatReadState,
+            and_(
+                models.ChatReadState.user_id == current.id,
+                models.ChatReadState.room == assignment_room_expr,
+            ),
+        )
+        .filter(
+            models.Message.assignment_id.isnot(None),
+            models.Message.sender_id != current.id,
+            or_(
+                models.ChatReadState.last_read_at.is_(None),
+                models.Message.created_at
+                > models.ChatReadState.last_read_at,
+            ),
+        )
+        .group_by(assignment_room_expr)
+        .all()
+    )
+    for room, count in assignment_rows:
+        if room and count:
+            rooms.append(schemas.UnreadRoom(room=room, unread_count=count))
+
+    total = sum(entry.unread_count for entry in rooms)
+    return schemas.UnreadSummary(rooms=rooms, total=total)
+
+
+@router.post("/{room}/read", response_model=schemas.UnreadRoom)
+async def mark_room_read(
+    room: str,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Bookmark the caller's `last_read_at` for one room.
+
+    `resolve_room` doubles as the permission gate: private rooms stay
+    members-only, otherwise only global/assignment rooms can be marked.
+    """
+    chat.resolve_room(db, room, current.id)
+
+    now = datetime.utcnow()
+    state = (
+        db.query(models.ChatReadState)
+        .filter(
+            models.ChatReadState.user_id == current.id,
+            models.ChatReadState.room == room,
+        )
+        .first()
+    )
+    if state is None:
+        state = models.ChatReadState(
+            user_id=current.id, room=room, last_read_at=now
+        )
+        db.add(state)
+    else:
+        state.last_read_at = now
+    db.commit()
+    return schemas.UnreadRoom(room=room, unread_count=0)
 
 
 @router.get("/overview", response_model=schemas.ChatOverview)
@@ -183,6 +319,7 @@ async def create_message(
     db.refresh(message)
 
     await manager.broadcast_message(room, chat.message_payload(message))
+    await manager.notify_message_pulses(chat.message_payload(message))
     return message
 
 

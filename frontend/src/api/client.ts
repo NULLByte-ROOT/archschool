@@ -471,6 +471,27 @@ export async function fetchRecentComments(limit = 5): Promise<Message[]> {
   return request<Message[]>(`/messages/recent-comments?limit=${limit}`);
 }
 
+// ---------- Unread counts ----------
+export interface UnreadRoom {
+  room: string;
+  unread_count: number;
+}
+
+export interface UnreadSummary {
+  rooms: UnreadRoom[];
+  total: number;
+}
+
+export async function fetchUnreadSummary(): Promise<UnreadSummary> {
+  return request<UnreadSummary>("/messages/unread");
+}
+
+export async function markRoomRead(room: string): Promise<UnreadRoom> {
+  return request<UnreadRoom>(`/messages/${encodeURIComponent(room)}/read`, {
+    method: "POST",
+  });
+}
+
 export async function pinMessage(id: number): Promise<Message> {
   return request<Message>(`/messages/${id}/pin`, { method: "POST" });
 }

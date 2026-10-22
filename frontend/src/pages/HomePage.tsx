@@ -1,15 +1,16 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { animate, motion } from "framer-motion";
 import {
   ArrowUpRight,
   CalendarDays,
   CalendarRange,
+  CheckCircle2,
+  CircleDashed,
+  ClipboardList,
   Clock,
   Flame,
-  MessageCircle,
-  MessageSquare,
   Sparkles,
 } from "lucide-react";
 import {
@@ -17,11 +18,11 @@ import {
   fetchChatOverview,
   fetchRecentComments,
 } from "../api/client";
-import type { Assignment, ChatOverview, Message } from "../api/client";
+import type { Assignment } from "../api/client";
 import ActivityChart from "../components/ActivityChart";
 import AssignmentTypesChart from "../components/AssignmentTypesChart";
-import Avatar from "../components/Avatar";
 import Corners from "../components/Corners";
+import PulseBox from "../components/PulseBox";
 import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
 import {
@@ -30,19 +31,37 @@ import {
   jalaliTime,
   parseDue,
 } from "../lib/assignments";
-import { chatTime, messagePreview } from "../lib/chat";
+import { seedFeed, toPulseItem } from "../lib/unread";
 
-function chatSeenKey(userId?: number) {
-  return `chat-seen:${userId ?? "anon"}`;
-}
+/** Numbers that count up from their previous value (Linear-style stat cards). */
+const AnimatedNumber = memo(function AnimatedNumber({
+  value,
+  className,
+}: {
+  value: number;
+  className?: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const previous = useRef(0);
 
-function readSeen(userId?: number): number {
-  try {
-    return Number(localStorage.getItem(chatSeenKey(userId))) || 0;
-  } catch {
-    return 0;
-  }
-}
+  useEffect(() => {
+    const controls = animate(previous.current, value, {
+      duration: 0.7,
+      ease: [0.16, 1, 0.3, 1],
+      onUpdate: (latest) => {
+        if (ref.current) ref.current.textContent = String(Math.round(latest));
+      },
+    });
+    previous.current = value;
+    return () => controls.stop();
+  }, [value]);
+
+  return (
+    <span ref={ref} className={className}>
+      {Math.round(previous.current)}
+    </span>
+  );
+});
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -50,23 +69,33 @@ export default function HomePage() {
   const now = useNow(30_000);
 
   const [items, setItems] = useState<Assignment[]>([]);
-  const [overview, setOverview] = useState<ChatOverview | null>(null);
-  const [comments, setComments] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     Promise.all([
       fetchAssignments(),
       fetchChatOverview(),
-      fetchRecentComments(3),
+      fetchRecentComments(6),
     ])
-      .then(([assignments, chat, recent]) => {
+      .then(([assignments, overview, comments]) => {
         if (!active) return;
         setItems(assignments);
-        setOverview(chat);
-        setComments(recent);
+        // Give the Pulse ticker its initial batch; live updates arrive on
+        // the pulse socket afterwards.
+        const seeded = [
+          overview.global_message
+            ? toPulseItem(overview.global_message)
+            : null,
+          ...overview.directs.map((direct) => toPulseItem(direct.message)),
+          ...comments.map((comment) => toPulseItem(comment)),
+        ].filter((item): item is NonNullable<typeof item> => item !== null);
+        seedFeed(seeded);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => {
       active = false;
     };
@@ -83,37 +112,64 @@ export default function HomePage() {
     return { total: items.length, done, urgent, pending: items.length - done };
   }, [items, now]);
 
-  const recentChats = useMemo(() => {
-    const rows: Message[] = [];
-    if (overview?.global_message) rows.push(overview.global_message);
-    overview?.directs.forEach((direct) => rows.push(direct.message));
-    return rows
-      .sort(
-        (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      )
-      .slice(0, 3);
-  }, [overview]);
-
-  const unread = useMemo(() => {
-    const seen = readSeen(user?.id);
-    return recentChats.filter(
-      (message) => new Date(message.created_at).getTime() > seen
-    ).length;
-  }, [recentChats, user?.id]);
+  const statCards: {
+    label: string;
+    value: number;
+    tone: "default" | "success" | "danger" | "muted";
+    icon: ReactNode;
+    to: string;
+  }[] = [
+    {
+      label: "کل تکالیف",
+      value: stats.total,
+      tone: "default",
+      icon: <ClipboardList size={13} />,
+      to: "/assignments",
+    },
+    {
+      label: "انجام‌شده",
+      value: stats.done,
+      tone: "success",
+      icon: <CheckCircle2 size={13} />,
+      to: "/assignments",
+    },
+    {
+      label: "در جریان",
+      value: stats.pending,
+      tone: "muted",
+      icon: <CircleDashed size={13} />,
+      to: "/assignments",
+    },
+    {
+      label: "فوری",
+      value: stats.urgent,
+      tone: "danger",
+      icon: <Flame size={13} />,
+      to: "/assignments",
+    },
+  ];
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3">
+      {/* هدر خوش‌آمد */}
+      <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        className="glass mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl px-4 py-3.5 backdrop-blur-xl"
+      >
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/12 bg-white/[0.04]">
-            <CalendarDays size={17} className="text-white" />
+          <span className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-white/12 bg-gradient-to-br from-white/[0.14] to-white/[0.02]">
+            <CalendarDays size={18} className="text-white" />
+            <span className="absolute -bottom-1 -left-1 h-3 w-3 rounded-full border-2 border-black bg-success motion-safe:animate-pulse" />
           </span>
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-white">
+            <p className="truncate text-[15px] font-black text-white">
               سلام {user?.username} 👋
             </p>
-            <p className="truncate text-[11px] text-fg-500">امروز: {jalaliToday(now)}</p>
+            <p className="truncate text-[11px] text-fg-500">
+              امروز: {jalaliToday(now)}
+            </p>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -124,11 +180,11 @@ export default function HomePage() {
             </span>
           </span>
           <span className="badge">
-            <span className="dot animate-pulse" />
+            <span className="dot motion-safe:animate-pulse" />
             DASHBOARD
           </span>
         </div>
-      </div>
+      </motion.div>
 
       {/* CTA */}
       <motion.section
@@ -184,17 +240,58 @@ export default function HomePage() {
               <ArrowUpRight size={20} className="relative shrink-0" />
             </motion.button>
           </div>
-
         </div>
       </motion.section>
 
-      {/* Stats */}
-      <div className="mb-5 grid grid-cols-3 gap-2.5">
-        <MiniStat label="کل تکالیف" value={stats.total} />
-        <MiniStat label="انجام‌شده" value={stats.done} tone="success" />
-        <MiniStat label="فوری" value={stats.urgent} tone="danger" icon={<Flame size={13} />} />
+      {/* Pulse — تیکر تک‌خطیِ آخرین پیام‌ها و دیدگاه‌ها + بج ناخوانده‌ها */}
+      <PulseBox />
+
+      {/* Stats — کارت‌های آمار با شمارنده */}
+      <div className="mb-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        {statCards.map((card, index) => (
+          <motion.button
+            key={card.label}
+            type="button"
+            onClick={() => navigate(card.to)}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{
+              duration: 0.35,
+              ease: [0.16, 1, 0.3, 1],
+              delay: 0.05 + index * 0.05,
+            }}
+            className="panel panel-hover group relative overflow-hidden rounded-2xl px-4 py-3.5 text-right"
+          >
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[2px] origin-right bg-white/70 opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+            <p className="flex items-center gap-1.5 text-[10px] font-semibold text-fg-500">
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-md border border-white/10 bg-white/[0.04] ${
+                  card.tone === "success"
+                    ? "text-success"
+                    : card.tone === "danger"
+                      ? "text-danger"
+                      : "text-fg-300"
+                }`}
+              >
+                {card.icon}
+              </span>
+              {card.label}
+            </p>
+            <AnimatedNumber
+              value={card.value}
+              className={`mono mt-2 block text-2xl font-black tabular-nums ${
+                card.tone === "success"
+                  ? "text-success"
+                  : card.tone === "danger"
+                    ? "text-danger"
+                    : "text-white"
+              }`}
+            />
+          </motion.button>
+        ))}
       </div>
 
+      {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-12">
         <div className="lg:col-span-5">
           <ActivityChart completed={stats.done} total={stats.total} />
@@ -208,175 +305,19 @@ export default function HomePage() {
         >
           <AssignmentTypesChart items={items} />
         </motion.div>
-
-        {/* Recent chat */}
-        <motion.div
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1], delay: 0.12 }}
-          className="lg:col-span-7"
-        >
-          <button
-            type="button"
-            onClick={() => navigate("/chat")}
-            className="panel panel-hover relative w-full overflow-hidden rounded-3xl p-5 text-right"
-          >
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05]">
-                  <MessageCircle size={16} className="text-white" />
-                </span>
-                <div>
-                  <p className="mono-label">// RECENT CHAT</p>
-                  <h3 className="text-base font-bold text-white">آخرین پیام‌ها</h3>
-                </div>
-              </div>
-              <span className="flex items-center gap-2">
-                {unread > 0 && (
-                  <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-white px-1.5 text-[11px] font-black text-black">
-                    {unread}
-                  </span>
-                )}
-                <ArrowUpRight size={15} className="text-fg-500" />
-              </span>
-            </div>
-
-            {recentChats.length === 0 ? (
-              <p className="py-6 text-center text-[11px] text-fg-500">هنوز پیامی نیست</p>
-            ) : (
-              <ul className="space-y-1.5">
-                {recentChats.map((message) => (
-                  <li
-                    key={message.id}
-                    className="flex items-center gap-2.5 rounded-2xl px-2 py-2"
-                  >
-                    {message.receiver_id === null && message.assignment_id === null ? (
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/[0.06]">
-                        <MessageCircle size={15} className="text-white" />
-                      </span>
-                    ) : (
-                      <Avatar
-                        name={message.sender_username ?? "?"}
-                        src={message.sender_avatar_url}
-                        size="sm"
-                      />
-                    )}
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center justify-between gap-2">
-                        <span
-                          className="truncate text-[12px] font-bold text-white"
-                          dir="ltr"
-                        >
-                          {message.receiver_id === null && message.assignment_id === null
-                            ? "گروه عمومی"
-                            : message.sender_username ?? "کاربر"}
-                        </span>
-                        <span className="mono shrink-0 text-[9px] text-fg-500">
-                          {chatTime(message.created_at)}
-                        </span>
-                      </span>
-                      <span className="mt-0.5 block truncate text-[11px] text-fg-500">
-                        {messagePreview(message)}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </button>
-        </motion.div>
-
-        {/* Recent comments */}
-        <motion.div
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1], delay: 0.16 }}
-          className="panel relative overflow-hidden rounded-3xl p-5 lg:col-span-5"
-        >
-          <div className="mb-4 flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05]">
-              <MessageSquare size={16} className="text-white" />
-            </span>
-            <div>
-              <p className="mono-label">// COMMENTS</p>
-              <h3 className="text-base font-bold text-white">آخرین نظرات</h3>
-            </div>
-          </div>
-
-          {comments.length === 0 ? (
-            <p className="py-6 text-center text-[11px] text-fg-500">
-              هنوز نظری روی تکالیف ثبت نشده
-            </p>
-          ) : (
-            <ul className="space-y-2">
-              {comments.map((comment) => (
-                <li key={comment.id}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      comment.assignment_id &&
-                      navigate(`/assignments/${comment.assignment_id}`)
-                    }
-                    className="flex w-full items-start gap-2.5 rounded-2xl border border-white/8 bg-white/[0.02] p-2.5 text-right transition hover:border-white/20 hover:bg-white/[0.05]"
-                  >
-                    <Avatar
-                      name={comment.sender_username ?? "?"}
-                      src={comment.sender_avatar_url}
-                      size="xs"
-                    />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex items-center justify-between gap-2">
-                        <span className="truncate text-[11px] font-bold text-white" dir="ltr">
-                          {comment.sender_username ?? "کاربر"}
-                        </span>
-                        <span className="mono shrink-0 text-[9px] text-fg-500">
-                          {chatTime(comment.created_at)}
-                        </span>
-                      </span>
-                      <span className="block truncate text-[11px] text-fg-300">
-                        {messagePreview(comment)}
-                      </span>
-                      {comment.assignment_title && (
-                        <span className="mt-1 block truncate text-[10px] text-fg-500">
-                          روی: {comment.assignment_title}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </motion.div>
       </div>
+
+      {/* اسکلت بارگذاری: وقتی داده‌ای نیست و همچنان لود می‌شود */}
+      {loading && items.length === 0 && (
+        <div className="mt-8 space-y-2.5">
+          {[0, 1, 2].map((row) => (
+            <div
+              key={row}
+              className="h-14 animate-pulse rounded-2xl border border-white/[0.05] bg-white/[0.03]"
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
-
-const MiniStat = memo(function MiniStat({
-  label,
-  value,
-  tone = "default",
-  icon,
-}: {
-  label: string;
-  value: number;
-  tone?: "default" | "success" | "danger";
-  icon?: ReactNode;
-}) {
-  const color =
-    tone === "success"
-      ? "text-success"
-      : tone === "danger"
-        ? "text-danger"
-        : "text-white";
-  return (
-    <div className="panel relative overflow-hidden rounded-2xl px-3.5 py-3">
-      <p className="flex items-center gap-1 text-[10px] text-fg-500">
-        {icon}
-        {label}
-      </p>
-      <p className={`mono mt-1 text-xl font-black tabular-nums ${color}`}>{value}</p>
-    </div>
-  );
-});

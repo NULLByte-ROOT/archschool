@@ -4,10 +4,14 @@ import { motion } from "framer-motion";
 import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import Particles from "./Particles";
+import { useUnreadSocket } from "../hooks/useUnreadSocket";
 
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  // One persistent notifications-only WebSocket (room "pulse") that feeds the
+  // global unread store for the whole app.
+  useUnreadSocket();
   const immersive =
     location.pathname === "/chat" || /^\/assignments\/[^/]+$/.test(location.pathname);
 

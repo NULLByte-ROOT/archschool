@@ -14,11 +14,13 @@ import ChatRoom from "../components/ChatRoom";
 import Corners from "../components/Corners";
 import { useAuth } from "../contexts/AuthContext";
 import { useIsMobileWidth } from "../hooks/useMediaQuery";
+import { useUnread } from "../lib/unread";
 import { conversationTime, messagePreview } from "../lib/chat";
 
 interface Conversation {
   key: string;
   kind: "global" | "dm";
+  room: string;
   member?: PublicUser;
   last?: Message | null;
 }
@@ -82,13 +84,17 @@ export default function ChatPage() {
     [team, user?.id]
   );
 
+  const unreadState = useUnread();
+
   const conversations = useMemo<Conversation[]>(() => {
     const directs = new Map<number, Message>();
     overview?.directs.forEach((item) => directs.set(item.peer_id, item.message));
 
+    const myId = user?.id ?? 0;
     const dms: Conversation[] = others.map((member) => ({
       key: `dm-${member.id}`,
       kind: "dm",
+      room: `dm:${Math.min(myId, member.id)}:${Math.max(myId, member.id)}`,
       member,
       last: directs.get(member.id) ?? null,
     }));
@@ -101,10 +107,10 @@ export default function ChatPage() {
     });
 
     return [
-      { key: "global", kind: "global", last: overview?.global_message ?? null },
+      { key: "global", kind: "global", room: "global", last: overview?.global_message ?? null },
       ...dms,
     ];
-  }, [others, overview]);
+  }, [others, overview, user?.id]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -189,6 +195,8 @@ export default function ChatPage() {
                     ? activeGlobal
                     : selectedUser?.id === member?.id;
                   const name = isGlobal ? "گروه عمومی" : member?.username ?? "";
+                  const unreadCount =
+                    unreadState.counts[conversation.room] ?? 0;
 
                   return (
                     <button
@@ -213,9 +221,9 @@ export default function ChatPage() {
                       )}
 
                       <span className="flex min-w-0 flex-1 flex-col">
-                        <span className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5">
                           <span
-                            className="flex min-w-0 items-center gap-1.5 truncate text-[14px] font-bold text-white md:text-[12.5px]"
+                            className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[14px] font-bold text-white md:text-[12.5px]"
                             dir={isGlobal ? "rtl" : "ltr"}
                           >
                             <span className="truncate">{name}</span>
@@ -231,6 +239,13 @@ export default function ChatPage() {
                           {messagePreview(conversation.last)}
                         </span>
                       </span>
+
+                      {/* Telegram-style unread badge — only when unread >= 1 */}
+                      {unreadCount > 0 && (
+                        <span className="flex h-5 min-w-5 shrink-0 items-center justify-center self-center rounded-full bg-white px-1.5 text-[10px] font-black tabular-nums text-black shadow-[0_0_14px_rgba(255,255,255,0.35)]">
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      )}
 
                       {active && (
                         <span className="absolute top-1/2 right-0 hidden h-6 w-[3px] -translate-y-1/2 rounded-full bg-white md:block" />
