@@ -77,6 +77,12 @@ export function useChatSocket(
   useEffect(() => {
     let disposed = false;
     let paused = false;
+    // Once the server definitively rejects the session we stop redialling on
+    // our own (background events, tab switches) until the user reconnects.
+    let stopped = false;
+    // "Connecting" must only ever describe the very first load; after the
+    // first successful open every later gap is a "reconnecting".
+    let hasEverOpened = false;
     let retry = 0;
     let failuresWithoutOpen = 0;
     let openedThisAttempt = false;
@@ -135,7 +141,7 @@ export function useChatSocket(
     }
 
     function connect() {
-      if (disposed || paused) return;
+      if (disposed || paused || stopped) return;
       if (document.visibilityState === "hidden") return;
 
       const existing = socketRef.current;
@@ -153,6 +159,7 @@ export function useChatSocket(
         if (!url) {
           // No token in storage: the handshake can only be rejected, so ask the
           // session probe to send the user to /login instead of reconnecting.
+          stopped = true;
           setStatus("auth-failed");
           void fetchMe().catch(() => {
             // 401 already cleared the session and redirected to /login.
@@ -172,6 +179,8 @@ export function useChatSocket(
       socket.onopen = () => {
         if (disposed) return;
         openedThisAttempt = true;
+        hasEverOpened = true;
+        stopped = false; // the session works again after a manual retry
         retry = 0;
         failuresWithoutOpen = 0;
         lastFrame = Date.now();
@@ -201,6 +210,16 @@ export function useChatSocket(
         if (socketRef.current === socket) socketRef.current = null;
         if (disposed || paused) return;
 
+        // The requested diagnostic: exactly why the socket went away. `code`
+        // 1006 + "(handshake failed)" = TCP/proxy refused; anything else is
+        // the peer's close frame. This is info-level on purpose — a failed
+        // reconnect cycle logs once per attempt, not once per frame.
+        console.info(
+          "[chat] socket closed code=" + event.code +
+            " reason=" + (event.reason || "-") +
+            " applied=" + (openedThisAttempt ? "open" : "handshake")
+        );
+
         // Only handshakes that never succeeded count as failures. A drop of an
         // established socket is a network/proxy problem, not a token problem.
         if (!openedThisAttempt) failuresWithoutOpen += 1;
@@ -219,6 +238,7 @@ export function useChatSocket(
         // is refusing this path) — stop hammering and let the REST poll keep
         // the conversation alive.
         if (authCloses >= 3) {
+          stopped = true;
           setStatus("auth-failed");
           onAuthFailureRef.current?.();
           return;
@@ -234,6 +254,7 @@ export function useChatSocket(
         void verifySession().then((valid) => {
           if (disposed || paused) return;
           if (!valid) {
+            stopped = true;
             setStatus("auth-failed");
             onAuthFailureRef.current?.();
             return;
@@ -243,36 +264,64 @@ export function useChatSocket(
       };
 
       socket.onerror = () => {
-        // `onclose` always follows and owns the reconnect/backoff logic.
-        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-          socket.close();
-        }
+        // Never call close() here. Closing a socket in the CONNECTING state
+        // makes the browser log "WebSocket is closed before the connection is
+        // established" — a flood of misleading errors on every failed
+        // handshake. The browser fires `onclose` by itself right after the
+        // error, and onclose owns all reconnect/backoff logic.
       };
     }
 
     function handleVisibility() {
       if (document.visibilityState === "hidden") {
+        // Do NOT tear the socket down just because the tab went to the
+        // background. Browsers keep WebSocket connections alive in background
+        // tabs; closing (or aborting a CONNECTING handshake) caused close/
+        // redial churn on every alt-tab round trip — and closing during
+        // CONNECTING is exactly what floods the console with "WebSocket is
+        // closed before the connection is established". `paused` alone just
+        // freezes the reconnect scheduling.
         paused = true;
         clearTimers();
-        const socket = socketRef.current;
-        socketRef.current = null;
-        if (socket) {
-          socket.onclose = null;
-          socket.onerror = null;
-          socket.close(1000, "hidden");
-        }
         return;
       }
+
+      // Tab is visible again.
+      if (disposed || stopped) return;
       paused = false;
+
+      const socket = socketRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        // Returning to a live socket: nudge it instead of redialling, so the
+        // header stays "آنلاین" with zero flicker, and the heartbeat watchdog
+        // (whose timers were cleared while hidden) starts over with a fresh
+        // frame window instead of insta-killling a resumed connection.
+        lastFrame = Date.now();
+        try {
+          socket.send("ping");
+        } catch {
+          // send() on a dying socket throws; the watchdog/onclose path recovers.
+        }
+        startHeartbeat(socket);
+        return;
+      }
+      if (socket && socket.readyState === WebSocket.CONNECTING) {
+        // A handshake is already in flight; let it finish. Touching it would
+        // end up closing a CONNECTING socket.
+        return;
+      }
+
+      // No usable socket (it died while we were away — paused prevented the
+      // close event from scheduling anything). Redial, but keep the honest
+      // label: after the first load this is a "reconnecting", not a "connecting".
       retry = 0;
-      setAttempt(0);
-      setStatus("connecting");
       clearTimers();
+      setStatus(hasEverOpened ? "reconnecting" : "connecting");
       connect();
     }
 
     function handleOnline() {
-      if (disposed || paused) return;
+      if (disposed || paused || stopped) return;
       retry = 0;
       setAttempt(0);
       clearTimers();
@@ -280,7 +329,12 @@ export function useChatSocket(
     }
 
     reconnectRef.current = () => {
-      if (disposed || paused) return;
+      if (paused) {
+        // Resume first so the retry timer can actually fire.
+        paused = false;
+      }
+      if (disposed) return;
+      stopped = false;
       clearTimers();
       const socket = socketRef.current;
       socketRef.current = null;
@@ -291,7 +345,7 @@ export function useChatSocket(
       }
       retry = 0;
       setAttempt(0);
-      setStatus("connecting");
+      setStatus(hasEverOpened ? "reconnecting" : "connecting");
       connect();
     };
 
@@ -312,7 +366,6 @@ export function useChatSocket(
         socket.onmessage = null;
         socket.close(1000, "unmount");
       }
-      setStatus("connecting");
     };
   }, [room]);
 
