@@ -48,6 +48,7 @@ import type { ChatSocketEvent } from "../hooks/useChatSocket";
 import { chatDayLabel, chatTime } from "../lib/chat";
 import Avatar from "./Avatar";
 import UserProfileModal from "./UserProfileModal";
+import { openImageGallery } from "./ImageViewer";
 
 const IMAGE_RE = /\.(png|jpe?g|jfif|gif|webp|avif|bmp)(\?|$)/i;
 const UPLOAD_ACCEPT = "image/*,video/*,application/pdf";
@@ -105,6 +106,7 @@ const MessageBubble = memo(function MessageBubble({
   onPressStart,
   onPressEnd,
   onProfile,
+  onOpenImage,
 }: {
   message: Message;
   own: boolean;
@@ -117,6 +119,7 @@ const MessageBubble = memo(function MessageBubble({
   onPressStart: (message: Message, x: number, y: number) => void;
   onPressEnd: () => void;
   onProfile: (id: number) => void;
+  onOpenImage: (message: Message) => void;
 }) {
   const media = resolveMediaUrl(message.file_url);
   const isImage = !!message.file_url && IMAGE_RE.test(message.file_url);
@@ -194,7 +197,12 @@ const MessageBubble = memo(function MessageBubble({
       )}
 
       {showImage && (
-        <a href={media} target="_blank" rel="noreferrer" className="mb-1 block">
+        <button
+          type="button"
+          onClick={() => onOpenImage(message)}
+          aria-label="نمایش تصویر"
+          className="mb-1 block w-full cursor-zoom-in"
+        >
           <img
             src={media}
             alt=""
@@ -210,7 +218,7 @@ const MessageBubble = memo(function MessageBubble({
               setImageFailed(true);
             }}
           />
-        </a>
+        </button>
       )}
 
       {message.file_url && !showImage && (
@@ -339,6 +347,7 @@ const MessageList = memo(function MessageList({
   onPressStart,
   onPressEnd,
   onProfile,
+  onOpenImage,
 }: {
   items: ChatItem[];
   loading: boolean;
@@ -350,6 +359,7 @@ const MessageList = memo(function MessageList({
   onPressStart: (message: Message, x: number, y: number) => void;
   onPressEnd: () => void;
   onProfile: (id: number) => void;
+  onOpenImage: (message: Message) => void;
 }) {
   return (
     <div
@@ -403,6 +413,7 @@ const MessageList = memo(function MessageList({
                   onPressStart={onPressStart}
                   onPressEnd={onPressEnd}
                   onProfile={onProfile}
+                  onOpenImage={onOpenImage}
                 />
                 {!item.own && (
                   <span className="w-9 shrink-0 self-end">
@@ -802,6 +813,32 @@ export default function ChatRoom({
     );
     return match?.id ?? null;
   }, [searchQuery, messages]);
+
+  // گالری تصاویرِ همین اتاق برای نمایشگر تصویر سراسری
+  const galleryImages = useMemo(() => {
+    return messages
+      .filter(
+        (message) => message.file_url && IMAGE_RE.test(message.file_url)
+      )
+      .map((message) => ({
+        src: resolveMediaUrl(message.file_url) ?? "",
+        alt: message.sender_username || "تصویر گفتگو",
+      }))
+      .filter((image) => image.src !== "");
+  }, [messages]);
+
+  const openRoomImage = useCallback(
+    (message: Message) => {
+      if (!message.file_url) return;
+      const src = resolveMediaUrl(message.file_url);
+      if (!src) return;
+      const index = galleryImages.findIndex(
+        (image) => image.src === src
+      );
+      openImageGallery(galleryImages, index >= 0 ? index : 0);
+    },
+    [galleryImages]
+  );
 
   // پرش به نتیجه جستجو (فقط به‌روزرسانی DOM)
   useEffect(() => {
@@ -1215,6 +1252,7 @@ export default function ChatRoom({
         onPressStart={handlePressStart}
         onPressEnd={handlePressEnd}
         onProfile={setProfileId}
+        onOpenImage={openRoomImage}
       />
 
       {/* ورودی */}

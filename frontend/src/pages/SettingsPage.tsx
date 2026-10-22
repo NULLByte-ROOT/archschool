@@ -8,14 +8,11 @@ import {
   Fingerprint,
   Loader2,
   LogOut,
-  Moon,
   ShieldCheck,
-  Sun,
   Trash2,
 } from "lucide-react";
 import { deleteMyAvatar, updateMe, uploadFile } from "../api/client";
 import { useAuth } from "../contexts/AuthContext";
-import { useTheme } from "../contexts/ThemeContext";
 import PageHeader from "../components/PageHeader";
 import Corners from "../components/Corners";
 import Avatar from "../components/Avatar";
@@ -23,7 +20,6 @@ import { parseDue } from "../lib/assignments";
 
 export default function SettingsPage() {
   const { user, logout, refreshUser } = useAuth();
-  const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<string | null>(null);
@@ -265,41 +261,6 @@ export default function SettingsPage() {
               </div>
             );
           })}
-        </div>
-      </div>
-
-      {/* ظاهر */}
-      <div className="panel relative mb-4 p-4 sm:p-6">
-        <Corners />
-        <p className="mono-label mb-1">// APPEARANCE</p>
-        <p className="mb-4 text-sm text-fg-500">حالت نمایش را انتخاب کن</p>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setTheme("dark")}
-            aria-pressed={theme === "dark"}
-            className={`flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-              theme === "dark"
-                ? "theme-active border-white/60 bg-white text-black"
-                : "border-white/10 bg-white/[0.03] text-fg-300 hover:border-white/25"
-            }`}
-          >
-            <Moon size={16} />
-            تاریک
-          </button>
-          <button
-            type="button"
-            onClick={() => setTheme("light")}
-            aria-pressed={theme === "light"}
-            className={`flex items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition ${
-              theme === "light"
-                ? "theme-active border-white/60 bg-white text-black"
-                : "border-white/10 bg-white/[0.03] text-fg-300 hover:border-white/25"
-            }`}
-          >
-            <Sun size={16} />
-            روشن
-          </button>
         </div>
       </div>
 

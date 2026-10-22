@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
@@ -49,11 +49,44 @@ import {
   subjectName,
 } from "../lib/assignments";
 import { countdownTone, dueCountdown } from "../lib/bell";
+import { openImageGallery } from "../components/ImageViewer";
 
 function fileIcon(name: string) {
-  if (/\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(name)) return "image";
+  if (/\.(png|jpe?g|jfif|gif|webp|avif|bmp)$/i.test(name)) return "image";
   if (/\.(zip|rar|7z)$/i.test(name)) return "archive";
   return "file";
+}
+
+const IMAGE_FILE_RE = /\.(png|jpe?g|jfif|gif|webp|avif|bmp)(\?|$)/i;
+
+/** نام فایل + آپلودکننده + تاریخ — مشترک بین حالت تصویر و فایل */
+function AttachmentMeta({
+  attachment,
+  uploaderName,
+}: {
+  attachment: Attachment;
+  uploaderName: string;
+}) {
+  return (
+    <span className="min-w-0 flex-1">
+      <span
+        className="block truncate text-[11px] font-semibold text-fg-100"
+        dir="ltr"
+      >
+        {attachment.file_name}
+      </span>
+      <span className="mt-1 flex items-center gap-1.5 text-[9px] text-fg-500">
+        <Avatar name={uploaderName} size="xxs" />
+        <span className="truncate" dir="ltr">
+          {uploaderName}
+        </span>
+        <span>·</span>
+        <span>
+          {parseDue(attachment.created_at).toLocaleDateString("fa-IR")}
+        </span>
+      </span>
+    </span>
+  );
 }
 
 export default function AssignmentDetailPage() {
@@ -95,6 +128,26 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
   // مهلت منطبق با زنگ‌های مدرسه (پایان روز درسی، نه نیمه‌شب بی‌ربط)
   const countdown = dueCountdown(item?.due_date ?? null, now, bells);
   const tone = countdownTone(countdown);
+
+  // گالری پیوست‌های تصویری همین تکلیف برای نمایشگر تصویر سراسری
+  const imageAttachments = useMemo(
+    () => attachments.filter((attachment) => IMAGE_FILE_RE.test(attachment.file_url)),
+    [attachments]
+  );
+
+  const openAttachmentImage = useCallback(
+    (attachment: Attachment) => {
+      const images = imageAttachments.map((entry) => ({
+        src: resolveMediaUrl(entry.file_url),
+        alt: entry.file_name || "پیوست تکلیف",
+      }));
+      const index = imageAttachments.findIndex(
+        (entry) => entry.id === attachment.id
+      );
+      openImageGallery(images, index >= 0 ? index : 0);
+    },
+    [imageAttachments]
+  );
 
   useEffect(() => {
     let active = true;
@@ -596,42 +649,41 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                               key={attachment.id}
                               className="group flex items-center gap-2 rounded-xl border border-white/8 bg-white/[0.02] p-2.5 transition hover:border-white/20 hover:bg-white/[0.05]"
                             >
-                              <a
-                                href={mediaUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex min-w-0 flex-1 items-center gap-2.5"
-                              >
-                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-fg-300">
-                                  {kind === "image" ? (
+                              {kind === "image" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openAttachmentImage(attachment)}
+                                  className="flex min-w-0 flex-1 cursor-zoom-in items-center gap-2.5"
+                                  aria-label="نمایش تصویر"
+                                >
+                                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-fg-300">
                                     <FileText size={15} />
-                                  ) : kind === "archive" ? (
-                                    <Download size={15} />
-                                  ) : (
-                                    <FileText size={15} />
-                                  )}
-                                </span>
-                                <span className="min-w-0 flex-1">
-                                  <span
-                                    className="block truncate text-[11px] font-semibold text-fg-100"
-                                    dir="ltr"
-                                  >
-                                    {attachment.file_name}
                                   </span>
-                                  <span className="mt-1 flex items-center gap-1.5 text-[9px] text-fg-500">
-                                    <Avatar name={uploaderName} size="xxs" />
-                                    <span className="truncate" dir="ltr">
-                                      {uploaderName}
-                                    </span>
-                                    <span>·</span>
-                                    <span>
-                                      {parseDue(
-                                        attachment.created_at
-                                      ).toLocaleDateString("fa-IR")}
-                                    </span>
+                                  <AttachmentMeta
+                                    attachment={attachment}
+                                    uploaderName={uploaderName}
+                                  />
+                                </button>
+                              ) : (
+                                <a
+                                  href={mediaUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex min-w-0 flex-1 items-center gap-2.5"
+                                >
+                                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-fg-300">
+                                    {kind === "archive" ? (
+                                      <Download size={15} />
+                                    ) : (
+                                      <FileText size={15} />
+                                    )}
                                   </span>
-                                </span>
-                              </a>
+                                  <AttachmentMeta
+                                    attachment={attachment}
+                                    uploaderName={uploaderName}
+                                  />
+                                </a>
+                              )}
 
                               <a
                                 href={mediaUrl}
