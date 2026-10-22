@@ -9,7 +9,7 @@ import { useUnread } from "../lib/unread";
 import type { PulseItem } from "../lib/unread";
 import { chatTime } from "../lib/chat";
 
-const TICK_MS = 1500;
+const TICK_MS = 3000;
 
 /** One rotating "latest activity" sentence every 1.5s (Telegram-ish pulse). */
 export default function PulseBox() {
