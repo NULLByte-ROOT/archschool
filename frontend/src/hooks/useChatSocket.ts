@@ -29,6 +29,10 @@ const PING_INTERVAL_MS = 25_000;
 // (common right after a blue-green switch), so we must rebuild it ourselves.
 const DEAD_SOCKET_MS = 65_000;
 const AUTH_CHECK_INTERVAL_MS = 15_000;
+// The backoff is only forgiven once the socket has actually survived this long.
+// An "open" that dies instantly (server crash, proxy rejection) must keep the
+// exponential backoff, otherwise the client redials once per second forever.
+const STABLE_OPEN_MS = 3_000;
 // 1008 = policy violation (FastAPI closed before accepting, i.e. bad token).
 const AUTH_CLOSE_CODES = new Set([1008, 4001, 4003, 4401, 4403]);
 
@@ -91,6 +95,8 @@ export function useChatSocket(
     let lastFrame = 0;
     let retryTimer: number | undefined;
     let pingTimer: number | undefined;
+    let stableTimer: number | undefined;
+    let openedAt = 0;
 
     function hasLiveSocket(): boolean {
       const socket = socketRef.current;
@@ -138,6 +144,8 @@ export function useChatSocket(
       pingTimer = undefined;
       window.clearTimeout(retryTimer);
       retryTimer = undefined;
+      window.clearTimeout(stableTimer);
+      stableTimer = undefined;
     }
 
     function verifySession(): Promise<boolean> {
@@ -226,14 +234,21 @@ export function useChatSocket(
         if (disposed) return;
         openedThisAttempt = true;
         hasEverOpened = true;
+        openedAt = Date.now();
         stopped = false; // the session works again after a manual retry
-        retry = 0;
         failuresWithoutOpen = 0;
         lastFrame = Date.now();
-        setAttempt(0);
         setStatusTraced("open", "onopen");
         startHeartbeat(socket);
         onOpenRef.current?.();
+        // Forgive the backoff only once the socket has proven it can stay up.
+        // Resetting it on a bare "open" let an insta-closing socket (server
+        // crash right after accept) redial once per second indefinitely.
+        window.clearTimeout(stableTimer);
+        stableTimer = window.setTimeout(() => {
+          retry = 0;
+          setAttempt(0);
+        }, STABLE_OPEN_MS);
       };
 
       socket.onmessage = (event) => {
@@ -253,6 +268,8 @@ export function useChatSocket(
       socket.onclose = (event) => {
         window.clearInterval(pingTimer);
         pingTimer = undefined;
+        window.clearTimeout(stableTimer);
+        stableTimer = undefined;
         if (socketRef.current === socket) socketRef.current = null;
         if (disposed || paused) return;
 
@@ -260,11 +277,23 @@ export function useChatSocket(
         // 1006 + "(handshake failed)" = TCP/proxy refused; anything else is
         // the peer's close frame. This is info-level on purpose — a failed
         // reconnect cycle logs once per attempt, not once per frame.
+        const lifetime = openedAt ? Date.now() - openedAt : 0;
+        openedAt = 0;
         console.info(
           "[chat] socket closed code=" + event.code +
             " reason=" + (event.reason || "-") +
             " applied=" + (openedThisAttempt ? "open" : "handshake")
         );
+        if (openedThisAttempt && lifetime < STABLE_OPEN_MS) {
+          // Nothing the browser can fix: the server accepted the socket and
+          // then dropped it within milliseconds (crash after accept, or a
+          // proxy killing the upgrade). Point at the place that has the answer.
+          console.warn(
+            "[chat] socket died " + lifetime +
+              "ms after open — closed server-side, check: " +
+              "docker logs --tail 100 <backend container>"
+          );
+        }
 
         // A stale close from an abandoned/orphan socket must not touch the
         // status: if a different, still-live socket already owns this hook,
