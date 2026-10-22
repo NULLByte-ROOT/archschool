@@ -36,6 +36,13 @@ def get_current_user(
 
 
 def get_current_admin(user: models.User = Depends(get_current_user)) -> models.User:
-    if not (user.is_admin or user.role == models.ROLE_ADMIN):
+    if not models.is_staff(user):
         raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+
+def get_current_owner(user: models.User = Depends(get_current_user)) -> models.User:
+    """Owner-only dependencies (server stats, system settings)."""
+    if not models.is_owner(user):
+        raise HTTPException(status_code=403, detail="Owner only")
     return user

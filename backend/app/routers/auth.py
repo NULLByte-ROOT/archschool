@@ -46,6 +46,8 @@ def register(data: schemas.RegisterRequest, db: Session = Depends(get_db)):
         )
     if code == settings.ADMIN_CODE:
         raise HTTPException(status_code=400, detail="این کد دسترسی قابل استفاده نیست")
+    if code == normalize_access_code(settings.OWNER_ACCESS_CODE or ""):
+        raise HTTPException(status_code=400, detail="این کد دسترسی قابل استفاده نیست")
 
     if _find_user(db, username):
         raise HTTPException(status_code=400, detail="این نام کاربری قبلاً گرفته شده")
@@ -105,6 +107,15 @@ def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
             db.refresh(user)
         elif not user.is_admin:
             raise HTTPException(status_code=403, detail="Username taken")
+    elif code == normalize_access_code(settings.OWNER_ACCESS_CODE or ""):
+        owner = _find_user(db, username)
+        if not owner:
+            raise HTTPException(status_code=401, detail="نام کاربری یا کد اشتباه است")
+        if not owner.is_active:
+            raise HTTPException(status_code=403, detail="حساب غیرفعال است")
+        if not models.is_owner(owner):
+            raise HTTPException(status_code=403, detail="Username taken")
+        user = owner
     else:
         user = (
             db.query(models.User)

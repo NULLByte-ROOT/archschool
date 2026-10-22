@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode, RefObject } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useMotionValue, useTransform } from "framer-motion";
 import {
   Check,
   ChevronDown,
@@ -45,6 +45,7 @@ import type { Message, PublicUser } from "../api/client";
 import { useAuth } from "../contexts/AuthContext";
 import { useChatSocket } from "../hooks/useChatSocket";
 import type { ChatSocketEvent } from "../hooks/useChatSocket";
+import { useIsMobileWidth } from "../hooks/useMediaQuery";
 import { chatDayLabel, chatTime } from "../lib/chat";
 import Avatar from "./Avatar";
 import UserProfileModal from "./UserProfileModal";
@@ -255,6 +256,62 @@ const MessageBubble = memo(function MessageBubble({
   );
 });
 
+/**
+ * موبایلباز: پوشش swipe-to-reply.
+ * حباب را می‌توان به چپ یا راست کشید؛ پس از عبور از آستانه، پاسخ فعال می‌شود
+ * (مثل تلگرام). روی دسکتاپ هیچ چیزی رندر نمی‌شود تا UI فعلی دست‌نخورده بماند.
+ */
+function SwipeableMessage({
+  message,
+  children,
+  onReply,
+}: {
+  message: Message;
+  children: React.ReactNode;
+  onReply: (message: Message) => void;
+}) {
+  const isMobile = useIsMobileWidth();
+  const x = useMotionValue(0);
+
+  const rightHintOpacity = useTransform(x, [10, 44], [0, 1]);
+  const rightHintScale = useTransform(x, [10, 56], [0.5, 1]);
+  const leftHintOpacity = useTransform(x, [-44, -10], [1, 0]);
+  const leftHintScale = useTransform(x, [-56, -10], [1, 0.5]);
+
+  if (!isMobile) return children;
+
+  return (
+    <motion.div
+      style={{ x, position: "relative" }}
+      drag="x"
+      dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={0.3}
+      dragMomentum={false}
+      dragDirectionLock
+      onDragEnd={(_, info) => {
+        if (Math.abs(info.offset.x) > 56) onReply(message);
+      }}
+    >
+      {/* نشان «پاسخ» پشت حباب، در جهت کشیدن */}
+      <motion.span
+        style={{ opacity: rightHintOpacity, scale: rightHintScale }}
+        className="pointer-events-none absolute inset-y-0 -right-1 flex items-center text-[#3390ec]"
+        aria-hidden
+      >
+        <CornerUpLeft size={18} />
+      </motion.span>
+      <motion.span
+        style={{ opacity: leftHintOpacity, scale: leftHintScale }}
+        className="pointer-events-none absolute inset-y-0 -left-1 flex items-center text-[#3390ec]"
+        aria-hidden
+      >
+        <CornerUpLeft size={18} />
+      </motion.span>
+      {children}
+    </motion.div>
+  );
+}
+
 function ContextMenu({
   menu,
   canDelete,
@@ -402,20 +459,22 @@ const MessageList = memo(function MessageList({
                   item.own ? "justify-start" : "justify-end"
                 }`}
               >
-                <MessageBubble
-                  message={item.message}
-                  own={item.own}
-                  showTail={item.showTail}
-                  showName={item.showName}
-                  animate={item.animate}
-                  highlighted={highlightId === item.message.id}
-                  onContext={onContext}
-                  onReply={onReply}
-                  onPressStart={onPressStart}
-                  onPressEnd={onPressEnd}
-                  onProfile={onProfile}
-                  onOpenImage={onOpenImage}
-                />
+                <SwipeableMessage message={item.message} onReply={onReply}>
+                  <MessageBubble
+                    message={item.message}
+                    own={item.own}
+                    showTail={item.showTail}
+                    showName={item.showName}
+                    animate={item.animate}
+                    highlighted={highlightId === item.message.id}
+                    onContext={onContext}
+                    onReply={onReply}
+                    onPressStart={onPressStart}
+                    onPressEnd={onPressEnd}
+                    onProfile={onProfile}
+                    onOpenImage={onOpenImage}
+                  />
+                </SwipeableMessage>
                 {!item.own && (
                   <span className="w-9 shrink-0 self-end">
                     {item.showName && (

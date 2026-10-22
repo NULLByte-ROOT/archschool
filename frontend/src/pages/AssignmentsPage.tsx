@@ -165,6 +165,8 @@ const AssignmentItem = memo(function AssignmentItem({
   const group = categoryGroup(item.category);
   const GroupIcon = group?.id === "exam" ? GraduationCap : ClipboardList;
   const done = item.is_completed_by_me;
+  // امتحان‌ها «خوانده شد»، بقیه «انجام دادم»
+  const toggleLabel = item.category === "exam" ? "خوندم" : "انجام دادم";
 
   const motionProps = {
     initial: { opacity: 0, y: 16 },
@@ -185,7 +187,7 @@ const AssignmentItem = memo(function AssignmentItem({
         e.stopPropagation();
         onToggle(item);
       }}
-      title={done ? "من انجام دادم" : "انجام دادم"}
+      title={done ? "لغو" : item.category === "exam" ? "من خوندم" : "من انجام دادم"}
       className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium backdrop-blur transition sm:min-h-0 ${
         done
           ? "border-success/30 bg-success/10 text-success"
@@ -193,7 +195,7 @@ const AssignmentItem = memo(function AssignmentItem({
       }`}
     >
       <Check size={12} strokeWidth={3} />
-      {done ? "برگرداندن" : "انجام دادم"}
+      {done ? "برگرداندن" : toggleLabel}
     </button>
   );
 
@@ -227,18 +229,18 @@ const AssignmentItem = memo(function AssignmentItem({
   const CountdownChip = countdown ? (
     <div className="flex min-w-0 flex-col gap-0.5">
       <span
-        className={`inline-flex max-w-full items-center gap-1.5 truncate rounded-xl border px-2.5 py-1 text-[10.5px] font-bold backdrop-blur-md ${CHIP[tone]}`}
+        className={`inline-flex max-w-full items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[10.5px] font-bold backdrop-blur-md whitespace-normal sm:truncate ${CHIP[tone]}`}
         title={countdown.label}
       >
         <AlarmClock size={11} className="shrink-0" />
-        <span className="truncate">
+        <span className="whitespace-normal sm:truncate">
           {countdown.overdue || countdown.dayDiff < 0
             ? countdown.label
             : countdown.short}
         </span>
       </span>
       {countdown.periodNote && (
-        <span className="truncate ps-1 text-[9px] text-fg-500">
+        <span className="whitespace-normal ps-1 text-[9px] leading-4 text-fg-500 sm:truncate">
           {countdown.periodNote}
         </span>
       )}
@@ -267,7 +269,7 @@ const AssignmentItem = memo(function AssignmentItem({
         <div className="relative min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3
-              className={`min-w-0 truncate text-[14px] font-bold ${
+              className={`min-w-0 text-[15px] font-extrabold leading-snug break-words sm:truncate sm:text-[16px] ${
                 done ? "text-fg-500 line-through" : "text-white"
               }`}
             >
@@ -281,14 +283,16 @@ const AssignmentItem = memo(function AssignmentItem({
               {item.subtype && <span> · {categoryItemLabel(item.subtype)}</span>}
             </span>
             {item.subject_id && (
-              <span className="flex items-center gap-1.5 text-fg-300">
-                <BookOpen size={11} className="shrink-0 text-fg-500" />
-                <span className="truncate">{subjectName(item.subject_id, item.course)}</span>
+              <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-bold text-fg-300">
+                <BookOpen size={12} className="shrink-0 text-fg-500" />
+                <span className="min-w-0 break-words sm:truncate">
+                  {subjectName(item.subject_id, item.course)}
+                </span>
               </span>
             )}
-            <span className="flex items-center gap-1.5 text-fg-500">
+            <span className="flex min-w-0 items-center gap-1.5 text-fg-500">
               <Calendar size={11} className="shrink-0 opacity-70" />
-              <span className="truncate">{formatDue(item.due_date)}</span>
+              <span className="min-w-0 break-words sm:truncate">{formatDue(item.due_date)}</span>
             </span>
           </div>
         </div>
@@ -340,7 +344,7 @@ const AssignmentItem = memo(function AssignmentItem({
 
       <div className="mb-3 flex flex-wrap items-center gap-2 pr-2">
         <h3
-          className={`line-clamp-2 min-w-0 text-[15px] leading-6 font-bold ${
+          className={`line-clamp-2 min-w-0 text-[16px] leading-6 font-extrabold sm:text-[17px] ${
             done ? "text-fg-500 line-through" : "text-white"
           }`}
         >
@@ -351,14 +355,14 @@ const AssignmentItem = memo(function AssignmentItem({
 
       <div className="mb-3 space-y-1.5 pr-2 text-[12px]">
         {item.subject_id && (
-          <p className="flex items-center gap-1.5 text-fg-300">
+          <p className="flex items-center gap-1.5 text-[13px] font-bold text-fg-300">
             <BookOpen size={12} className="shrink-0 text-fg-500" />
-            <span className="truncate">{subjectName(item.subject_id, item.course)}</span>
+            <span className="min-w-0 break-words">{subjectName(item.subject_id, item.course)}</span>
           </p>
         )}
         <p className="flex items-center gap-1.5 text-fg-500">
           <Calendar size={12} className="shrink-0 opacity-70" />
-          <span className="truncate">{formatDue(item.due_date)}</span>
+          <span className="min-w-0 break-words">{formatDue(item.due_date)}</span>
         </p>
       </div>
 
@@ -402,7 +406,7 @@ const CHIP: Record<CountdownTone, string> = {
 
 export default function AssignmentsPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isMember } = useAuth();
   const now = useNow(30_000);
   const { periods: bellPeriods } = useBellSchedule();
   const bells = useMemo(() => bellsFrom(bellPeriods), [bellPeriods]);
@@ -411,7 +415,16 @@ export default function AssignmentsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
   const [sort, setSort] = useState<Sort>("newest");
-  const [view, setView] = useState<View>("grid");
+  // پیش‌فرض = نمای لیستی؛ انتخاب کاربر هم در localStorage می‌ماند.
+  const [view, setView] = useState<View>(() => {
+    try {
+      return localStorage.getItem("archschool:assign-view") === "grid"
+        ? "grid"
+        : "list";
+    } catch {
+      return "list";
+    }
+  });
   const [loading, setLoading] = useState(() => !listCache.has(cacheKey("all")));
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -576,17 +589,19 @@ export default function AssignmentsPage() {
         title="تکالیف و پروژه‌ها"
         subtitle="مدیریت، زمان‌بندی و پیگیری تکالیف درسی"
         action={
-          <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={openCreate}
-            className="group relative flex items-center gap-2.5 overflow-hidden rounded-2xl border border-white/70 bg-white px-5 py-3 text-sm font-black text-black shadow-[0_0_35px_-8px_rgba(255,255,255,0.85)] transition-colors hover:bg-white/90"
-          >
-            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-black text-white">
-              <Plus size={15} strokeWidth={3} />
-            </span>
-            افزودن تکالیف
-          </motion.button>
+          isMember ? undefined : (
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={openCreate}
+              className="group relative flex items-center gap-2.5 overflow-hidden rounded-2xl border border-white/70 bg-white px-5 py-3 text-sm font-black text-black shadow-[0_0_35px_-8px_rgba(255,255,255,0.85)] transition-colors hover:bg-white/90"
+            >
+              <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-black text-white">
+                <Plus size={15} strokeWidth={3} />
+              </span>
+              افزودن تکالیف
+            </motion.button>
+          )
         }
       />
 
@@ -738,7 +753,14 @@ export default function AssignmentsPage() {
               <button
                 key={key}
                 type="button"
-                onClick={() => setView(key)}
+                onClick={() => {
+                  setView(key);
+                  try {
+                    localStorage.setItem("archschool:assign-view", key);
+                  } catch {
+                    // حافظهٔ خصوصی مرورگر؛ مهم نیست
+                  }
+                }}
                 aria-label={label}
                 aria-pressed={view === key}
                 title={label}

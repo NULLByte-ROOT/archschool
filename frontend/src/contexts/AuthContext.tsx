@@ -10,8 +10,12 @@ import type { User } from "../api/client";
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
+  /** admin or owner — manages assignments, users and chat. */
   isAdmin: boolean;
-  isEditor: boolean;
+  /** owner — server stats, system settings, role grants above admin. */
+  isOwner: boolean;
+  /** plain member — read-only everywhere except their own completion toggles. */
+  isMember: boolean;
   login: (username: string, code: string) => Promise<void>;
   register: (username: string, code: string) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -79,8 +83,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         isAuthenticated: !!user,
-        isAdmin: !!user?.is_admin || user?.role === "admin",
-        isEditor: user?.role === "editor",
+        isAdmin:
+          !!user?.is_admin || user?.role === "admin" || user?.role === "owner",
+        isOwner: user?.role === "owner",
+        isMember: !!user && user.role === "member" && !user.is_admin,
         login,
         register,
         refreshUser,

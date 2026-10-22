@@ -13,6 +13,8 @@ import RegisterPage from "./pages/RegisterPage";
 import UsersPage from "./pages/UsersPage";
 import ChatPage from "./pages/ChatPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
+import BellSchedulePage from "./pages/BellSchedulePage";
+import ServerStatsPage from "./pages/ServerStatsPage";
 
 export default function App() {
   return (
@@ -31,8 +33,15 @@ export default function App() {
             <Route path="leaderboard" element={<LeaderboardPage />} />
             <Route path="settings" element={<SettingsPage />} />
 
+            {/* پنل ادمین — بالای منو، فقط نقش‌های staff */}
             <Route element={<ProtectedRoute adminOnly />}>
               <Route path="rootvoid" element={<UsersPage />} />
+              <Route path="admin/bells" element={<BellSchedulePage />} />
+            </Route>
+
+            {/* داشبورد زندهٔ سرور — فقط Owner */}
+            <Route element={<ProtectedRoute ownerOnly />}>
+              <Route path="admin/stats" element={<ServerStatsPage />} />
             </Route>
 
             <Route path="*" element={<NotFoundPage />} />

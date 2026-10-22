@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
-from sqlalchemy import inspect, text
+from sqlalchemy import func, inspect, text
 
 from . import models
 from .config import settings
@@ -18,10 +18,12 @@ from .routers import (
     auth,
     messages,
     schedule,
+    server_stats,
     uploads,
     users,
     ws,
 )
+from .security import is_valid_access_code, normalize_access_code
 
 logger = logging.getLogger("archschool.boot")
 
@@ -123,12 +125,14 @@ def _backfill_rbac_data() -> None:
     """Idempotently migrate pre-existing rows to the new RBAC/public model.
 
     - grant the ``admin`` role to legacy ``is_admin`` users,
+    - convert retired ``editor`` users to ``admin`` (the role no longer exists),
     - point ``creator_id`` at the original ``owner_id``,
     - materialise ``assignment_completions`` for already-completed tasks.
     """
     statements = [
         "UPDATE users SET role = 'admin' WHERE is_admin = TRUE "
         "AND (role IS NULL OR role = 'member')",
+        "UPDATE users SET role = 'admin' WHERE role = 'editor'",
         "UPDATE assignments SET creator_id = owner_id WHERE creator_id IS NULL",
         "INSERT INTO assignment_completions (user_id, assignment_id, completed_at) "
         "SELECT a.owner_id, a.id, CURRENT_TIMESTAMP FROM assignments a "
@@ -150,6 +154,84 @@ def _run_boot_migrations() -> None:
         _ensure_columns()
         _backfill_rbac_data()
         _seed_school_schedule()
+        _ensure_owner_account()
+
+
+def _ensure_owner_account() -> None:
+    """Create/refresh the ``owner`` account defined by the backend .env.
+
+    Runs on every boot so a code rotation picked up by a new deploy lands in
+    the database automatically. Missing or invalid env values are skipped
+    with a single warning instead of blocking the deploy. Idempotent: the
+    account is only touched when something actually changed.
+    """
+    username = (settings.OWNER_USERNAME or "").strip()
+    try:
+        code = normalize_access_code(settings.OWNER_ACCESS_CODE or "")
+    except Exception:  # pragma: no cover - normalize never raises today
+        code = ""
+    if not username or not is_valid_access_code(code):
+        if username or settings.OWNER_ACCESS_CODE:
+            logger.warning(
+                "OWNER_USERNAME/OWNER_ACCESS_CODE incomplete; owner account not "
+                "created (code must be exactly 6 alphanumeric uppercase chars)"
+            )
+        return
+
+    from .database import SessionLocal
+    from datetime import datetime, UTC
+
+    with SessionLocal() as db:
+        user = (
+            db.query(models.User)
+            .filter(func.lower(models.User.username) == username.lower())
+            .first()
+        )
+        try:
+            if user is None:
+                # The access code is unique in the users table: if some other
+                # account already holds it, refuse loudly instead of crashing
+                # the boot with an integrity error.
+                taken = (
+                    db.query(models.User)
+                    .filter(func.upper(models.User.code) == code)
+                    .first()
+                )
+                if taken:
+                    logger.warning(
+                        "owner code already used by another account (%s); "
+                        "owner account not created",
+                        taken.username,
+                    )
+                    return
+                db.add(
+                    models.User(
+                        username=username,
+                        code=code,
+                        is_admin=True,
+                        role=models.ROLE_OWNER,
+                        is_active=True,
+                        last_seen=datetime.now(UTC).replace(tzinfo=None),
+                    )
+                )
+                db.commit()
+                logger.info("Owner account created (user=%s)", username)
+            elif not models.is_owner(user):
+                user.is_admin = True
+                user.role = models.ROLE_OWNER
+                db.commit()
+                logger.info("Existing user promoted to owner (user=%s)", username)
+            elif user.code.upper() != code:
+                user.code = code
+                user.is_active = True
+                db.commit()
+                logger.info("Owner access code updated from environment")
+            elif not user.is_active:
+                user.is_active = True
+                db.commit()
+        except Exception:  # pragma: no cover -never block the deploy slot
+            db.rollback()
+            logger.exception("Owner account bootstrap failed; continuing boot")
 
 
 def _seed_school_schedule() -> None:
@@ -212,6 +294,7 @@ app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(assignments.router, prefix="/api/assignments", tags=["assignments"])
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
 app.include_router(schedule.router, prefix="/api/schedule", tags=["schedule"])
+app.include_router(server_stats.router, prefix="/api/server-stats", tags=["server-stats"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
 app.include_router(attachments.router, prefix="/api/attachments", tags=["attachments"])
 app.include_router(ws.router, tags=["ws"])

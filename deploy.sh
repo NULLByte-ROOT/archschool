@@ -1098,6 +1098,59 @@ ensure_env() {
         fi
         success "Generated a new SECRET_KEY."
     fi
+
+    ensure_owner_env
+}
+
+# Owner account (top role: server stats + system settings).
+# On first install the username/code are prompted; in non-interactive runs
+# both are generated silently so deploys never hang. The backend creates the
+# account on every boot from these two values.
+generate_access_code() {
+    # 6-char uppercase alphanumeric access code (matches backend rules).
+    local pool="ABCDEFGHJKLMNPQRSTUVWXYZ23456789" pool_len="${#pool}" out="" i r
+    for (( i = 0; i < 6; i++ )); do
+        r="$(od -An -N1 -tu1 /dev/urandom | tr -d ' ' || echo 0)"
+        out+="${pool:r % pool_len:1}"
+    done
+    printf '%s' "${out}"
+}
+
+ensure_owner_env() {
+    local owner_username owner_code _reply
+    owner_username="$(grep -E '^OWNER_USERNAME=' "${ENV_FILE}" 2>/dev/null | head -n1 | cut -d'=' -f2- | tr -d '"' || true)"
+    owner_code="$(grep -E '^OWNER_ACCESS_CODE=' "${ENV_FILE}" 2>/dev/null | head -n1 | cut -d'=' -f2- | tr -d '"' || true)"
+
+    if [[ -n "${owner_username}" && -n "${owner_code}" ]]; then
+        return 0
+    fi
+
+    if [[ -z "${owner_username}" ]]; then
+        if (( ! ASSUME_YES )); then
+            echo
+            info "Owner account (top-level role). Enter a username and press enter to accept the suggested one."
+            read -r -p "OWNER_USERNAME [owner]: " _reply || _reply=""
+            owner_username="${_reply:-owner}"
+        else
+            owner_username="owner"
+        fi
+        if grep -q '^OWNER_USERNAME=' "${ENV_FILE}"; then
+            sed -i "s|^OWNER_USERNAME=.*|OWNER_USERNAME=${owner_username}|" "${ENV_FILE}"
+        else
+            printf 'OWNER_USERNAME=%s\n' "${owner_username}" >> "${ENV_FILE}"
+        fi
+    fi
+
+    if [[ -z "${owner_code}" ]]; then
+        owner_code="$(generate_access_code)"
+        if grep -q '^OWNER_ACCESS_CODE=' "${ENV_FILE}"; then
+            sed -i "s|^OWNER_ACCESS_CODE=.*|OWNER_ACCESS_CODE=${owner_code}|" "${ENV_FILE}"
+        else
+            printf 'OWNER_ACCESS_CODE=%s\n' "${owner_code}" >> "${ENV_FILE}"
+        fi
+        success "Generated OWNER_ACCESS_CODE for «${owner_username}»: ${owner_code}"
+        warn "Save it now — it is only shown once from this script; it stays in backend/.env."
+    fi
 }
 
 configure_domain() {

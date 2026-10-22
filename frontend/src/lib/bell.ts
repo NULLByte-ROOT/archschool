@@ -124,18 +124,18 @@ export function activeBell(date: Date, bells: Bell[]): Bell | null {
 export interface DueCountdown {
   /** میلی‌ثانیهٔ تفاوت خام (مهلت - حال) */
   raw: number;
-  /** میلی‌ثانیهٔ تفاوت منطبق‌شده با پنجرهٔ مدرسه */
+  /** میلی‌ثانیهٔ تفاوت تا هدف دقیق (شروع زنگ) */
   aligned: number;
-  /** مهلت مؤثر (اگر از پایان روز درسی جلوتر بود، برش خورده) */
+  /** هدف دقیق: شروع زنگ مربوط به روز مهلت بر اساس برنامهٔ ادمین */
   alignedDueMs: number;
   /** اختلاف روز تقویمی (۰ = امروز) */
   dayDiff: number;
   overdue: boolean;
   /** کمتر از ۴۸ ساعت مانده */
   urgent: boolean;
-  /** یادداشت زنگ فعال: «۴۵ دقیقه تا پایان زنگ ۲» */
+  /** یادداشت زنگ: «تا شروع زنگ ۲» یا «تا پایان مدرسه» */
   periodNote: string | null;
-  /** آیا مهلت واقعاً منطبق/برش خورده است؟ */
+  /** آیا مهلت با زنگ‌ها منطبق/برش خورده است؟ */
   isAligned: boolean;
   /** لیبل فارسی کامل برای نمایش */
   label: string;
@@ -168,7 +168,13 @@ function humanLeft(ms: number): string {
 }
 
 /**
- * کوت‌داون منطبق با زنگ‌ها برای یک تکلیف.
+ * کوت‌داون دقیق تا شروع زنگِ مربوط به روز مهلت (بر پایهٔ زنگ‌های ادمین).
+ *
+ * منطق هدف:
+ * - روز آینده درسی: دقیقاً «شروعِ زنگ اول» همان روز (مثال: دوشنبه ۰۸:۰۰).
+ * - امروز: شروعِ نزدیک‌ترین زنگی که هنوز شروع نشده؛ اگر همهٔ زنگ‌ها شروع
+ *   شده‌اند، تا پایان روز مدرسه.
+ * - روز تعطیل: خودِ مهلت.
  * `bells` خالی/ناموجود → پیش‌فرض ثابت ۰۸:۰۰ تا ۱۴:۰۰.
  */
 export function dueCountdown(
@@ -181,32 +187,52 @@ export function dueCountdown(
   const dueMs = dueDate.getTime();
   if (Number.isNaN(dueMs)) return null;
 
-  const nowDate = new Date(now);
-  const dayDiff = calendarDayDiff(dueDate, nowDate);
+  const dayDiff = calendarDayDiff(dueDate, new Date(now));
   const window = dayBellWindow(dueDate, bells);
-  const overdue = dueMs <= now;
 
-  // مهلت مؤثر هرگز از «پایان روز درسی» آن روز جلوتر نیست: مهلتِ ساعت ۲۳:۵۹
-  // عملاً یعنی تا زنگ آخر.
-  const isAligned = window.isSchoolDay && dueMs > window.endMs;
-  const alignedDueMs = isAligned ? window.endMs : dueMs;
-  const aligned = alignedDueMs - now;
+  let target: number;
+  let isAligned = false;
+  if (!window.isSchoolDay) {
+    // روز تعطیل: مهلت خام
+    target = dueMs;
+  } else if (dayDiff === 0) {
+    // امروز: شروع اولین زنگی که هنوز شروع نشده؛ وگرنه پایان مدرسه
+    const upcoming = bells.find(
+      (b) => window.dayStartMs + b.start * 60_000 > now
+    );
+    if (upcoming) {
+      target = window.dayStartMs + upcoming.start * 60_000;
+      isAligned = true;
+    } else {
+      target = window.endMs;
+      isAligned = true;
+    }
+  } else {
+    // روز آینده درسی: دقیقاً شروعِ زنگ اول همان روز (مثلاً دوشنبه ۰۸:۰۰)
+    target = window.dayStartMs + schoolStart(bells) * 60_000;
+    isAligned = true;
+  }
 
-  // Strict: فوری فقط وقتی دقیقاً کمتر از ۴۸ ساعت مانده.
+  // «گذشته» یعنی هدف (شروع زنگ) گذشته است، نه ۲۳:۵۹ خام
+  const overdue = target <= now;
+  const aligned = target - now;
+  const alignedDueMs = target;
+
+  // فوری: کمتر از ۴۸ ساعت تا هدف
   const urgent = !overdue && aligned > 0 && aligned < 48 * HOUR_MS;
 
   let periodNote: string | null = null;
-  if (!overdue && dayDiff === 0 && window.isSchoolDay) {
-    const bell = activeBell(nowDate, bells);
-    if (bell) {
-      const bellEndMs = window.dayStartMs + bell.end * 60_000;
-      if (now < bellEndMs && bellEndMs <= alignedDueMs) {
-        periodNote = `${humanLeft(bellEndMs - now)} تا پایان ${bell.label}`;
-      }
+  if (isAligned && !overdue) {
+    const targetBell = bells.find(
+      (b) => window.dayStartMs + b.start * 60_000 === target
+    );
+    if (targetBell) {
+      periodNote = `تا شروع ${targetBell.label}`;
+    } else {
+      periodNote = "تا پایان مدرسه";
     }
   }
 
-  const lastBell = bells[bells.length - 1];
   const when =
     dayDiff === 0
       ? "امروز"
@@ -216,12 +242,6 @@ export function dueCountdown(
             day: "numeric",
             month: "long",
           });
-  const untilSuffix =
-    isAligned && !overdue
-      ? dayDiff === 0
-        ? " · تا پایان مدرسه"
-        : ` · تا پایان ${lastBell?.label ?? "مدرسه"}`
-      : "";
 
   let label: string;
   if (overdue) {
@@ -232,7 +252,9 @@ export function dueCountdown(
       label = "مهلت گذشته";
     }
   } else {
-    label = `${when} · ${humanLeft(aligned)} مانده${untilSuffix}`;
+    label = `${when} · ${humanLeft(aligned)} مانده${
+      periodNote ? ` · ${periodNote}` : ""
+    }`;
   }
 
   return {

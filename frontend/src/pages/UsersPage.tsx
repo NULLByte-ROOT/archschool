@@ -1,33 +1,44 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Trash2, Copy, Check, Power, Loader2, ShieldCheck } from "lucide-react";
 import {
-  fetchUsers,
-  createUser,
-  updateUser,
-  deleteUser,
-} from "../api/client";
+  Plus,
+  Trash2,
+  Copy,
+  Check,
+  Power,
+  Loader2,
+  ShieldCheck,
+} from "lucide-react";
+import { fetchUsers, createUser, updateUser, deleteUser } from "../api/client";
 import type { Role, User } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import Avatar from "../components/Avatar";
 import Corners from "../components/Corners";
 import Dropdown from "../components/Dropdown";
-import BellSchedulePanel from "../components/BellSchedulePanel";
+import { useAuth } from "../contexts/AuthContext";
 import { parseDue } from "../lib/assignments";
 
 const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
-  { value: "admin", label: "مدیر (Admin)", description: "دسترسی کامل" },
-  { value: "editor", label: "ویرایشگر (Editor)", description: "مدیریت همه تکالیف" },
-  { value: "member", label: "عضو (Member)", description: "فقط تکالیف خودش" },
+  {
+    value: "owner",
+    label: "Owner (مالک)",
+    description: "دسترسی کامل + آمار سرور",
+  },
+  { value: "admin", label: "مدیر (Admin)", description: "مدیریت تکالیف و کاربران" },
+  { value: "member", label: "عضو (Member)", description: "فقط مشاهده و اعلام انجام" },
 ];
 
+const ADMIN_SELECTABLE: { value: Role; label: string; description: string }[] =
+  ROLE_OPTIONS.filter((o) => o.value !== "owner");
+
 const ROLE_LABELS: Record<Role, string> = {
+  owner: "Owner",
   admin: "Admin",
-  editor: "Editor",
   member: "Member",
 };
 
 export default function UsersPage() {
+  const { isOwner, user: me } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
@@ -110,7 +121,8 @@ export default function UsersPage() {
     }
   }
 
-  const roleGroups = [{ options: ROLE_OPTIONS }];
+  /** فقط Owner می‌تواند نقش Owner بدهد؛ برای بقیه گزینهٔ Owner حذف می‌شود. */
+  const roleGroups = [{ options: isOwner ? ROLE_OPTIONS : ADMIN_SELECTABLE }];
 
   async function handleDelete(id: number) {
     if (!confirm("مطمئنی؟ این کاربر حذف می‌شه.")) return;
@@ -209,124 +221,147 @@ export default function UsersPage() {
         ) : (
           <ul className="divide-y divide-white/5">
             <AnimatePresence initial={false}>
-              {users.map((user, i) => (
-                <motion.li
-                  key={user.id}
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ delay: i * 0.03, duration: 0.25 }}
-                  className="flex flex-wrap items-center gap-3 px-4 py-3 transition hover:bg-white/[0.03]"
-                >
-                  <Avatar name={user.username} src={user.avatar_url} size="sm" />
+              {users.map((user, i) => {
+                const isRowOwner = user.role === "owner";
+                const canTouch = isOwner || !isRowOwner;
+                return (
+                  <motion.li
+                    key={user.id}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    transition={{ delay: i * 0.03, duration: 0.25 }}
+                    className="grid gap-2.5 px-4 py-3 transition hover:bg-white/[0.03] sm:grid-cols-[minmax(0,1fr)_168px_auto] sm:items-center sm:gap-3"
+                  >
+                    {/* هویت: آواتار + نام + نقش */}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar name={user.username} src={user.avatar_url} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p
+                            className="mono min-w-0 truncate text-sm font-medium text-white"
+                            dir="ltr"
+                          >
+                            {user.username}
+                          </p>
+                          <span
+                            className={`badge shrink-0 !py-0.5 !text-[9px] ${
+                              isRowOwner
+                                ? "border-amber-300/50 text-amber-300"
+                                : user.role === "admin"
+                                  ? "border-white/40 text-white"
+                                  : ""
+                            }`}
+                          >
+                            <span className="dot" />
+                            {ROLE_LABELS[user.role] ?? user.role}
+                            {user.id === me?.id && " (شما)"}
+                          </span>
+                        </div>
+                        <p className="mono text-[11px] text-fg-500">
+                          {parseDue(user.created_at).toLocaleDateString("fa-IR")}
+                        </p>
+                      </div>
+                    </div>
 
-                  <div className="min-w-0 flex-1">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="mono min-w-0 truncate text-sm font-medium text-white" dir="ltr">
-                        {user.username}
-                      </p>
+                    {/* انتخاب نقش — موبایل: تمام‌عرض، بدون برخورد */}
+                    <div
+                      className={`flex items-center gap-1.5 sm:w-full ${
+                        canTouch ? "" : "opacity-50"
+                      }`}
+                    >
+                      <ShieldCheck size={13} className="shrink-0 text-fg-500" />
+                      {canTouch ? (
+                        <Dropdown
+                          ariaLabel={`نقش ${user.username}`}
+                          groups={roleGroups}
+                          value={user.role}
+                          onChange={(role) => handleRoleChange(user, role)}
+                          placeholder="نقش"
+                          className="w-full"
+                        />
+                      ) : (
+                        <span className="mono flex h-[38px] w-full items-center rounded-xl border border-white/10 bg-white/[0.03] px-3 text-[11px] text-fg-500">
+                          Owner — بدون تغییر
+                        </span>
+                      )}
+                      {savingRole === user.id && (
+                        <Loader2 size={13} className="shrink-0 animate-spin text-fg-500" />
+                      )}
+                    </div>
+
+                    {/* کنترل‌ها: وضعیت + کد + دکمه‌ها — موبایل در یک ردیف */}
+                    <div className="flex items-center gap-2 overflow-hidden sm:gap-1">
                       <span
-                        className={`badge shrink-0 !py-0.5 !text-[9px] ${
-                          user.role === "admin"
-                            ? "border-white/40 text-white"
-                            : user.role === "editor"
-                              ? "border-warning/40 text-warning"
-                              : ""
+                        className={`mono shrink-0 rounded-md border px-2 py-0.5 text-[10px] tracking-wider ${
+                          user.is_active
+                            ? "border-success/30 bg-success/10 text-success"
+                            : "border-white/10 bg-white/5 text-fg-500"
                         }`}
                       >
-                        <span className="dot" />
-                        {ROLE_LABELS[user.role] ?? user.role}
+                        {user.is_active ? "ACTIVE" : "OFF"}
                       </span>
-                    </div>
-                    <p className="mono text-[11px] text-fg-500">
-                      {parseDue(user.created_at).toLocaleDateString("fa-IR")}
-                    </p>
-                  </div>
 
-                  <div className="flex w-[150px] shrink-0 items-center gap-1.5 sm:w-[168px]">
-                    <ShieldCheck size={13} className="shrink-0 text-fg-500" />
-                    <Dropdown
-                      ariaLabel={`نقش ${user.username}`}
-                      groups={roleGroups}
-                      value={user.role}
-                      onChange={(role) => handleRoleChange(user, role)}
-                      placeholder="نقش"
-                      className="w-full"
-                    />
-                    {savingRole === user.id && (
-                      <Loader2 size={13} className="shrink-0 animate-spin text-fg-500" />
-                    )}
-                  </div>
-
-                  <span
-                    className={`mono shrink-0 rounded-md border px-2 py-0.5 text-[10px] tracking-wider ${
-                      user.is_active
-                        ? "border-success/30 bg-success/10 text-success"
-                        : "border-white/10 bg-white/5 text-fg-500"
-                    }`}
-                  >
-                    {user.is_active ? "ACTIVE" : "OFF"}
-                  </span>
-
-                  {user.code && (
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      onClick={() => handleCopyCode(user.id, user.code!)}
-                      className="mono flex items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] tracking-widest text-fg-300 transition hover:border-white/40 hover:text-white"
-                      dir="ltr"
-                      title="کپی کد"
-                    >
-                      {copied === user.id ? (
-                        <>
-                          <Check size={11} className="text-success" />
-                          COPIED
-                        </>
-                      ) : (
-                        <>
-                          <Copy size={11} />
-                          {user.code}
-                        </>
+                      {user.code && (
+                        <motion.button
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          onClick={() => handleCopyCode(user.id, user.code!)}
+                          className="mono flex shrink-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] tracking-widest text-fg-300 transition hover:border-white/40 hover:text-white"
+                          dir="ltr"
+                          title="کپی کد"
+                        >
+                          {copied === user.id ? (
+                            <>
+                              <Check size={11} className="text-success" />
+                              COPIED
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={11} />
+                              {user.code}
+                            </>
+                          )}
+                        </motion.button>
                       )}
-                    </motion.button>
-                  )}
 
-                  <div className="flex items-center gap-1">
-                    <motion.button
-                      whileHover={{ scale: 1.1 }}
-                      whileTap={{ scale: 0.9 }}
-                      onClick={() => handleToggleActive(user)}
-                      className={`icon-btn ${
-                        user.is_active
-                          ? "hover:border-warning/40 hover:text-warning"
-                          : "hover:border-success/40 hover:text-success"
-                      }`}
-                      title={user.is_active ? "غیرفعال کردن" : "فعال کردن"}
-                    >
-                      <Power size={15} />
-                    </motion.button>
-                    {user.role !== "admin" && (
-                      <motion.button
-                        whileHover={{ scale: 1.1 }}
-                        whileTap={{ scale: 0.9 }}
-                        onClick={() => handleDelete(user.id)}
-                        className="icon-btn hover:border-danger/40 hover:text-danger"
-                        title="حذف"
-                      >
-                        <Trash2 size={15} />
-                      </motion.button>
-                    )}
-                  </div>
-                </motion.li>
-              ))}
+                      <div className="flex items-center gap-1">
+                        {canTouch && (
+                          <>
+                            <motion.button
+                              whileHover={{ scale: 1.1 }}
+                              whileTap={{ scale: 0.9 }}
+                              onClick={() => handleToggleActive(user)}
+                              className={`icon-btn ${
+                                user.is_active
+                                  ? "hover:border-warning/40 hover:text-warning"
+                                  : "hover:border-success/40 hover:text-success"
+                              }`}
+                              title={user.is_active ? "غیرفعال کردن" : "فعال کردن"}
+                            >
+                              <Power size={15} />
+                            </motion.button>
+                            {user.role !== "admin" && !isRowOwner && (
+                              <motion.button
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => handleDelete(user.id)}
+                                className="icon-btn hover:border-danger/40 hover:text-danger"
+                                title="حذف"
+                              >
+                                <Trash2 size={15} />
+                              </motion.button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </motion.li>
+                );
+              })}
             </AnimatePresence>
           </ul>
         )}
-      </div>
-
-      {/* برنامه‌ی زنگ‌های مدرسه (فقط ادمین) */}
-      <div className="mt-6">
-        <BellSchedulePanel />
       </div>
     </div>
   );

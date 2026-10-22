@@ -12,6 +12,8 @@ import {
   LogOut,
   MessageCircle,
   Trophy,
+  Gauge,
+  BellRing,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useUnread } from "../lib/unread";
@@ -77,7 +79,7 @@ function LinkList({
 }
 
 function SidebarContent({ onClose }: { onClose?: () => void }) {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, isOwner, isMember, logout } = useAuth();
   const navigate = useNavigate();
   const unread = useUnread();
 
@@ -85,12 +87,28 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     { to: "/", label: "داشبورد", icon: LayoutDashboard },
     { to: "/timetable", label: "برنامه هفتگی", icon: CalendarDays },
     { to: "/assignments", label: "تکالیف و پروژه‌ها", icon: CheckSquare },
-    { to: "/chat", label: "گفتگوها", icon: MessageCircle, badge: unread.total },
+    // اعضای معمولی به چت دسترسی ندارند: لینک و نشان پیام نخوانده پنهان می‌شود.
+    ...(!isMember
+      ? [
+          {
+            to: "/chat",
+            label: "گفتگوها",
+            icon: MessageCircle,
+            badge: unread.total,
+          },
+        ]
+      : []),
     { to: "/leaderboard", label: "جدول امتیازها", icon: Trophy },
     { to: "/settings", label: "تنظیمات", icon: Settings },
   ];
 
-  const adminLinks = [{ to: "/rootvoid", label: "کاربران", icon: Users }];
+  const adminLinks = [
+    { to: "/rootvoid", label: "کاربران", icon: Users },
+    { to: "/admin/bells", label: "زنگ‌های مدرسه", icon: BellRing },
+    ...(isOwner
+      ? [{ to: "/admin/stats", label: "آمار سرور", icon: Gauge }]
+      : []),
+  ];
 
   function handleLogout() {
     logout();
@@ -130,23 +148,30 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
 
       {/* منو */}
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-3">
-        <p className="mono-label px-3 py-2">// MENU</p>
-
-        <LinkList links={links} onClose={onClose} />
-
         {isAdmin && (
           <>
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.3, duration: 0.3 }}
-              className="mono-label mt-4 px-3 py-2"
+              transition={{ delay: 0.15, duration: 0.3 }}
+              className="mono-label px-3 py-2"
             >
               // ADMIN
             </motion.p>
-            <LinkList links={adminLinks} onClose={onClose} delayBase={(links.length) * 0.05 + 0.1} />
+            <LinkList links={adminLinks} onClose={onClose} delayBase={0.1} />
           </>
         )}
+
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2, duration: 0.3 }}
+          className="mono-label mt-2 px-3 py-2"
+        >
+          // MENU
+        </motion.p>
+
+        <LinkList links={links} onClose={onClose} delayBase={0.25} />
       </nav>
 
       {/* پایین */}
@@ -162,7 +187,11 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
               {user?.username}
             </p>
             <p className="mono text-[10px] uppercase tracking-wider text-fg-500">
-              {user?.is_admin ? "admin" : "online"}
+              {user?.role === "owner"
+                ? "owner"
+                : user?.is_admin || user?.role === "admin"
+                  ? "admin"
+                  : "member"}
             </p>
           </div>
           <motion.button

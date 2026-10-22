@@ -25,6 +25,11 @@ class Settings(BaseSettings):
 
     ADMIN_CODE: str = "ROOT01"
 
+    # The top-level account. Created automatically on the first boot when both
+    # values are present (deploy.sh prompts for them / generates the code).
+    OWNER_USERNAME: str = ""
+    OWNER_ACCESS_CODE: str = ""
+
     UPLOAD_DIR: str = "uploads"
     MAX_UPLOAD_MB: int = 25
 

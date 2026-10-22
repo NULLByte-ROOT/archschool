@@ -311,7 +311,11 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
               }`}
               title={countdown?.periodNote ?? undefined}
             >
-              {isDoneByMe ? "انجام دادم" : countdown?.label ?? "بدون مهلت"}
+              {isDoneByMe
+                ? item?.category === "exam"
+                  ? "خوندم"
+                  : "انجام دادم"
+                : countdown?.label ?? "بدون مهلت"}
             </span>
           )}
 
@@ -321,7 +325,13 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                 type="button"
                 onClick={toggle}
                 disabled={busy}
-                title={isDoneByMe ? "لغو انجام توسط من" : "من انجام دادم"}
+                title={
+                  isDoneByMe
+                    ? "لغو"
+                    : item?.category === "exam"
+                      ? "من خوندم"
+                      : "من انجام دادم"
+                }
                 className={`flex h-10 items-center gap-1.5 rounded-xl border px-2.5 text-[11px] font-semibold transition disabled:opacity-50 sm:h-9 ${
                   isDoneByMe
                     ? "border-white/15 bg-white/[0.04] text-fg-300 hover:text-white"
@@ -334,7 +344,11 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                   <Check size={13} strokeWidth={3} />
                 )}
                 <span className="hidden sm:inline">
-                  {isDoneByMe ? "برگرداندن" : "انجام دادم"}
+                  {isDoneByMe
+                    ? "برگرداندن"
+                    : item?.category === "exam"
+                      ? "خوندم"
+                      : "انجام دادم"}
                 </span>
               </button>
               {canManage && (
@@ -428,7 +442,13 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                     <InfoChip
                       icon={<Clock size={15} />}
                       label="وضعیت من"
-                      value={isDoneByMe ? "انجام دادم" : "در انتظار انجام"}
+                      value={
+                        isDoneByMe
+                          ? item.category === "exam"
+                            ? "خوندم"
+                            : "انجام دادم"
+                          : "در انتظار انجام"
+                      }
                       valueClass={isDoneByMe ? "text-success" : "text-white"}
                     />
                   </div>

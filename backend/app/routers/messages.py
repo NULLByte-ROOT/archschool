@@ -12,6 +12,14 @@ from ..ws_manager import manager
 
 router = APIRouter()
 
+# Members are read-only by design: they can never post, reply or pin anything.
+CHAT_LOCK_DETAIL = "برای دسترسی به گفتگو، از ادمین اجازه بگیرید."
+
+
+def _require_chat_writer(user: models.User) -> None:
+    if not models.is_staff(user):
+        raise HTTPException(status_code=403, detail=CHAT_LOCK_DETAIL)
+
 
 def _room_filter(message: models.Message):
     if message.assignment_id is not None:
@@ -283,6 +291,7 @@ async def create_message(
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
+    _require_chat_writer(current)
     content = data.content.strip()
     chat.validate_file_url(data.file_url)
 
@@ -348,7 +357,7 @@ async def clear_messages(
     current: models.User = Depends(get_current_user),
 ):
     """Admin-only: wipe every message in the current room."""
-    if not (current.is_admin or current.role == models.ROLE_ADMIN):
+    if not models.is_staff(current):
         raise HTTPException(status_code=403, detail="فقط مدیر می‌تواند گفتگو را پاک کند")
 
     query = db.query(models.Message)
@@ -393,9 +402,7 @@ async def delete_message(
     current: models.User = Depends(get_current_user),
 ):
     message = chat.load_visible_message(db, message_id, current.id)
-    if message.sender_id != current.id and not (
-        current.is_admin or current.role == models.ROLE_ADMIN
-    ):
+    if message.sender_id != current.id and not models.is_staff(current):
         raise HTTPException(
             status_code=403, detail="فقط فرستنده می‌تواند پیام را حذف کند"
         )
@@ -412,6 +419,7 @@ async def pin_message(
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
+    _require_chat_writer(current)
     message = chat.load_visible_message(db, message_id, current.id)
     room = chat.message_room(message)
     db.query(models.Message).filter(_room_filter(message)).update(
@@ -431,6 +439,7 @@ async def unpin_message(
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
+    _require_chat_writer(current)
     message = chat.load_visible_message(db, message_id, current.id)
     room = chat.message_room(message)
     message.is_pinned = False

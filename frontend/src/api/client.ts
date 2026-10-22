@@ -24,7 +24,7 @@ function clearSessionAndRedirect(): void {
   }
 }
 
-export type Role = "admin" | "editor" | "member";
+export type Role = "owner" | "admin" | "member";
 
 export interface User {
   id: number;
@@ -408,6 +408,33 @@ export async function uploadAssignmentFile(
 
 export async function deleteAttachment(attachmentId: number): Promise<void> {
   return request<void>(`/attachments/${attachmentId}`, { method: "DELETE" });
+}
+
+// ---------- Server stats (owner only) ----------
+export interface ServerUsageReading {
+  used: number;
+  total: number;
+  percent: number;
+}
+
+export interface ServerStats {
+  cpu: {
+    percent: number;
+    per_core: number[];
+    core_count: number;
+    load_1: number;
+    load_5: number;
+    load_15: number;
+  };
+  memory: ServerUsageReading;
+  disk: ServerUsageReading;
+  swap: ServerUsageReading;
+  uptime_seconds: number;
+  timestamp: number;
+}
+
+export async function fetchServerStats(signal?: AbortSignal): Promise<ServerStats> {
+  return request<ServerStats>("/server-stats/", { signal });
 }
 
 // ---------- Team / leaderboard ----------

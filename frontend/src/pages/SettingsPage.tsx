@@ -52,10 +52,10 @@ export default function SettingsPage() {
       icon: ShieldCheck,
       label: "ROLE",
       value:
-        user?.role === "admin"
-          ? "ادمین"
-          : user?.role === "editor"
-            ? "ویرایشگر"
+        user?.role === "owner"
+          ? "مالک (Owner)"
+          : user?.role === "admin" || user?.is_admin
+            ? "ادمین"
             : "عضو",
       mono: false,
     },

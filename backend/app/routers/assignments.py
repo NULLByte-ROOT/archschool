@@ -12,12 +12,21 @@ from ..storage import delete_upload, save_upload
 
 router = APIRouter()
 
+MANAGE_DETAIL = "فقط ادمین می‌تواند تکلیف بسازد یا ویرایش کند"
+
 
 def _can_manage(assignment: models.Assignment, user: models.User) -> bool:
-    """Admins and editors may manage any assignment; members only their own."""
-    if user.is_admin or user.role in (models.ROLE_ADMIN, models.ROLE_EDITOR):
-        return True
-    return assignment.creator_id == user.id or assignment.owner_id == user.id
+    """Admins and owners manage every assignment.
+
+    Under the new RBAC members create/edit nothing (read-only); their only
+    write action is toggling their own completion via the dedicated endpoint.
+    """
+    return models.is_staff(user)
+
+
+def _require_staff(user: models.User) -> None:
+    if not models.is_staff(user):
+        raise HTTPException(status_code=403, detail=MANAGE_DETAIL)
 
 
 def _serialize(
@@ -206,6 +215,7 @@ def create_assignment(
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
+    _require_staff(current)
     payload = data.model_dump()
     completed = bool(payload.pop("completed", False))
     obj = models.Assignment(

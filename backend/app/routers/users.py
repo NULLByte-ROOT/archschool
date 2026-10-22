@@ -103,7 +103,7 @@ def list_users(
 def create_user(
     data: schemas.UserCreate,
     db: Session = Depends(get_db),
-    _: models.User = Depends(get_current_admin),
+    current_user: models.User = Depends(get_current_admin),
 ):
     username = normalize_username(data.username)
     exists = (
@@ -132,10 +132,16 @@ def create_user(
     if role not in models.VALID_ROLES:
         raise HTTPException(status_code=400, detail="نقش نامعتبر است")
 
+    # Only an owner may mint another owner; admins manage member/admin only.
+    if role == models.ROLE_OWNER and not models.is_owner(current_user):
+        raise HTTPException(
+            status_code=403, detail="فقط Owner می‌تواند نقش Owner بسازد"
+        )
+
     user = models.User(
         username=username,
         code=code,
-        is_admin=role == models.ROLE_ADMIN,
+        is_admin=role in (models.ROLE_ADMIN, models.ROLE_OWNER),
         role=role,
         is_active=True,
     )
@@ -150,13 +156,29 @@ def update_user(
     user_id: int,
     data: schemas.UserUpdate,
     db: Session = Depends(get_db),
-    _: models.User = Depends(get_current_admin),
+    current_user: models.User = Depends(get_current_admin),
 ):
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     updates = data.model_dump(exclude_unset=True)
+
+    # Role guardrails: admins manage member/admin; the owner role can only be
+    # granted or revoked by an owner. An admin can also never touch the owner
+    # account itself (demote/deactivate is owner business).
+    if "role" in updates and updates["role"] not in models.VALID_ROLES:
+        raise HTTPException(status_code=400, detail="نقش نامعتبر است")
+    if models.is_owner(user) and not models.is_owner(current_user):
+        if "role" in updates and updates["role"] != models.ROLE_OWNER:
+            raise HTTPException(
+                status_code=403, detail="فقط Owner می‌تواند حساب Owner را تغییر دهد"
+            )
+    if "role" in updates and updates["role"] == models.ROLE_OWNER:
+        if not models.is_owner(current_user):
+            raise HTTPException(
+                status_code=403, detail="فقط Owner می‌تواند نقش Owner بسازد"
+            )
     if updates.get("username"):
         updates["username"] = normalize_username(updates["username"])
     if updates.get("code"):
@@ -178,17 +200,16 @@ def update_user(
             raise HTTPException(
                 status_code=400, detail="این کد دسترسی قبلاً استفاده شده است"
             )
-    if "role" in updates and updates["role"] not in models.VALID_ROLES:
-        raise HTTPException(status_code=400, detail="نقش نامعتبر است")
 
     for key, value in updates.items():
         setattr(user, key, value)
 
     # Keep the legacy `is_admin` flag and the RBAC `role` in sync so both the
-    # old admin-only checks and the new role checks agree.
+    # old admin-only checks and the new role checks agree. Owner keeps its
+    # role even if only `is_admin` is patched.
     if "role" in updates:
-        user.is_admin = user.role == models.ROLE_ADMIN
-    elif "is_admin" in updates:
+        user.is_admin = user.role in (models.ROLE_ADMIN, models.ROLE_OWNER)
+    elif "is_admin" in updates and not models.is_owner(user):
         user.role = models.ROLE_ADMIN if user.is_admin else models.ROLE_MEMBER
 
     db.commit()
@@ -207,5 +228,9 @@ def delete_user(
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if models.is_owner(user) and not models.is_owner(current):
+        raise HTTPException(
+            status_code=403, detail="فقط Owner می‌تواند حساب Owner را حذف کند"
+        )
     db.delete(user)
     db.commit()

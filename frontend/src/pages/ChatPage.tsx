@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   Crown,
   Globe2,
   Loader2,
+  Lock,
   MessageCircle,
   Search,
 } from "lucide-react";
@@ -26,7 +28,7 @@ interface Conversation {
 }
 
 export default function ChatPage() {
-  const { user } = useAuth();
+  const { user, isMember } = useAuth();
   const isMobile = useIsMobileWidth();
   const [team, setTeam] = useState<PublicUser[]>([]);
   const [overview, setOverview] = useState<ChatOverview | null>(null);
@@ -133,6 +135,29 @@ export default function ChatPage() {
 
   const listVisible = !isMobile || !mobileChatOpen;
   const chatVisible = !isMobile || mobileChatOpen;
+
+  // اعضای معمولی به گفتگو دسترسی ندارند: پیام راهنما به‌جای کل صفحه.
+  if (isMember) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.25 }}
+        className="flex h-full min-h-0 items-center justify-center overflow-hidden p-3"
+      >
+        <div className="panel relative w-full max-w-sm p-8 text-center">
+          <Corners />
+          <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/15 bg-white/[0.05]">
+            <Lock size={24} className="text-fg-300" />
+          </span>
+          <h2 className="mb-2 text-lg font-extrabold text-white">گفتگو در دسترس نیست</h2>
+          <p className="text-sm leading-7 text-fg-300">
+            برای دسترسی به گفتگو، از ادمین اجازه بگیرید.
+          </p>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 gap-3 overflow-hidden">

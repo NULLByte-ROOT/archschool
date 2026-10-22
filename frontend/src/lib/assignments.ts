@@ -10,18 +10,18 @@ import {
 import type { Assignment, User } from "../api/client";
 
 /**
- * Admins and editors may manage any assignment; members only the ones they
- * created. Mirrors the backend `_can_manage` check.
+ * Admins and owners manage every assignment; members create/edit nothing
+ * (read-only). Mirrors the backend `_can_manage` check — the legacy "editor"
+ * role no longer exists and boot migrations convert those users to admin.
  */
 export function canManageAssignment(
-  assignment: Assignment,
+  _assignment: Assignment,
   user: User | null
 ): boolean {
   if (!user) return false;
-  if (user.is_admin || user.role === "admin" || user.role === "editor") {
-    return true;
-  }
-  return assignment.creator_id === user.id;
+  return user.is_admin || user.role === "admin" || user.role === "owner";
+  // NOTE: creators who are plain members no longer get edit rights, matching
+  // the new permission model ("Member cannot create/edit/delete").
 }
 
 // ------------------------------------------------------------------
@@ -58,7 +58,6 @@ export const CATEGORY_GROUPS: CategoryGroup[] = [
       { id: "term1", label: "نوبت اول" },
       { id: "term2", label: "نوبت دوم" },
       { id: "question", label: "پرسش" },
-      { id: "poem", label: "حفظ شعر" },
     ],
   },
 ];
