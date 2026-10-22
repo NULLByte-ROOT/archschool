@@ -125,8 +125,13 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // مهلت منطبق با زنگ‌های مدرسه (پایان روز درسی، نه نیمه‌شب بی‌ربط)
-  const countdown = dueCountdown(item?.due_date ?? null, now, bells);
+  // مهلت منطبق با زنگ‌های مدرسه — همان تابع/داده/نگاشتِ درس→زنگِ صفحهٔ فهرست
+  const countdown = dueCountdown(
+    item?.due_date ?? null,
+    now,
+    bells,
+    item?.subject_id
+  );
   const tone = countdownTone(countdown);
 
   // گالری پیوست‌های تصویری همین تکلیف برای نمایشگر تصویر سراسری

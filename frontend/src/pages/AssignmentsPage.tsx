@@ -48,7 +48,6 @@ import {
   subjectName,
 } from "../lib/assignments";
 import {
-  bellsFrom,
   countdownTone,
   dueCountdown,
   type Bell,
@@ -87,8 +86,15 @@ const VIEW_BUTTONS: { key: View; label: string; icon: LucideIcon }[] = [
   { key: "list", label: "نمایش لیستی", icon: List },
 ];
 
-function assignDeadline(a: Assignment) {
-  return a.due_date ? parseDue(a.due_date).getTime() : Infinity;
+/** مرتب‌سازی بر پایهٔ «مهلت مؤثر» (شروع زنگ مرتبط) — هم‌مقام با چیزی که نمایش داده می‌شود */
+function assignAlignedDeadline(
+  a: Assignment,
+  now: number,
+  bells: Bell[]
+): number {
+  if (!a.due_date) return Infinity;
+  const cd = dueCountdown(a.due_date, now, bells, a.subject_id);
+  return cd ? cd.alignedDueMs : Infinity;
 }
 
 const listCache = new Map<string, Assignment[]>();
@@ -160,7 +166,7 @@ const AssignmentItem = memo(function AssignmentItem({
   onDelete,
   onEdit,
 }: ItemProps) {
-  const countdown = dueCountdown(item.due_date, now, bells);
+  const countdown = dueCountdown(item.due_date, now, bells, item.subject_id);
   const tone = countdownTone(countdown);
   const group = categoryGroup(item.category);
   const GroupIcon = group?.id === "exam" ? GraduationCap : ClipboardList;
@@ -408,8 +414,8 @@ export default function AssignmentsPage() {
   const navigate = useNavigate();
   const { user, isMember } = useAuth();
   const now = useNow(30_000);
-  const { periods: bellPeriods } = useBellSchedule();
-  const bells = useMemo(() => bellsFrom(bellPeriods), [bellPeriods]);
+  // دقیقاً همان منبع دادهٔ صفحهٔ جزئیات: هوک مشترک برنامهٔ زنگ‌ها
+  const { bells } = useBellSchedule();
   const [items, setItems] = useState<Assignment[]>(() => listCache.get(cacheKey("all")) ?? []);
   const [status, setStatus] = useState<Status>("all");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -494,20 +500,20 @@ export default function AssignmentsPage() {
       if (sort === "newest") return parseDue(b.created_at).getTime() - parseDue(a.created_at).getTime();
       if (sort === "oldest") return parseDue(a.created_at).getTime() - parseDue(b.created_at).getTime();
       return (
-        assignDeadline(a) - assignDeadline(b) ||
+        assignAlignedDeadline(a, now, bells) - assignAlignedDeadline(b, now, bells) ||
         parseDue(b.created_at).getTime() - parseDue(a.created_at).getTime()
       );
     });
     return sorted;
-  }, [items, categoryFilter, subjectFilter, sort]);
+  }, [items, categoryFilter, subjectFilter, sort, now, bells]);
 
   const upcoming = useMemo(
     () =>
       [...items]
         .filter((item) => !item.is_completed_by_me && item.due_date)
-        .sort((a, b) => assignDeadline(a) - assignDeadline(b))
+        .sort((a, b) => assignAlignedDeadline(a, now, bells) - assignAlignedDeadline(b, now, bells))
         .slice(0, 5),
-    [items]
+    [items, now, bells]
   );
 
   const completedCount = useMemo(
@@ -533,7 +539,7 @@ export default function AssignmentsPage() {
         later.push(item);
         continue;
       }
-      const cd = dueCountdown(item.due_date, now, bells);
+      const cd = dueCountdown(item.due_date, now, bells, item.subject_id);
       if (!cd || cd.overdue) {
         overdue.push(item);
       } else if (cd.urgent) {
@@ -647,7 +653,7 @@ export default function AssignmentsPage() {
           ) : (
             <ul className="space-y-1.5">
               {upcoming.map((item) => {
-            const cd = dueCountdown(item.due_date, now, bells);
+            const cd = dueCountdown(item.due_date, now, bells, item.subject_id);
             const tone = countdownTone(cd);
             return (
               <li key={item.id}>

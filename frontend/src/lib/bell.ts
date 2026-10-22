@@ -1,5 +1,5 @@
 import { DAY_MS, parseDue, calendarDayDiff, todayIndex } from "./assignments";
-import { PERIOD_LABELS, PERIOD_TIMES } from "../data";
+import { PERIOD_LABELS, PERIOD_TIMES, TIMETABLE } from "../data";
 import type { SchoolPeriod } from "../api/client";
 
 /**
@@ -101,6 +101,35 @@ export function dayBellWindow(date: Date, bells: Bell[]): DayBellWindow {
   };
 }
 
+/**
+ * شمارهٔ اولین زنگی که «این درس» در روزِ `date` طبق برنامهٔ هفتگی (TIMETABLE)
+ * دارد. بازگشت null یعنی روز تعطیل است یا این درس در آن روز برنامه ندارد؛
+ * در این حالت شمارش به‌ناچار به زنگ اول کل روز برمی‌گردد.
+ * سلول‌های چنددرسه (multi) هم بررسی می‌شوند؛ در روزهای ۴‌زنگِ یک‌درسه (span=4)
+ * درس از زنگ ۱ شروع می‌شود.
+ */
+export function subjectBellNumber(
+  subjectId: string | null | undefined,
+  date: Date
+): number | null {
+  if (!subjectId) return null;
+  const dayIndex = todayIndex(date);
+  const day = TIMETABLE[dayIndex];
+  if (!day) return null; // پنجشنبه/جمعه
+  let period = 0; // زنگ‌های مصرف‌شده تا این لحظه
+  for (const cell of day.cells) {
+    const subjectIds =
+      cell.kind === "class"
+        ? [cell.subject.id]
+        : cell.kind === "multi"
+          ? cell.subjects.map((s) => s.id)
+          : [];
+    if (subjectIds.includes(subjectId)) return period + 1;
+    period += cell.span;
+  }
+  return null;
+}
+
 /** زنگ فعال الان (اگر داخل یک زنگ باشیم) */
 export function activeBell(date: Date, bells: Bell[]): Bell | null {
   const window = dayBellWindow(date, bells);
@@ -168,19 +197,24 @@ function humanLeft(ms: number): string {
 }
 
 /**
- * کوت‌داون دقیق تا شروع زنگِ مربوط به روز مهلت (بر پایهٔ زنگ‌های ادمین).
+ * کوت‌داون دقیق تا شروعِ زنگِ مرتبط با روز مهلت (بر پایهٔ زنگ‌های ادمین).
  *
  * منطق هدف:
- * - روز آینده درسی: دقیقاً «شروعِ زنگ اول» همان روز (مثال: دوشنبه ۰۸:۰۰).
- * - امروز: شروعِ نزدیک‌ترین زنگی که هنوز شروع نشده؛ اگر همهٔ زنگ‌ها شروع
- *   شده‌اند، تا پایان روز مدرسه.
+ * - روز آینده درسی: شروعِ زنگی که «درسِ تکلیف» (subjectId) در آن روز برنامه
+ *   دارد؛ اگر درس در آن روز نبود یا زنگش تعریف نشده بود، شروعِ زنگ اول
+ *   (مثال: شنبه ۰۸:۰۰). با این حال هر دو صفحهٔ «تکالیف» و «جزئیات تکلیف»
+ *   از همین یک تابع با یک آرگومان subjectId استفاده می‌کنند.
+ * - امروز: اگر زنگِ موضوع تکلیف هنوز شروع نشده، دقیقاً شروعِ همان زنگ؛
+ *   وگرنه شروعِ نزدیک‌ترین زنگِ شروع‌نشده؛ اگر همهٔ زنگ‌ها شروع شده‌اند،
+ *   تا پایان روز مدرسه.
  * - روز تعطیل: خودِ مهلت.
  * `bells` خالی/ناموجود → پیش‌فرض ثابت ۰۸:۰۰ تا ۱۴:۰۰.
  */
 export function dueCountdown(
   due: string | null | undefined,
   now: number,
-  bells: Bell[]
+  bells: Bell[],
+  subjectId?: string | null
 ): DueCountdown | null {
   if (!due) return null;
   const dueDate = parseDue(due);
@@ -189,6 +223,7 @@ export function dueCountdown(
 
   const dayDiff = calendarDayDiff(dueDate, new Date(now));
   const window = dayBellWindow(dueDate, bells);
+  const subjectBell = subjectBellNumber(subjectId, dueDate);
 
   let target: number;
   let isAligned = false;
@@ -196,10 +231,18 @@ export function dueCountdown(
     // روز تعطیل: مهلت خام
     target = dueMs;
   } else if (dayDiff === 0) {
-    // امروز: شروع اولین زنگی که هنوز شروع نشده؛ وگرنه پایان مدرسه
-    const upcoming = bells.find(
-      (b) => window.dayStartMs + b.start * 60_000 > now
-    );
+    // امروز: اول زنگِ موضوع تکلیف اگر هنوز شروع نشده؛ وگرنه نزدیک‌ترین
+    // زنگِ شروع‌نشده؛ وگرنه پایان مدرسه
+    const pendingSubjectBell = subjectBell
+      ? bells.find(
+          (b) =>
+            b.number === subjectBell &&
+            window.dayStartMs + b.start * 60_000 > now
+        )
+      : null;
+    const upcoming =
+      pendingSubjectBell ??
+      bells.find((b) => window.dayStartMs + b.start * 60_000 > now);
     if (upcoming) {
       target = window.dayStartMs + upcoming.start * 60_000;
       isAligned = true;
@@ -208,8 +251,13 @@ export function dueCountdown(
       isAligned = true;
     }
   } else {
-    // روز آینده درسی: دقیقاً شروعِ زنگ اول همان روز (مثلاً دوشنبه ۰۸:۰۰)
-    target = window.dayStartMs + schoolStart(bells) * 60_000;
+    // روز آینده درسی: شروعِ زنگِ درسِ تکلیف (یا زنگ اول اگر درس در آن
+    // روز برنامه ندارد)
+    const subjectPending = subjectBell
+      ? bells.find((b) => b.number === subjectBell)
+      : null;
+    target =
+      window.dayStartMs + (subjectPending?.start ?? schoolStart(bells)) * 60_000;
     isAligned = true;
   }
 
