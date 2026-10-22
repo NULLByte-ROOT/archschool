@@ -5,7 +5,7 @@ from typing import List
 
 from .. import chat, models, schemas
 from ..database import get_db
-from ..dependencies import get_current_admin, get_current_user
+from ..dependencies import get_current_admin, get_current_owner, get_current_user
 from ..security import (
     generate_code,
     is_valid_access_code,
