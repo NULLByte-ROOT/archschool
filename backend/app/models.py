@@ -77,6 +77,23 @@ class User(Base):
     )
 
 
+class SchoolSchedule(Base):
+    """Admin-configurable school bell times (one row per period, 1..4).
+
+    ``start_time`` / ``end_time`` are ``"HH:MM"`` strings in the school's local
+    wall clock. Everything that computes school-time semantics — the current
+    period, the "time left in the school day" deadline alignment — reads these
+    instead of hard-coded 08:00-14:00 numbers.
+    """
+
+    __tablename__ = "school_schedule"
+
+    id = Column(Integer, primary_key=True, index=True)
+    period_number = Column(Integer, nullable=False, unique=True, index=True)
+    start_time = Column(String(5), nullable=False)
+    end_time = Column(String(5), nullable=False)
+
+
 class Assignment(Base):
     __tablename__ = "assignments"
 

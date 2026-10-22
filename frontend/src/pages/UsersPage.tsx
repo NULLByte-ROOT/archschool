@@ -12,6 +12,7 @@ import PageHeader from "../components/PageHeader";
 import Avatar from "../components/Avatar";
 import Corners from "../components/Corners";
 import Dropdown from "../components/Dropdown";
+import BellSchedulePanel from "../components/BellSchedulePanel";
 import { parseDue } from "../lib/assignments";
 
 const ROLE_OPTIONS: { value: Role; label: string; description: string }[] = [
@@ -321,6 +322,11 @@ export default function UsersPage() {
             </AnimatePresence>
           </ul>
         )}
+      </div>
+
+      {/* برنامه‌ی زنگ‌های مدرسه (فقط ادمین) */}
+      <div className="mt-6">
+        <BellSchedulePanel />
       </div>
     </div>
   );

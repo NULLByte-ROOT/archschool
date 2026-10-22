@@ -122,6 +122,19 @@ export interface CompletedByUser {
   username: string | null;
 }
 
+/** One school period in the admin-configured bell schedule. */
+export interface SchoolPeriod {
+  period_number: number;
+  /** محلی، "HH:MM" */
+  start_time: string;
+  /** محلی، "HH:MM" */
+  end_time: string;
+}
+
+export interface SchoolSchedule {
+  periods: SchoolPeriod[];
+}
+
 export interface Assignment {
   id: number;
   title: string;
@@ -246,6 +259,20 @@ export async function updateMe(data: {
 
 export async function deleteMyAvatar(): Promise<User> {
   return request<User>("/users/me/avatar", { method: "DELETE" });
+}
+
+// ---------- School schedule (bell times) ----------
+export async function fetchSchoolSchedule(): Promise<SchoolSchedule> {
+  return request<SchoolSchedule>("/schedule");
+}
+
+export async function updateSchoolSchedule(
+  periods: SchoolPeriod[]
+): Promise<SchoolSchedule> {
+  return request<SchoolSchedule>("/schedule", {
+    method: "PUT",
+    body: JSON.stringify({ periods }),
+  });
 }
 
 // ---------- Users (admin) ----------

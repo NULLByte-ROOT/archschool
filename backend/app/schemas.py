@@ -199,3 +199,31 @@ class TeamMemberOut(BaseModel):
     user: PublicUserOut
     completed: bool
     is_self: bool = False
+
+
+# ------------------------------------------------------------------
+#  برنامه‌ی زنگ‌های مدرسه (School bell times)
+# ------------------------------------------------------------------
+TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class SchoolPeriodIn(BaseModel):
+    period_number: int = Field(..., ge=1, le=4)
+    start_time: str = Field(..., pattern=TIME_PATTERN, examples=["08:00"])
+    end_time: str = Field(..., pattern=TIME_PATTERN, examples=["09:30"])
+
+
+class SchoolScheduleOut(BaseModel):
+    periods: list[SchoolPeriodIn]
+
+    @property
+    def school_start(self) -> str | None:
+        return self.periods[0].start_time if self.periods else None
+
+    @property
+    def school_end(self) -> str | None:
+        return self.periods[-1].end_time if self.periods else None
+
+
+class SchoolScheduleUpdate(BaseModel):
+    periods: list[SchoolPeriodIn] = Field(..., min_length=4, max_length=4)

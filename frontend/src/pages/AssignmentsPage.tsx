@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
+  AlarmClock,
   ArrowUpDown,
   BookOpen,
   Calendar,
@@ -35,21 +36,28 @@ import AddAssignmentModal from "../components/AddAssignmentModal";
 import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
 import {
-  DAY_MS,
   SUBJECT_LIST,
   TONE_BORDER,
   TONE_DOT,
-  TONE_GLOW,
   TONE_TEXT,
   canManageAssignment,
   categoryGroup,
   categoryItemLabel,
-  deadlineTone,
   formatDue,
   parseDue,
-  relativeDue,
   subjectName,
 } from "../lib/assignments";
+import {
+  bellsFrom,
+  countdownTone,
+  dueCountdown,
+  type Bell,
+  type CountdownTone,
+} from "../lib/bell";
+import { useBellSchedule } from "../hooks/useBellSchedule";
+// Recharts سنگین است: فقط همین داشبورد از آن استفاده می‌کند، پس جدا از باندل اصلی بارگذاری می‌شود
+const DeadlineTrendChart = lazy(() => import("../components/DeadlineTrendChart"));
+const SubjectBreakdownChart = lazy(() => import("../components/SubjectBreakdownChart"));
 
 type Status = "all" | "active" | "done";
 type View = "grid" | "list";
@@ -93,6 +101,7 @@ interface ItemProps {
   view: View;
   index: number;
   now: number;
+  bells: Bell[];
   canManage: boolean;
   onOpen: (id: number) => void;
   onToggle: (item: Assignment) => void;
@@ -144,13 +153,15 @@ const AssignmentItem = memo(function AssignmentItem({
   view,
   index,
   now,
+  bells,
   canManage,
   onOpen,
   onToggle,
   onDelete,
   onEdit,
 }: ItemProps) {
-  const tone = deadlineTone(item.due_date, now);
+  const countdown = dueCountdown(item.due_date, now, bells);
+  const tone = countdownTone(countdown);
   const group = categoryGroup(item.category);
   const GroupIcon = group?.id === "exam" ? GraduationCap : ClipboardList;
   const done = item.is_completed_by_me;
@@ -159,6 +170,7 @@ const AssignmentItem = memo(function AssignmentItem({
     initial: { opacity: 0, y: 16 },
     animate: { opacity: 1, y: 0 },
     exit: { opacity: 0, scale: 0.96 },
+    whileHover: { scale: view === "grid" ? 1.02 : 1.005, y: view === "grid" ? -3 : -1 },
     transition: {
       duration: 0.22,
       ease: [0.16, 1, 0.3, 1] as const,
@@ -174,10 +186,10 @@ const AssignmentItem = memo(function AssignmentItem({
         onToggle(item);
       }}
       title={done ? "من انجام دادم" : "انجام دادم"}
-      className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition sm:min-h-0 ${
+      className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium backdrop-blur transition sm:min-h-0 ${
         done
           ? "border-success/30 bg-success/10 text-success"
-          : "border-white/12 text-fg-300 hover:border-white/30 hover:text-white"
+          : "border-white/12 bg-white/[0.03] text-fg-300 hover:border-white/30 hover:bg-white/[0.08] hover:text-white"
       }`}
     >
       <Check size={12} strokeWidth={3} />
@@ -212,20 +224,47 @@ const AssignmentItem = memo(function AssignmentItem({
     </button>
   ) : null;
 
+  const CountdownChip = countdown ? (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span
+        className={`inline-flex max-w-full items-center gap-1.5 truncate rounded-xl border px-2.5 py-1 text-[10.5px] font-bold backdrop-blur-md ${CHIP[tone]}`}
+        title={countdown.label}
+      >
+        <AlarmClock size={11} className="shrink-0" />
+        <span className="truncate">
+          {countdown.overdue || countdown.dayDiff < 0
+            ? countdown.label
+            : countdown.short}
+        </span>
+      </span>
+      {countdown.periodNote && (
+        <span className="truncate ps-1 text-[9px] text-fg-500">
+          {countdown.periodNote}
+        </span>
+      )}
+    </div>
+  ) : null;
+
   if (view === "list") {
     return (
       <motion.div
         {...motionProps}
-        className={`panel panel-hover group relative flex cursor-pointer flex-wrap items-center gap-3 overflow-hidden rounded-2xl border-2 py-3.5 pr-4 pl-3 sm:flex-nowrap sm:gap-4 ${TONE_BORDER[tone]} ${TONE_GLOW[tone]}`}
+        className={`group relative flex cursor-pointer flex-wrap items-center gap-3 overflow-hidden rounded-2xl border bg-gradient-to-l from-white/[0.06] via-white/[0.03] to-transparent py-3.5 pr-4 pl-3 backdrop-blur-xl transition-[border-color,box-shadow,background-color] duration-300 sm:flex-nowrap sm:gap-4 ${SURFACE_BORDER[tone]} ${SURFACE_GLOW[tone]}`}
       >
+        {/* درخشش زبانه رنگی هنگام hover */}
+        <span
+          className={`pointer-events-none absolute -left-16 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full blur-3xl transition-opacity duration-500 ${
+            HOVER_BLOB[tone]
+          }`}
+        />
         <Corners />
         <span className={`absolute top-3 right-0 bottom-3 w-1 rounded-full ${TONE_DOT[tone]}`} />
 
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05]">
-          <GroupIcon size={18} className="text-white" />
+        <span className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.06] shadow-inner">
+          <GroupIcon size={18} className={done ? "text-fg-500" : "text-white"} />
         </span>
 
-        <div className="min-w-0 flex-1">
+        <div className="relative min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3
               className={`min-w-0 truncate text-[14px] font-bold ${
@@ -247,15 +286,15 @@ const AssignmentItem = memo(function AssignmentItem({
                 <span className="truncate">{subjectName(item.subject_id, item.course)}</span>
               </span>
             )}
-            <span className={`flex items-center gap-1.5 ${TONE_TEXT[tone]}`}>
+            <span className="flex items-center gap-1.5 text-fg-500">
               <Calendar size={11} className="shrink-0 opacity-70" />
               <span className="truncate">{formatDue(item.due_date)}</span>
-              <span className="shrink-0 opacity-70">· {relativeDue(item.due_date, now)}</span>
             </span>
           </div>
         </div>
 
-        <div className="ms-auto flex shrink-0 items-center gap-2">
+        <div className="relative ms-auto flex shrink-0 items-center gap-2">
+          {CountdownChip}
           <CompletedStack users={item.completed_by_users} />
           {toggle}
           {editBtn}
@@ -271,21 +310,32 @@ const AssignmentItem = memo(function AssignmentItem({
   return (
     <motion.div
       {...motionProps}
-      className={`panel panel-hover group relative cursor-pointer overflow-hidden rounded-2xl border-2 p-4 ${TONE_BORDER[tone]} ${TONE_GLOW[tone]}`}
+      className={`group relative cursor-pointer overflow-hidden rounded-3xl border bg-gradient-to-b from-white/[0.07] via-white/[0.04] to-white/[0.02] p-4 backdrop-blur-xl transition-[border-color,box-shadow,transform] duration-300 ${SURFACE_BORDER[tone]} ${SURFACE_GLOW[tone]}`}
     >
+      {/* هالهٔ رنگی گوشه */}
+      <span
+        className={`pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full opacity-[0.07] blur-3xl transition-opacity duration-500 group-hover:opacity-[0.18] ${
+          HOVER_BLOB[tone]
+        }`}
+      />
+      {/* برق شیشه‌ای */}
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-l from-transparent via-white/40 to-transparent opacity-60" />
       <Corners />
       <span className={`absolute top-4 right-0 h-[calc(100%-2rem)] w-1 rounded-full ${TONE_DOT[tone]}`} />
 
-      <div className="mb-3 flex items-center gap-2 pr-2">
-        <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-white/12 bg-white/[0.05]">
-          <GroupIcon size={15} className="text-white" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[11px] font-semibold text-fg-300">
+      <div className="relative mb-3 flex items-start justify-between gap-2 pr-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-white/12 bg-white/[0.06]">
+            <GroupIcon size={15} className={done ? "text-fg-500" : "text-white"} />
+          </span>
+          <p className="min-w-0 truncate text-[11px] font-semibold text-fg-300">
             {group?.label ?? "بدون دسته"}
-            {item.subtype && <span className="text-fg-500"> · {categoryItemLabel(item.subtype)}</span>}
+            {item.subtype && (
+              <span className="text-fg-500"> · {categoryItemLabel(item.subtype)}</span>
+            )}
           </p>
         </div>
+        {CountdownChip}
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2 pr-2">
@@ -306,14 +356,13 @@ const AssignmentItem = memo(function AssignmentItem({
             <span className="truncate">{subjectName(item.subject_id, item.course)}</span>
           </p>
         )}
-        <p className={`flex items-center gap-1.5 ${TONE_TEXT[tone]}`}>
+        <p className="flex items-center gap-1.5 text-fg-500">
           <Calendar size={12} className="shrink-0 opacity-70" />
           <span className="truncate">{formatDue(item.due_date)}</span>
-          <span className="shrink-0 opacity-70">· {relativeDue(item.due_date, now)}</span>
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-white/8 pt-3 pr-2">
+      <div className="relative flex flex-wrap items-center gap-2 border-t border-white/8 pt-3 pr-2">
         <CompletedStack users={item.completed_by_users} />
         {toggle}
         {editBtn}
@@ -326,10 +375,37 @@ const AssignmentItem = memo(function AssignmentItem({
   );
 });
 
+// سطح شیشه‌ای: حاشیهٔ خنثی گوشه‌ها، hover با هالهٔ رنگی همان زنگ
+const SURFACE_BORDER: Record<CountdownTone, string> = {
+  red: "border-red-500/35 hover:border-red-500/70",
+  yellow: "border-yellow-500/25 hover:border-yellow-500/60",
+  none: "border-white/10 hover:border-white/25",
+};
+
+const SURFACE_GLOW: Record<CountdownTone, string> = {
+  red: "hover:shadow-[0_18px_50px_-24px_rgba(248,113,113,0.55)]",
+  yellow: "hover:shadow-[0_18px_50px_-24px_rgba(251,191,36,0.5)]",
+  none: "hover:shadow-[0_18px_50px_-24px_rgba(255,255,255,0.35)]",
+};
+
+const HOVER_BLOB: Record<CountdownTone, string> = {
+  red: "bg-red-500",
+  yellow: "bg-yellow-400",
+  none: "bg-white",
+};
+
+const CHIP: Record<CountdownTone, string> = {
+  red: "border-red-500/30 bg-red-500/10 text-red-300",
+  yellow: "border-yellow-500/25 bg-yellow-500/10 text-yellow-300",
+  none: "border-white/12 bg-white/[0.04] text-fg-300",
+};
+
 export default function AssignmentsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const now = useNow(30_000);
+  const { periods: bellPeriods } = useBellSchedule();
+  const bells = useMemo(() => bellsFrom(bellPeriods), [bellPeriods]);
   const [items, setItems] = useState<Assignment[]>(() => listCache.get(cacheKey("all")) ?? []);
   const [status, setStatus] = useState<Status>("all");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -426,28 +502,50 @@ export default function AssignmentsPage() {
     [items]
   );
 
+  // گروه‌بندی اکید بر اساس زمان منطبق با زنگ‌های مدرسه:
+  // - «فوری» فقط تکالیفی که دقیقاً کمتر از ۴۸ ساعت تا مهلت مؤثر دارند
+  // - گذشته‌ها گروه جداگانه‌اند تا با مهلت‌های واقعی قاطی نشوند
+  // - «پیش‌رو» = ۴۸ ساعت و بیشتر
   const groups = useMemo(() => {
+    const overdue: Assignment[] = [];
     const urgent: Assignment[] = [];
     const later: Assignment[] = [];
     const completed: Assignment[] = [];
     for (const item of displayed) {
       if (item.is_completed_by_me) {
         completed.push(item);
-      } else if (
-        item.due_date &&
-        parseDue(item.due_date).getTime() - now <= DAY_MS * 2
-      ) {
+        continue;
+      }
+      if (!item.due_date) {
+        later.push(item);
+        continue;
+      }
+      const cd = dueCountdown(item.due_date, now, bells);
+      if (!cd || cd.overdue) {
+        overdue.push(item);
+      } else if (cd.urgent) {
         urgent.push(item);
       } else {
         later.push(item);
       }
     }
     return [
-      { key: "urgent", title: "فوری", tone: "red" as const, items: urgent },
+      {
+        key: "overdue",
+        title: "گذشته از مهلت",
+        tone: "red" as const,
+        items: overdue,
+      },
+      {
+        key: "urgent",
+        title: "فوری (کمتر از ۴۸ ساعت)",
+        tone: "red" as const,
+        items: urgent,
+      },
       { key: "upcoming", title: "پیش‌رو", tone: "yellow" as const, items: later },
       { key: "done", title: "انجام‌شده", tone: "none" as const, items: completed },
     ].filter((group) => group.items.length > 0);
-  }, [displayed, now]);
+  }, [displayed, now, bells]);
 
   const openCreate = useCallback(() => {
     setEditing(null);
@@ -492,6 +590,26 @@ export default function AssignmentsPage() {
         }
       />
 
+      {/* داشبورد مینی: میدان دید کلی */}
+      <div className="mb-4 grid gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <Suspense
+            fallback={
+              <div className="panel h-[247px] animate-pulse rounded-3xl border border-white/8" />
+            }
+          >
+            <DeadlineTrendChart items={items} now={now} />
+          </Suspense>
+        </div>
+        <Suspense
+          fallback={
+            <div className="panel h-[247px] animate-pulse rounded-3xl border border-white/8" />
+          }
+        >
+          <SubjectBreakdownChart items={items} />
+        </Suspense>
+      </div>
+
       {/* مینی‌داشبورد */}
       <div className="mb-5 grid gap-4 lg:grid-cols-3">
         <ActivityChart completed={completedCount} total={items.length} />
@@ -514,30 +632,31 @@ export default function AssignmentsPage() {
           ) : (
             <ul className="space-y-1.5">
               {upcoming.map((item) => {
-                const tone = deadlineTone(item.due_date, now);
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/assignments/${item.id}`)}
-                      className={`flex w-full items-center gap-2.5 rounded-2xl border bg-white/[0.02] px-2.5 py-2 text-right transition hover:bg-white/[0.05] ${TONE_BORDER[tone]}`}
-                    >
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${TONE_DOT[tone]}`} />
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[11.5px] font-bold text-white">
-                          {item.title}
-                        </span>
-                        <span className="block truncate text-[10px] text-fg-500">
-                          {subjectName(item.subject_id, item.course) || "بدون درس"}
-                        </span>
-                      </span>
-                      <span className={`shrink-0 text-[10px] font-semibold ${TONE_TEXT[tone]}`}>
-                        {relativeDue(item.due_date, now)}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
+            const cd = dueCountdown(item.due_date, now, bells);
+            const tone = countdownTone(cd);
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  onClick={() => navigate(`/assignments/${item.id}`)}
+                  className={`flex w-full items-center gap-2.5 rounded-2xl border bg-white/[0.02] px-2.5 py-2 text-right transition hover:bg-white/[0.05] ${TONE_BORDER[tone]}`}
+                >
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${TONE_DOT[tone]}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11.5px] font-bold text-white">
+                      {item.title}
+                    </span>
+                    <span className="block truncate text-[10px] text-fg-500">
+                      {subjectName(item.subject_id, item.course) || "بدون درس"}
+                    </span>
+                  </span>
+                  <span className={`shrink-0 text-[10px] font-semibold ${TONE_TEXT[tone]}`}>
+                    {cd ? (cd.overdue ? "گذشته" : cd.short) : "بدون مهلت"}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
             </ul>
           )}
         </div>
@@ -728,6 +847,7 @@ export default function AssignmentsPage() {
                       view={view}
                       index={i}
                       now={now}
+                      bells={bells}
                       canManage={canManageAssignment(item, user)}
                       onOpen={handleOpen}
                       onToggle={handleToggle}

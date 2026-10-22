@@ -9,9 +9,19 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 from sqlalchemy import inspect, text
 
+from . import models
 from .config import settings
 from .database import Base, engine
-from .routers import assignments, attachments, auth, messages, uploads, users, ws
+from .routers import (
+    assignments,
+    attachments,
+    auth,
+    messages,
+    schedule,
+    uploads,
+    users,
+    ws,
+)
 
 logger = logging.getLogger("archschool.boot")
 
@@ -139,6 +149,39 @@ def _run_boot_migrations() -> None:
         Base.metadata.create_all(bind=engine)
         _ensure_columns()
         _backfill_rbac_data()
+        _seed_school_schedule()
+
+
+def _seed_school_schedule() -> None:
+    """Insert the default 08:00-14:00 day once, on a fresh database.
+
+    Idempotent: existing rows (admin-configured bell times) are never touched;
+    this only fills the table the first time it is created.
+    """
+    if engine.dialect.name != "postgresql":
+        return  # local/dev engines are handled by the router fallback
+
+    from .database import SessionLocal
+
+    with SessionLocal() as db:
+        if db.query(models.SchoolSchedule).count() > 0:
+            return
+        for number, (start, end) in enumerate(
+            [
+                ("08:00", "09:30"),
+                ("09:30", "11:00"),
+                ("11:00", "12:30"),
+                ("12:30", "14:00"),
+            ],
+            start=1,
+        ):
+            db.add(
+                models.SchoolSchedule(
+                    period_number=number, start_time=start, end_time=end
+                )
+            )
+        db.commit()
+        logger.info("Seeded default school schedule (08:00-14:00, 4 periods)")
 
 
 _run_boot_migrations()
@@ -168,6 +211,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(assignments.router, prefix="/api/assignments", tags=["assignments"])
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
+app.include_router(schedule.router, prefix="/api/schedule", tags=["schedule"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
 app.include_router(attachments.router, prefix="/api/attachments", tags=["attachments"])
 app.include_router(ws.router, tags=["ws"])

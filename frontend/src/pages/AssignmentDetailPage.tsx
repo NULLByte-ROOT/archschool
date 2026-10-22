@@ -37,18 +37,18 @@ import ChatRoom from "../components/ChatRoom";
 import Corners from "../components/Corners";
 import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
+import { useBellSchedule } from "../hooks/useBellSchedule";
 import {
   SUBJECT_BY_ID,
   TONE_TEXT,
   canManageAssignment,
   categoryGroup,
   categoryItemLabel,
-  deadlineTone,
   formatDue,
   parseDue,
-  relativeDue,
   subjectName,
 } from "../lib/assignments";
+import { countdownTone, dueCountdown } from "../lib/bell";
 
 function fileIcon(name: string) {
   if (/\.(png|jpe?g|gif|webp|avif|bmp)$/i.test(name)) return "image";
@@ -76,6 +76,7 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const now = useNow(30_000);
+  const { bells } = useBellSchedule();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [item, setItem] = useState<Assignment | null>(null);
@@ -90,6 +91,10 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // مهلت منطبق با زنگ‌های مدرسه (پایان روز درسی، نه نیمه‌شب بی‌ربط)
+  const countdown = dueCountdown(item?.due_date ?? null, now, bells);
+  const tone = countdownTone(countdown);
 
   useEffect(() => {
     let active = true;
@@ -249,10 +254,11 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
               className={`badge hidden sm:inline-flex ${
                 isDoneByMe
                   ? "border-success/30 bg-success/10 text-success"
-                  : TONE_TEXT[deadlineTone(item.due_date, now)]
+                  : TONE_TEXT[tone]
               }`}
+              title={countdown?.periodNote ?? undefined}
             >
-              {isDoneByMe ? "انجام دادم" : relativeDue(item.due_date, now)}
+              {isDoneByMe ? "انجام دادم" : countdown?.label ?? "بدون مهلت"}
             </span>
           )}
 
@@ -309,7 +315,6 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
         </div>
       ) : (
         (() => {
-          const tone = deadlineTone(item.due_date, now);
           const group = categoryGroup(item.category);
           const subject = SUBJECT_BY_ID[item.subject_id];
           return (
@@ -359,7 +364,7 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
                       icon={<Calendar size={15} />}
                       label="مهلت"
                       value={formatDue(item.due_date)}
-                      sub={relativeDue(item.due_date, now)}
+                      sub={countdown?.label ?? "—"}
                       valueClass={TONE_TEXT[tone]}
                     />
                     <InfoChip
