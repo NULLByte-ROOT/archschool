@@ -498,23 +498,28 @@ const MessageList = memo(function MessageList({
                     onOpenImage={onOpenImage}
                   />
                 </SwipeableMessage>
-                {!item.own && (
-                  <span className="w-9 shrink-0 self-end">
-                    {item.showName && (
-                      <button
-                        type="button"
-                        onClick={() => onProfile(item.message.sender_id)}
-                        className="block rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/40"
-                        aria-label="مشاهده پروفایل"
-                      >
-                        <Avatar
-                          name={item.message.sender_username ?? "کاربر"}
-                          src={item.message.sender_avatar_url}
-                          size="xs"
-                        />
-                      </button>
-                    )}
-                  </span>
+                {!item.own && item.showName && (
+                  <div className="flex shrink-0 items-center gap-1.5 self-end pb-1">
+                    <button
+                      type="button"
+                      onClick={() => onProfile(item.message.sender_id)}
+                      className="block rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-white/40"
+                      aria-label="مشاهده پروفایل"
+                    >
+                      <Avatar
+                        name={item.message.sender_username ?? "کاربر"}
+                        src={item.message.sender_avatar_url}
+                        size="xs"
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onProfile(item.message.sender_id)}
+                      className="text-[11px] font-bold text-[#6cb2ea] hover:underline"
+                    >
+                      {item.message.sender_username || "کاربر"}
+                    </button>
+                  </div>
                 )}
               </div>
             </Fragment>
