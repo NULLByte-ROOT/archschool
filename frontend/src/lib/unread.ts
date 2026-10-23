@@ -192,3 +192,28 @@ export function refreshUnread() {
 export function useUnread(): UnreadState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+/**
+ * Primitive selectors.
+ *
+ * `useUnread()` hands out the whole store, so a brand-new message (which only
+ * touches the activity feed) re-rendered every consumer — Sidebar, chat rows,
+ * dashboard. Selecting a single number lets React bail out when that number did
+ * not actually change.
+ */
+export function useUnreadTotal(): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => state.total,
+    () => state.total
+  );
+}
+
+export function useUnreadCount(room: string): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => state.counts[room] ?? 0,
+    () => state.counts[room] ?? 0
+  );
+}
+

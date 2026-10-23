@@ -97,6 +97,27 @@ function assignAlignedDeadline(
   return cd ? cd.alignedDueMs : Infinity;
 }
 
+/**
+ * Decorate → sort → undecorate.
+ *
+ * A comparator runs ~n·log₂n times, and every call used to run the whole
+ * bell-schedule alignment for both sides. Computing the key once per item keeps
+ * the sort O(n) in that (relatively expensive) function instead of O(n log n).
+ */
+function sortByAlignedDeadline<T extends Assignment>(
+  list: readonly T[],
+  now: number,
+  bells: Bell[],
+  tie?: (a: T, b: T) => number
+): T[] {
+  const keyed = list.map((item) => ({
+    item,
+    key: assignAlignedDeadline(item, now, bells),
+  }));
+  keyed.sort((x, y) => x.key - y.key || (tie ? tie(x.item, y.item) : 0));
+  return keyed.map((entry) => entry.item);
+}
+
 const listCache = new Map<string, Assignment[]>();
 function cacheKey(status: Status) {
   return `${localStorage.getItem("token") ?? ""}|${status}`;
@@ -194,7 +215,7 @@ const AssignmentItem = memo(function AssignmentItem({
         onToggle(item);
       }}
       title={done ? "لغو" : item.category === "exam" ? "من خوندم" : "من انجام دادم"}
-      className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium backdrop-blur transition sm:min-h-0 ${
+      className={`flex min-h-10 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition sm:min-h-0 ${
         done
           ? "border-success/30 bg-success/10 text-success"
           : "border-white/12 bg-white/[0.03] text-fg-300 hover:border-white/30 hover:bg-white/[0.08] hover:text-white"
@@ -235,7 +256,7 @@ const AssignmentItem = memo(function AssignmentItem({
   const CountdownChip = countdown ? (
     <div className="flex min-w-0 flex-col gap-0.5">
       <span
-        className={`inline-flex max-w-full items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[10.5px] font-bold backdrop-blur-md whitespace-normal sm:truncate ${CHIP[tone]}`}
+        className={`inline-flex max-w-full items-center gap-1.5 rounded-xl border px-2.5 py-1 text-[10.5px] font-bold whitespace-normal sm:truncate ${CHIP[tone]}`}
         title={countdown.label}
       >
         <AlarmClock size={11} className="shrink-0" />
@@ -255,10 +276,20 @@ const AssignmentItem = memo(function AssignmentItem({
 
   if (view === "list") {
     return (
-      <motion.div
-        {...motionProps}
-        className={`group relative flex cursor-pointer flex-wrap items-center gap-3 overflow-hidden rounded-2xl border bg-gradient-to-l from-white/[0.06] via-white/[0.03] to-transparent py-3.5 pr-4 pl-3 backdrop-blur-xl transition-[border-color,box-shadow,background-color] duration-300 sm:flex-nowrap sm:gap-4 ${SURFACE_BORDER[tone]} ${SURFACE_GLOW[tone]}`}
-      >
+      <motion.div {...motionProps} className="group relative">
+        {/*
+          هالهٔ hover روی یک لایهٔ مستقل: خودِ سایه ثابت است و فقط opacity آن
+          انیمیت می‌شود؛ بنابراین مرورگر آن را روی GPU کامپوزیت می‌کند و
+          box-shadow در هر فریم دوباره نقاشی نمی‌شود (ظاهر دقیقاً همان است،
+          چون سایهٔ بیرونی بیرون از کادر عنصر بریده می‌شود).
+        */}
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute inset-0 rounded-2xl opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${SURFACE_GLOW[tone]}`}
+        />
+        <div
+          className={`relative flex cursor-pointer flex-wrap items-center gap-3 overflow-hidden rounded-2xl border bg-gradient-to-l from-white/[0.06] via-white/[0.03] to-transparent py-3.5 pr-4 pl-3 transition-[border-color,background-color] duration-300 sm:flex-nowrap sm:gap-4 ${SURFACE_BORDER[tone]}`}
+        >
         {/* درخشش زبانه رنگی هنگام hover */}
         <span
           className={`pointer-events-none absolute -left-16 top-1/2 h-40 w-40 -translate-y-1/2 rounded-full blur-3xl transition-opacity duration-500 ${
@@ -313,15 +344,21 @@ const AssignmentItem = memo(function AssignmentItem({
             <ChevronLeft size={16} />
           </span>
         </div>
+        </div>
       </motion.div>
     );
   }
 
   return (
-    <motion.div
-      {...motionProps}
-      className={`group relative cursor-pointer overflow-hidden rounded-3xl border bg-gradient-to-b from-white/[0.07] via-white/[0.04] to-white/[0.02] p-4 backdrop-blur-xl transition-[border-color,box-shadow,transform] duration-300 ${SURFACE_BORDER[tone]} ${SURFACE_GLOW[tone]}`}
-    >
+    <motion.div {...motionProps} className="group relative">
+      {/* هالهٔ hover: لایهٔ جدا با انیمیشن opacity (بدون repaint سایه) */}
+      <span
+        aria-hidden
+        className={`pointer-events-none absolute inset-0 rounded-3xl opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${SURFACE_GLOW[tone]}`}
+      />
+      <div
+        className={`relative h-full cursor-pointer overflow-hidden rounded-3xl border bg-gradient-to-b from-white/[0.07] via-white/[0.04] to-white/[0.02] p-4 transition-[border-color] duration-300 ${SURFACE_BORDER[tone]}`}
+      >
       {/* هالهٔ رنگی گوشه */}
       <span
         className={`pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full opacity-[0.07] blur-3xl transition-opacity duration-500 group-hover:opacity-[0.18] ${
@@ -381,6 +418,7 @@ const AssignmentItem = memo(function AssignmentItem({
           <ChevronLeft size={16} />
         </span>
       </div>
+      </div>
     </motion.div>
   );
 });
@@ -393,9 +431,9 @@ const SURFACE_BORDER: Record<CountdownTone, string> = {
 };
 
 const SURFACE_GLOW: Record<CountdownTone, string> = {
-  red: "hover:shadow-[0_18px_50px_-24px_rgba(248,113,113,0.55)]",
-  yellow: "hover:shadow-[0_18px_50px_-24px_rgba(251,191,36,0.5)]",
-  none: "hover:shadow-[0_18px_50px_-24px_rgba(255,255,255,0.35)]",
+  red: "shadow-[0_18px_50px_-24px_rgba(248,113,113,0.55)]",
+  yellow: "shadow-[0_18px_50px_-24px_rgba(251,191,36,0.5)]",
+  none: "shadow-[0_18px_50px_-24px_rgba(255,255,255,0.35)]",
 };
 
 const HOVER_BLOB: Record<CountdownTone, string> = {
@@ -496,23 +534,26 @@ export default function AssignmentsPage() {
     if (subjectFilter) list = list.filter((a) => a.subject_id === subjectFilter);
 
     const sorted = [...list];
-    sorted.sort((a, b) => {
-      if (sort === "newest") return parseDue(b.created_at).getTime() - parseDue(a.created_at).getTime();
-      if (sort === "oldest") return parseDue(a.created_at).getTime() - parseDue(b.created_at).getTime();
-      return (
-        assignAlignedDeadline(a, now, bells) - assignAlignedDeadline(b, now, bells) ||
+    if (sort === "deadline") {
+      return sortByAlignedDeadline(sorted, now, bells, (a, b) =>
         parseDue(b.created_at).getTime() - parseDue(a.created_at).getTime()
       );
-    });
+    }
+    const direction = sort === "oldest" ? 1 : -1;
+    sorted.sort(
+      (a, b) =>
+        direction * (parseDue(a.created_at).getTime() - parseDue(b.created_at).getTime())
+    );
     return sorted;
   }, [items, categoryFilter, subjectFilter, sort, now, bells]);
 
   const upcoming = useMemo(
     () =>
-      [...items]
-        .filter((item) => !item.is_completed_by_me && item.due_date)
-        .sort((a, b) => assignAlignedDeadline(a, now, bells) - assignAlignedDeadline(b, now, bells))
-        .slice(0, 5),
+      sortByAlignedDeadline(
+        items.filter((item) => !item.is_completed_by_me && item.due_date),
+        now,
+        bells
+      ).slice(0, 5),
     [items, now, bells]
   );
 

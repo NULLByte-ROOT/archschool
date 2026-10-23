@@ -260,8 +260,13 @@ const MessageBubble = memo(function MessageBubble({
  * موبایلباز: پوشش swipe-to-reply.
  * حباب را می‌توان به چپ یا راست کشید؛ پس از عبور از آستانه، پاسخ فعال می‌شود
  * (مثل تلگرام). روی دسکتاپ هیچ چیزی رندر نمی‌شود تا UI فعلی دست‌نخورده بماند.
+ *
+ * The motion values / drag springs only exist inside `SwipeInner`, which the
+ * desktop build never mounts — previously every one of the (up to 150)
+ * messages created a motion value, four transforms and its own matchMedia
+ * listener even though swiping is mobile-only.
  */
-function SwipeableMessage({
+function SwipeInner({
   message,
   children,
   onReply,
@@ -270,15 +275,12 @@ function SwipeableMessage({
   children: React.ReactNode;
   onReply: (message: Message) => void;
 }) {
-  const isMobile = useIsMobileWidth();
   const x = useMotionValue(0);
 
   const rightHintOpacity = useTransform(x, [10, 44], [0, 1]);
   const rightHintScale = useTransform(x, [10, 56], [0.5, 1]);
   const leftHintOpacity = useTransform(x, [-44, -10], [1, 0]);
   const leftHintScale = useTransform(x, [-56, -10], [1, 0.5]);
-
-  if (!isMobile) return children;
 
   return (
     <motion.div
@@ -309,6 +311,25 @@ function SwipeableMessage({
       </motion.span>
       {children}
     </motion.div>
+  );
+}
+
+function SwipeableMessage({
+  swipe,
+  message,
+  children,
+  onReply,
+}: {
+  swipe: boolean;
+  message: Message;
+  children: React.ReactNode;
+  onReply: (message: Message) => void;
+}) {
+  if (!swipe) return children;
+  return (
+    <SwipeInner message={message} onReply={onReply}>
+      {children}
+    </SwipeInner>
   );
 }
 
@@ -400,6 +421,7 @@ const MessageList = memo(function MessageList({
   highlightId,
   scrollerRef,
   nearBottomRef,
+  swipe,
   onContext,
   onReply,
   onPressStart,
@@ -412,6 +434,7 @@ const MessageList = memo(function MessageList({
   highlightId: number | null;
   scrollerRef: RefObject<HTMLDivElement | null>;
   nearBottomRef: RefObject<boolean>;
+  swipe: boolean;
   onContext: (message: Message, x: number, y: number) => void;
   onReply: (message: Message) => void;
   onPressStart: (message: Message, x: number, y: number) => void;
@@ -459,7 +482,7 @@ const MessageList = memo(function MessageList({
                   item.own ? "justify-start" : "justify-end"
                 }`}
               >
-                <SwipeableMessage message={item.message} onReply={onReply}>
+                <SwipeableMessage swipe={swipe} message={item.message} onReply={onReply}>
                   <MessageBubble
                     message={item.message}
                     own={item.own}
@@ -667,7 +690,7 @@ const ChatComposer = memo(function ChatComposer({
   );
 });
 
-export default function ChatRoom({
+function ChatRoom({
   room,
   title,
   subtitle,
@@ -691,6 +714,7 @@ export default function ChatRoom({
   onBack?: () => void;
 }) {
   const { user, isAdmin } = useAuth();
+  const isMobileWidth = useIsMobileWidth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1314,6 +1338,7 @@ export default function ChatRoom({
         highlightId={highlightId}
         scrollerRef={scrollerRef}
         nearBottomRef={nearBottomRef}
+        swipe={isMobileWidth}
         onContext={openMenu}
         onReply={startReply}
         onPressStart={handlePressStart}
@@ -1454,3 +1479,11 @@ export default function ChatRoom({
     </section>
   );
 }
+
+/**
+ * A chat room is expensive (socket, message list, composer, portals). Memoising
+ * it means typing in the conversation search — or any other unrelated state
+ * change in ChatPage — no longer re-renders the whole open conversation. All of
+ * its props are stable (`key` forces a remount when the room changes).
+ */
+export default memo(ChatRoom);

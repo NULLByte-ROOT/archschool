@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { fetchSchoolSchedule } from "../api/client";
 import type { SchoolPeriod } from "../api/client";
 import { DEFAULT_PERIODS, bellsFrom, type Bell } from "../lib/bell";
@@ -47,12 +47,10 @@ export function useBellSchedule(): {
 } {
   const [periods, setPeriods] = useState<SchoolPeriod[]>(() => cached ?? DEFAULT_PERIODS);
   const [ready, setReady] = useState(() => cached !== null);
-  const [seen, setSeen] = useState(version);
 
   useEffect(() => {
     let active = true;
     const listener = () => {
-      setSeen(version);
       if (active) {
         setPeriods(cached ?? DEFAULT_PERIODS);
         setReady(true);
@@ -61,7 +59,6 @@ export function useBellSchedule(): {
     listeners.add(listener);
     load().finally(() => {
       if (active) {
-        setSeen(version);
         setPeriods(cached ?? DEFAULT_PERIODS);
         setReady(true);
       }
@@ -79,7 +76,11 @@ export function useBellSchedule(): {
     void load();
   };
 
-  return { periods: seen >= 0 ? periods : DEFAULT_PERIODS, bells: bellsFrom(periods), ready, reload };
+  // A fresh array on every render would invalidate every `useMemo`/`memo` that
+  // depends on the bell schedule (all assignment cards take it as a prop).
+  const bells = useMemo(() => bellsFrom(periods), [periods]);
+
+  return { periods, bells, ready, reload };
 }
 
 /** برای پنل ادمین: بعد از ذخیره، حافظهٔ مشترک را با مقادیر جدید پر کن */

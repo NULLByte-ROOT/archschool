@@ -175,6 +175,27 @@ export interface DueCountdown {
 const fa = new Intl.NumberFormat("en-US");
 const HOUR_MS = 3_600_000;
 
+/**
+ * `when` is a Persian-calendar date string that only depends on the due day.
+ * Caching it keeps `dueCountdown` free of Intl work on repeat renders (it runs
+ * for every visible card on every clock tick).
+ */
+const WHEN_CACHE = new Map<string, string>();
+const WHEN_CACHE_LIMIT = 1000;
+
+function dueDayLabel(dueDate: Date): string {
+  const key = `${dueDate.getFullYear()}-${dueDate.getMonth()}-${dueDate.getDate()}`;
+  const hit = WHEN_CACHE.get(key);
+  if (hit !== undefined) return hit;
+  const label = dueDate.toLocaleDateString("fa-IR-u-nu-latn", {
+    day: "numeric",
+    month: "long",
+  });
+  if (WHEN_CACHE.size >= WHEN_CACHE_LIMIT) WHEN_CACHE.clear();
+  WHEN_CACHE.set(key, label);
+  return label;
+}
+
 function humanLeft(ms: number): string {
   if (ms <= 0) return "";
   if (ms < 60_000) {
@@ -282,14 +303,7 @@ export function dueCountdown(
   }
 
   const when =
-    dayDiff === 0
-      ? "امروز"
-      : dayDiff === 1
-        ? "فردا"
-        : dueDate.toLocaleDateString("fa-IR-u-nu-latn", {
-            day: "numeric",
-            month: "long",
-          });
+    dayDiff === 0 ? "امروز" : dayDiff === 1 ? "فردا" : dueDayLabel(dueDate);
 
   let label: string;
   if (overdue) {

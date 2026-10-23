@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
@@ -39,6 +39,93 @@ const RANK_STYLES = [
     medal: "bg-[#c98455] text-black",
   },
 ];
+
+type RankStyle = (typeof RANK_STYLES)[number];
+
+/**
+ * A single podium row. Memoised so re-rendering the page (refresh, "my rank"
+ * recalculation) never re-renders rows whose data did not change — the entrance
+ * variants still propagate from the parent through AnimatePresence context.
+ */
+const LeaderboardRow = memo(function LeaderboardRow({
+  row,
+  rank,
+  style,
+  isMe,
+  topPoints,
+}: {
+  row: PublicUser;
+  rank: number;
+  style: RankStyle | undefined;
+  isMe: boolean;
+  topPoints: number;
+}) {
+  return (
+    <motion.div
+      variants={{
+        hidden: { opacity: 0, y: 10 },
+        show: { opacity: 1, y: 0 },
+      }}
+      transition={{ duration: 0.22 }}
+      className={`relative flex items-center gap-3 overflow-hidden rounded-2xl border p-3 sm:p-4 ${
+        style ? `${style.border} ${style.bg} ${style.glow}` : "border-white/8 bg-white/[0.02]"
+      } ${isMe ? "ring-1 ring-white/40" : ""}`}
+    >
+      <Corners />
+
+      <span
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl font-mono text-[12px] font-bold ${
+          style ? style.medal : "border border-white/10 bg-white/[0.04] text-fg-500"
+        }`}
+      >
+        {rank === 1 ? <Crown size={16} /> : rank <= 3 ? <Medal size={16} /> : rank}
+      </span>
+
+      <Avatar name={row.username} size={rank === 1 ? "md" : "sm"} />
+
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-[13px] font-bold text-white" dir="ltr">
+            {row.username}
+          </p>
+          {row.is_admin && (
+            <span className="badge !py-0.5 !text-[8px]">ADMIN</span>
+          )}
+          {isMe && (
+            <span className="rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-semibold text-white">
+              تو
+            </span>
+          )}
+        </div>
+        <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+          <motion.div
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: Math.max(0.04, row.points / topPoints) }}
+            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+            className={`h-full w-full origin-right rounded-full ${
+              rank === 1
+                ? "bg-warning"
+                : rank === 2
+                  ? "bg-fg-300"
+                  : rank === 3
+                    ? "bg-[#c98455]"
+                    : "bg-white/40"
+            }`}
+          />
+        </div>
+      </div>
+
+      <div className="shrink-0 text-left">
+        <p className="font-mono text-base font-bold tabular-nums text-white">
+          {row.points}
+        </p>
+        <p className="font-mono text-[8px] tracking-[0.16em] text-fg-500">
+          POINTS
+        </p>
+      </div>
+    </motion.div>
+  );
+});
 
 export default function LeaderboardPage() {
   const { user } = useAuth();
@@ -166,75 +253,15 @@ export default function LeaderboardPage() {
         >
           {rows.map((row, index) => {
             const rank = index + 1;
-            const style = RANK_STYLES[index];
-            const isMe = row.id === user?.id;
             return (
-              <motion.div
+              <LeaderboardRow
                 key={row.id}
-                variants={{
-                  hidden: { opacity: 0, y: 10 },
-                  show: { opacity: 1, y: 0 },
-                }}
-                transition={{ duration: 0.22 }}
-                className={`relative flex items-center gap-3 overflow-hidden rounded-2xl border p-3 sm:p-4 ${
-                  style
-                    ? `${style.border} ${style.bg} ${style.glow}`
-                    : "border-white/8 bg-white/[0.02]"
-                } ${isMe ? "ring-1 ring-white/40" : ""}`}
-              >
-                <Corners />
-
-                <span
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl font-mono text-[12px] font-bold ${
-                    style ? style.medal : "border border-white/10 bg-white/[0.04] text-fg-500"
-                  }`}
-                >
-                  {rank === 1 ? <Crown size={16} /> : rank <= 3 ? <Medal size={16} /> : rank}
-                </span>
-
-                <Avatar name={row.username} size={rank === 1 ? "md" : "sm"} />
-
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-[13px] font-bold text-white" dir="ltr">
-                      {row.username}
-                    </p>
-                    {row.is_admin && (
-                      <span className="badge !py-0.5 !text-[8px]">ADMIN</span>
-                    )}
-                    {isMe && (
-                      <span className="rounded-full border border-white/20 bg-white/10 px-2 py-0.5 text-[9px] font-semibold text-white">
-                        تو
-                      </span>
-                    )}
-                  </div>
-                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
-                    <motion.div
-                      initial={{ scaleX: 0 }}
-                      animate={{ scaleX: Math.max(0.04, row.points / topPoints) }}
-                      transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-                      className={`h-full w-full origin-right rounded-full ${
-                        rank === 1
-                          ? "bg-warning"
-                          : rank === 2
-                            ? "bg-fg-300"
-                            : rank === 3
-                              ? "bg-[#c98455]"
-                              : "bg-white/40"
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                <div className="shrink-0 text-left">
-                  <p className="font-mono text-base font-bold tabular-nums text-white">
-                    {row.points}
-                  </p>
-                  <p className="font-mono text-[8px] tracking-[0.16em] text-fg-500">
-                    POINTS
-                  </p>
-                </div>
-              </motion.div>
+                row={row}
+                rank={rank}
+                style={RANK_STYLES[index]}
+                isMe={row.id === user?.id}
+                topPoints={topPoints}
+              />
             );
           })}
         </motion.div>

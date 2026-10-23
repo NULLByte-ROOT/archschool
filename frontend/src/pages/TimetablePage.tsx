@@ -11,10 +11,31 @@ import PageHeader from "../components/PageHeader";
 import { useNow } from "../hooks/useNow";
 import { groupAssignmentsBySubject, jalaliToday } from "../lib/assignments";
 
+/**
+ * The ticking header clock. It owns its own 1s interval so the rest of the
+ * page only re-renders when something factual changes (day / assignments).
+ */
+function LiveClock() {
+  const now = useNow(1000);
+  return (
+    <span className="badge">
+      <Clock size={11} />
+      <span className="mono tabular-nums" dir="ltr">
+        {new Date(now).toLocaleTimeString("fa-IR-u-nu-latn", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+      </span>
+    </span>
+  );
+}
+
 export default function TimetablePage() {
   const [items, setItems] = useState<Assignment[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const now = useNow(1000);
+  // Day-level granularity: the header date, the schedule preview and the
+  // chosen day change at most once a minute — not once a second.
+  const now = useNow(30_000);
 
   useEffect(() => {
     fetchAssignments()
@@ -32,21 +53,11 @@ export default function TimetablePage() {
         kicker="timetable"
         title="برنامه هفتگی"
         subtitle={`شنبه تا چهارشنبه · ۰۸:۰۰ تا ۱۴:۰۰ · امروز ${jalaliToday(now)}`}
-        action={
-          <span className="badge">
-            <Clock size={11} />
-            <span className="mono tabular-nums" dir="ltr">
-              {new Date(now).toLocaleTimeString("fa-IR-u-nu-latn", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          </span>
-        }
+        action={<LiveClock />}
       />
 
       <div className="mb-5">
-        <CurrentPeriodCard now={now} bySubject={bySubject} />
+        <CurrentPeriodCard bySubject={bySubject} />
       </div>
 
       {error && (

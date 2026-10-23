@@ -269,8 +269,12 @@ function AssignmentView({ assignmentId }: { assignmentId: number }) {
 
   return (
     <div className="relative min-h-full">
-      {/* هدر شیشه‌ای */}
-      <header className="glass-top-highlight sticky top-0 z-30 border-b border-white/10 bg-black/55 backdrop-blur-2xl">
+      {/*
+        هدر چسبان: بدون backdrop-blur. هر فریم اسکرول باید پس‌زمینه را دوباره
+        بلور می‌کرد؛ با پس‌زمینهٔ تقریباً توپر، ظاهر همان می‌ماند و اسکرول
+        کاملاً روی لایهٔ کامپوزیت انجام می‌شود.
+      */}
+      <header className="glass-top-highlight sticky top-0 z-30 border-b border-white/10 bg-[#08080b]/95">
         <div className="mx-auto flex max-w-6xl items-center gap-3 px-3 py-3 sm:px-5">
           <button
             type="button"

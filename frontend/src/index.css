@@ -267,10 +267,15 @@
 }
 
 /* ---------- utilities قدیمی ---------- */
+/*
+  `glass` deliberately has NO `backdrop-filter` any more.
+  A full-viewport particle canvas is painted behind every page, so a blurred
+  surface above it has to re-compute that blur on every single animation frame.
+  At 72% opacity over a pure-black page the blur was invisible anyway, so the
+  surface is now opaque enough to look identical while costing nothing.
+*/
 @utility glass {
-  background: rgba(12, 12, 16, 0.72);
-  backdrop-filter: blur(12px) saturate(140%);
-  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  background: rgba(12, 12, 16, 0.82);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 

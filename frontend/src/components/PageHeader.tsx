@@ -1,6 +1,11 @@
+import { memo } from "react";
 import type { ReactNode } from "react";
 
-export default function PageHeader({
+/**
+ * Memoised: pages re-render on their own clocks and state, and the header is
+ * pure text — there is no reason to reconcile it again when nothing changed.
+ */
+function PageHeader({
   kicker,
   title,
   subtitle,
@@ -29,3 +34,5 @@ export default function PageHeader({
     </div>
   );
 }
+
+export default memo(PageHeader);

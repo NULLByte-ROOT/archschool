@@ -117,12 +117,18 @@ function CoreBar({ percent }: { percent: number }) {
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+        {/*
+          scaleX به‌جای width: انیمیشن width هر فریم layout کل ردیف را دوباره
+          حساب می‌کرد (با ۲۴ هسته، هر ۲ ثانیه یک موج layout). scaleX فقط
+          کامپوزیت است و از سمت راست رشد می‌کند تا در RTL همان ظاهر را بدهد.
+        */}
         <div
-          className="h-full rounded-full"
+          className="h-full w-full rounded-full will-change-transform"
           style={{
-            width: `${clamped}%`,
             background: color,
-            transition: "width 1.2s ease, background 0.6s ease",
+            transform: `scaleX(${clamped / 100})`,
+            transformOrigin: "right",
+            transition: "transform 1.2s ease, background 0.6s ease",
           }}
         />
       </div>

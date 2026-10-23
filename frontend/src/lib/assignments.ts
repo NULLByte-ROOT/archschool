@@ -346,11 +346,27 @@ export const DAY_MS = 86_400_000;
 /**
  * مهلت‌ها ممکن است بدون اطلاعات منطقه‌زمانی ذخیره شوند (مثل «2026-10-19T13:26:16»).
  * چنین مقادیری در UTC ذخیره شده‌اند، پس برای مقایسه‌ی درست باید به‌صورت UTC خوانده شوند.
+ *
+ * Parsing runs inside sort comparators and per-card renders (hundreds of calls
+ * per frame after a toggle), so the timestamp is memoised by the raw string and
+ * a cheap `new Date(ms)` hands out a fresh, mutable Date each time.
  */
-export function parseDue(value: string): Date {
+const DUE_TS_CACHE = new Map<string, number>();
+const DUE_TS_CACHE_LIMIT = 4000;
+
+export function parseDueTs(value: string): number {
+  const cached = DUE_TS_CACHE.get(value);
+  if (cached !== undefined) return cached;
   const normalized = value.includes("T") ? value : value.replace(" ", "T");
   const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
-  return new Date(hasTimezone ? normalized : `${normalized}Z`);
+  const ts = new Date(hasTimezone ? normalized : `${normalized}Z`).getTime();
+  if (DUE_TS_CACHE.size >= DUE_TS_CACHE_LIMIT) DUE_TS_CACHE.clear();
+  DUE_TS_CACHE.set(value, ts);
+  return ts;
+}
+
+export function parseDue(value: string): Date {
+  return new Date(parseDueTs(value));
 }
 
 /** شنبه‌ی هفته‌ی جاری (ساعت ۰۰:۰۰) */
@@ -425,13 +441,34 @@ export const TONE_DOT: Record<DeadlineTone, string> = {
 // ------------------------------------------------------------------
 //  قالب‌بندی تاریخ
 // ------------------------------------------------------------------
+/**
+ * `toLocaleDateString("fa-IR-u-nu-latn")` builds a full Intl.DateTimeFormat
+ * (Persian calendar) every call — measurable when a list renders 50 cards.
+ * These caches make the formatting cost a one-off per distinct date string.
+ */
+const FA_DATE_CACHE = new Map<string, string>();
+const FA_DATE_CACHE_LIMIT = 2000;
+
+function cachedFaDate(key: string, compute: () => string): string {
+  const hit = FA_DATE_CACHE.get(key);
+  if (hit !== undefined) return hit;
+  const value = compute();
+  if (FA_DATE_CACHE.size >= FA_DATE_CACHE_LIMIT) FA_DATE_CACHE.clear();
+  FA_DATE_CACHE.set(key, value);
+  return value;
+}
+
 export function formatDue(due?: string | null): string {
   if (!due) return "بدون مهلت";
-  return parseDue(due).toLocaleDateString("fa-IR-u-nu-latn", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  return cachedFaDate(
+    `full|${due}`,
+    () =>
+      parseDue(due).toLocaleDateString("fa-IR-u-nu-latn", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      })
+  );
 }
 
 /**
@@ -474,11 +511,15 @@ export function relativeDue(due?: string | null, now: number = Date.now()): stri
 
 /** تاریخ کامل شمسیِ امروز، مثلاً «پنجشنبه ۲۶ مهر» */
 export function jalaliToday(now: number = Date.now()): string {
-  return new Date(now).toLocaleDateString("fa-IR-u-nu-latn", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-  });
+  const date = new Date(now);
+  const key = `today|${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+  return cachedFaDate(key, () =>
+    date.toLocaleDateString("fa-IR-u-nu-latn", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+    })
+  );
 }
 
 /** ساعت جاری به‌صورت شمسی، مثلاً «۱۴:۳۰» */
@@ -491,5 +532,7 @@ export function jalaliTime(now: number = Date.now()): string {
 
 export function shortDayLabel(due?: string | null): string {
   if (!due) return "—";
-  return parseDue(due).toLocaleDateString("fa-IR-u-nu-latn", { day: "numeric", month: "short" });
+  return cachedFaDate(`short|${due}`, () =>
+    parseDue(due).toLocaleDateString("fa-IR-u-nu-latn", { day: "numeric", month: "short" })
+  );
 }

@@ -55,7 +55,7 @@ export default function PulseBox() {
       onMouseEnter={() => setPedestal(true)}
       onMouseLeave={() => setPedestal(false)}
       onClick={() => current && openTarget(current)}
-      className="glass panel-hover relative mb-5 cursor-pointer overflow-hidden rounded-3xl p-5 backdrop-blur-xl"
+      className="glass panel-hover relative mb-5 cursor-pointer overflow-hidden rounded-3xl p-5"
     >
       <div className="pointer-events-none absolute inset-0 grid-bg opacity-[0.16]" />
       <div className="pointer-events-none absolute -top-20 left-1/4 h-40 w-40 rounded-full bg-white/[0.05] blur-[70px]" />
@@ -86,7 +86,7 @@ export default function PulseBox() {
       </div>
 
       {/* دوربین تک‌خطی: هر ۱.۵ ثانیه یک جمله */}
-      <div className="relative flex min-h-[52px] items-center rounded-2xl border border-white/[0.06] bg-black/30 px-3 py-2.5 backdrop-blur-sm">
+      <div className="relative flex min-h-[52px] items-center rounded-2xl border border-white/[0.06] bg-black/30 px-3 py-2.5">
         <AnimatePresence mode="wait" initial={false}>
           {current ? (
             <motion.div

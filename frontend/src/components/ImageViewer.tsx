@@ -291,7 +291,7 @@ export default function ImageViewer() {
         aria-modal="true"
         aria-label={image.alt ? `تصویر ${image.alt}` : "نمایش تصویر"}
         style={{ touchAction: "none" }}
-        className="fixed inset-0 z-[9999] bg-black/95 backdrop-blur-md"
+        className="fixed inset-0 z-[9999] bg-black/95"
       >
         {/* لایه‌ی تعامل: پن، پینچ، سوایپ، پس‌زمینه */}
         <div
@@ -350,7 +350,7 @@ export default function ImageViewer() {
             closeImageViewer();
           }}
           aria-label="بستن تصویر"
-          className="absolute top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white backdrop-blur-sm transition hover:bg-white/20"
+          className="absolute top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
         >
           <X size={20} />
         </button>
@@ -375,7 +375,7 @@ export default function ImageViewer() {
                 step(-1);
               }}
               aria-label="تصویر قبلی"
-              className="absolute top-1/2 right-[max(0.5rem,env(safe-area-inset-right))] z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white/90 backdrop-blur-sm transition hover:bg-black/80 hover:text-white md:h-14 md:w-14"
+              className="absolute top-1/2 right-[max(0.5rem,env(safe-area-inset-right))] z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white/90 transition hover:bg-black/80 hover:text-white md:h-14 md:w-14"
             >
               <ChevronRight size={24} />
             </button>
@@ -386,7 +386,7 @@ export default function ImageViewer() {
                 step(1);
               }}
               aria-label="تصویر بعدی"
-              className="absolute top-1/2 left-[max(0.5rem,env(safe-area-inset-left))] z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white/90 backdrop-blur-sm transition hover:bg-black/80 hover:text-white md:h-14 md:w-14"
+              className="absolute top-1/2 left-[max(0.5rem,env(safe-area-inset-left))] z-10 flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-black/50 text-white/90 transition hover:bg-black/80 hover:text-white md:h-14 md:w-14"
             >
               <ChevronLeft size={24} />
             </button>
@@ -397,7 +397,7 @@ export default function ImageViewer() {
         {image.alt && (
           <p
             onClick={(event) => event.stopPropagation()}
-            className="pointer-events-none absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-10 max-w-[80vw] -translate-x-1/2 truncate rounded-full bg-black/60 px-4 py-1.5 text-center text-xs font-semibold text-white/80 backdrop-blur-sm"
+            className="pointer-events-none absolute bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 z-10 max-w-[80vw] -translate-x-1/2 truncate rounded-full bg-black/60 px-4 py-1.5 text-center text-xs font-semibold text-white/80"
           >
             {image.alt}
           </p>

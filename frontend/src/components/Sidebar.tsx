@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { NavLink, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -16,7 +16,7 @@ import {
   BellRing,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
-import { useUnread } from "../lib/unread";
+import { useUnreadTotal } from "../lib/unread";
 import Avatar from "./Avatar";
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
@@ -81,39 +81,45 @@ function LinkList({
 function SidebarContent({ onClose }: { onClose?: () => void }) {
   const { user, isAdmin, isOwner, isMember, logout } = useAuth();
   const navigate = useNavigate();
-  const unread = useUnread();
+  const unreadTotal = useUnreadTotal();
 
-  const links = [
-    { to: "/", label: "داشبورد", icon: LayoutDashboard },
-    { to: "/timetable", label: "برنامه هفتگی", icon: CalendarDays },
-    { to: "/assignments", label: "تکالیف و پروژه‌ها", icon: CheckSquare },
-    // اعضای معمولی به چت دسترسی ندارند: لینک و نشان پیام نخوانده پنهان می‌شود.
-    ...(!isMember
-      ? [
-          {
-            to: "/chat",
-            label: "گفتگوها",
-            icon: MessageCircle,
-            badge: unread.total,
-          },
-        ]
-      : []),
-    { to: "/leaderboard", label: "جدول امتیازها", icon: Trophy },
-    { to: "/settings", label: "تنظیمات", icon: Settings },
-  ];
+  const links = useMemo(
+    () => [
+      { to: "/", label: "داشبورد", icon: LayoutDashboard },
+      { to: "/timetable", label: "برنامه هفتگی", icon: CalendarDays },
+      { to: "/assignments", label: "تکالیف و پروژه‌ها", icon: CheckSquare },
+      // اعضای معمولی به چت دسترسی ندارند: لینک و نشان پیام نخوانده پنهان می‌شود.
+      ...(!isMember
+        ? [
+            {
+              to: "/chat",
+              label: "گفتگوها",
+              icon: MessageCircle,
+              badge: unreadTotal,
+            },
+          ]
+        : []),
+      { to: "/leaderboard", label: "جدول امتیازها", icon: Trophy },
+      { to: "/settings", label: "تنظیمات", icon: Settings },
+    ],
+    [isMember, unreadTotal]
+  );
 
-  const adminLinks = [
-    { to: "/rootvoid", label: "کاربران", icon: Users },
-    { to: "/admin/bells", label: "زنگ‌های مدرسه", icon: BellRing },
-    ...(isOwner
-      ? [{ to: "/admin/stats", label: "آمار سرور", icon: Gauge }]
-      : []),
-  ];
+  const adminLinks = useMemo(
+    () => [
+      { to: "/rootvoid", label: "کاربران", icon: Users },
+      { to: "/admin/bells", label: "زنگ‌های مدرسه", icon: BellRing },
+      ...(isOwner
+        ? [{ to: "/admin/stats", label: "آمار سرور", icon: Gauge }]
+        : []),
+    ],
+    [isOwner]
+  );
 
-  function handleLogout() {
+  const handleLogout = useCallback(() => {
     logout();
     navigate("/login");
-  }
+  }, [logout, navigate]);
 
   return (
     <>

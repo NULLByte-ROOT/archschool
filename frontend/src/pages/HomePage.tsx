@@ -156,7 +156,7 @@ export default function HomePage() {
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        className="glass mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl px-4 py-3.5 backdrop-blur-xl"
+        className="glass mb-5 flex flex-wrap items-center justify-between gap-3 rounded-3xl px-4 py-3.5"
       >
         <div className="flex items-center gap-3">
           <span className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-white/12 bg-gradient-to-br from-white/[0.14] to-white/[0.02]">

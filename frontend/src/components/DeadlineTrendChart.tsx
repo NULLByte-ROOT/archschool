@@ -20,30 +20,41 @@ const DAY_NAMES = [
   "جمعه",
 ];
 
+/** Local calendar day of a timestamp — the chart only changes when this does. */
+function dayKey(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
 function DeadlineTrendChart({ items, now }: { items: Assignment[]; now: number }) {
+  // `now` ticks every 30s, but the series only depends on the calendar day.
+  // Deriving a primitive first keeps `data` referentially stable across those
+  // ticks — Recharts restarts its 900ms entry animation whenever `data` changes,
+  // so without this the chart re-animated twice a minute.
+  const day0 = useMemo(() => {
+    const base = new Date(now);
+    return new Date(base.getFullYear(), base.getMonth(), base.getDate()).getTime();
+  }, [now]);
+
   const { data, weekTotal } = useMemo(() => {
-    const day0 = (() => {
-      const base = new Date(now);
-      return new Date(base.getFullYear(), base.getMonth(), base.getDate());
-    })();
     const countsMap = new Map<number, number>();
     for (const item of items) {
       if (item.is_completed_by_me || !item.due_date) continue;
       const due = parseDue(item.due_date);
       const dueDay = new Date(due.getFullYear(), due.getMonth(), due.getDate()).getTime();
-      const offset = Math.round((dueDay - day0.getTime()) / 86_400_000);
+      const offset = Math.round((dueDay - day0) / 86_400_000);
       if (offset >= 0 && offset <= 6) {
         countsMap.set(offset, (countsMap.get(offset) ?? 0) + 1);
       }
     }
     const data = [];
     for (let i = 0; i < 7; i++) {
-      const d = new Date(day0.getTime());
-      d.setDate(day0.getDate() + i);
+      const d = new Date(day0);
+      d.setDate(d.getDate() + i);
       data.push({ day: DAY_NAMES[todayIndex(d)] ?? "", count: countsMap.get(i) ?? 0 });
     }
     return { data, weekTotal: data.reduce((sum, p) => sum + p.count, 0) };
-  }, [items, now]);
+  }, [items, day0]);
 
   return (
     <motion.div
@@ -138,4 +149,13 @@ function DeadlineTrendChart({ items, now }: { items: Assignment[]; now: number }
   );
 }
 
-export default memo(DeadlineTrendChart);
+/**
+ * Only re-render when the assignments actually changed or the calendar day
+ * rolled over — never on the page's 30s clock tick. That is what keeps the
+ * area animation a "runs once on mount" effect.
+ */
+export default memo(
+  DeadlineTrendChart,
+  (prev, next) =>
+    prev.items === next.items && dayKey(prev.now) === dayKey(next.now)
+);

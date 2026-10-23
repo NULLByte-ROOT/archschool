@@ -60,6 +60,9 @@ export default function Particles({ count = 40 }: { count?: number }) {
       // Cap the ambient background at ~60fps even on 120Hz+ displays: it is
       // decorative and should never compete with UI animations for frames.
       raf = requestAnimationFrame(draw);
+      // A hidden tab paints nothing: stopping here saves a full-screen clear +
+      // ~40 arcs + link strokes per frame while the app is in the background.
+      if (document.visibilityState !== "visible") return;
       if (time - lastFrame < 15) return;
       lastFrame = time;
 

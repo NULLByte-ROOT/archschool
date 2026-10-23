@@ -2,6 +2,7 @@ import { memo } from "react";
 import { motion } from "framer-motion";
 import { AlarmClock, BookOpen, CalendarClock, Coffee, MoonStar, User } from "lucide-react";
 import type { Assignment } from "../api/client";
+import { useNow } from "../hooks/useNow";
 import {
   SCHOOL_PERIODS,
   dayAtIndex,
@@ -21,13 +22,11 @@ function countdown(ms: number): string {
   return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
 }
 
-function PeriodCard({
-  now,
-  bySubject,
-}: {
-  now: number;
-  bySubject: Record<string, Assignment[]>;
-}) {
+function PeriodCard({ bySubject }: { bySubject: Record<string, Assignment[]> }) {
+  // The countdown needs a one-second clock. Owning it here keeps the ticker
+  // from re-rendering the whole timetable page (grid + tomorrow schedule)
+  // every second.
+  const now = useNow(1000);
   const state = periodState(now);
   const day = todayDay(now);
   const subject = subjectAtPeriod(day, state.periodIndex);
