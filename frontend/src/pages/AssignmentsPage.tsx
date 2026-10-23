@@ -334,7 +334,7 @@ const AssignmentItem = memo(function AssignmentItem({
           </div>
         </div>
 
-        <div className="relative flex w-full flex-wrap items-center justify-end gap-2 sm:ms-auto sm:w-auto sm:flex-nowrap">
+        <div className="relative ms-auto flex shrink-0 items-center gap-2">
           {CountdownChip}
           <CompletedStack users={item.completed_by_users} />
           {toggle}
