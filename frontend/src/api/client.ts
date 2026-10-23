@@ -628,14 +628,30 @@ export async function uploadFile(file: File): Promise<UploadResult> {
   }
 }
 
+/**
+ * `new URL()` allocations ran for every avatar / attachment / chat image on
+ * every render. The result only depends on the input string (and on
+ * `window.location`, which cannot change without a page load), so it is cached.
+ */
+const mediaUrlCache = new Map<string, string>();
+
 export function resolveMediaUrl(url: string | null | undefined): string {
   if (!url) return "";
-  if (/^https?:\/\//i.test(url)) return url;
+  const cached = mediaUrlCache.get(url);
+  if (cached !== undefined) return cached;
+  if (/^https?:\/\//i.test(url)) {
+    if (mediaUrlCache.size > 2000) mediaUrlCache.clear();
+    mediaUrlCache.set(url, url);
+    return url;
+  }
   const api = new URL(BASE_URL, window.location.origin);
   const mixedContent =
     window.location.protocol === "https:" && api.protocol === "http:";
   const origin = mixedContent ? window.location.origin : api.origin;
-  return new URL(url, origin).toString();
+  const resolved = new URL(url, origin).toString();
+  if (mediaUrlCache.size > 2000) mediaUrlCache.clear();
+  mediaUrlCache.set(url, resolved);
+  return resolved;
 }
 
 /**
