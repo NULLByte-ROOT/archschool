@@ -196,7 +196,7 @@ export default function SettingsPage() {
                 {user?.is_admin ? "admin" : "user"}
               </span>
               <span className="mono text-[10px] text-fg-500">
-                {user?.points ?? 0} POINTS
+                {user?.role?.toUpperCase() ?? "MEMBER"}
               </span>
             </div>
           </div>

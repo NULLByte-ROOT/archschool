@@ -54,7 +54,6 @@ class User(Base):
         index=True,
     )
     is_active = Column(Boolean, default=True)
-    points = Column(Integer, nullable=False, default=0, server_default=text("0"))
     created_at = Column(DateTime, default=datetime.utcnow)
 
     assignments = relationship(
@@ -119,9 +118,6 @@ class Assignment(Base):
     subject_id = Column(String(40), default="", index=True)
     due_date = Column(DateTime, nullable=True)
     completed = Column(Boolean, default=False, index=True)
-    points_awarded = Column(
-        Boolean, nullable=False, default=False, server_default=text("false")
-    )
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     creator_id = Column(
         Integer,
@@ -192,6 +188,44 @@ class AssignmentCompletion(Base):
 
     user = relationship("User", back_populates="completions")
     assignment = relationship("Assignment", back_populates="completions")
+
+
+class CompletionToggleGuard(Base):
+    """Anti-abuse bookkeeping for the "Done / Read" toggle.
+
+    One row per (user, assignment) pair. Every toggle increments
+    ``attempt_count`` inside the current one-hour window; the fourth attempt
+    (``TOGGLE_LIMIT_PER_HOUR`` + 1) writes ``locked_until = now + lock`` and the
+    API answers 429 until that timestamp passes. Rows are cheap and self-heal:
+    once the window has elapsed the next attempt simply resets the counter.
+    """
+
+    __tablename__ = "completion_toggle_guards"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "assignment_id", name="uq_toggle_guard_user_assignment"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    assignment_id = Column(
+        Integer,
+        ForeignKey("assignments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    window_started_at = Column(DateTime, nullable=True)
+    attempt_count = Column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    locked_until = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class Message(Base):

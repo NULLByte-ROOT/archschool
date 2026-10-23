@@ -14,6 +14,7 @@ import {
   deadlineTone,
   relativeDue,
   scheduleTarget,
+  todayIndex,
   type DeadlineTone,
 } from "../lib/assignments";
 
@@ -86,11 +87,30 @@ const ScheduleRow = memo(function ScheduleRow({ row, now }: { row: Row; now: num
 export default function TomorrowSchedule({
   bySubject,
   now,
+  mode = "next",
 }: {
   bySubject: Record<string, Assignment[]>;
   now: number;
+  /**
+   * "next" (default) = the Timetable page's "upcoming school day": today before
+   * 14:00, otherwise the next school day. "tomorrow" = the literal calendar
+   * day after today, used by the dashboard's tomorrow preview.
+   */
+  mode?: "next" | "tomorrow";
 }) {
-  const target = useMemo(() => scheduleTarget(now), [now]);
+  const target = useMemo(() => {
+    if (mode === "tomorrow") {
+      const dayIndex = (todayIndex(new Date(now)) + 1) % 7;
+      return {
+        dayIndex,
+        isTomorrow: true,
+        isAfterSchool: false,
+        isWeekend: dayAtIndex(dayIndex) === undefined,
+        isLiteralTomorrow: true,
+      };
+    }
+    return scheduleTarget(now);
+  }, [now, mode]);
   const day = useMemo(() => dayAtIndex(target.dayIndex), [target.dayIndex]);
 
   const rows = useMemo<Row[]>(() => {
@@ -113,7 +133,9 @@ export default function TomorrowSchedule({
   const isLiteralTomorrow = target.isTomorrow && target.isLiteralTomorrow;
 
   const heading = isLiteralTomorrow
-    ? "فردا چه کلاسی داریم؟"
+    ? target.isWeekend
+      ? "فردا تعطیل است"
+      : "فردا چه کلاسی داریم؟"
     : target.isWeekend
       ? "برنامه بعد از تعطیلات"
       : target.isTomorrow

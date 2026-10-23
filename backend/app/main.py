@@ -19,6 +19,7 @@ from .routers import (
     messages,
     schedule,
     server_stats,
+    stats,
     uploads,
     users,
     ws,
@@ -81,7 +82,6 @@ def _ensure_columns() -> None:
 
     wanted: dict[str, dict[str, str]] = {
         "users": {
-            "points": "INTEGER NOT NULL DEFAULT 0",
             "role": "VARCHAR(20) NOT NULL DEFAULT 'member'",
             "password": "VARCHAR(255)",
             "avatar_url": "VARCHAR(500)",
@@ -92,7 +92,6 @@ def _ensure_columns() -> None:
             "category": "VARCHAR(20) DEFAULT ''",
             "subtype": "VARCHAR(40) DEFAULT ''",
             "subject_id": "VARCHAR(40) DEFAULT ''",
-            "points_awarded": "BOOLEAN NOT NULL DEFAULT FALSE",
             "creator_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
         },
         "messages": {
@@ -294,6 +293,7 @@ app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(assignments.router, prefix="/api/assignments", tags=["assignments"])
 app.include_router(messages.router, prefix="/api/messages", tags=["messages"])
 app.include_router(schedule.router, prefix="/api/schedule", tags=["schedule"])
+app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(server_stats.router, prefix="/api/server-stats", tags=["server-stats"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
 app.include_router(attachments.router, prefix="/api/attachments", tags=["attachments"])

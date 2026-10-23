@@ -32,7 +32,6 @@ export interface User {
   is_admin: boolean;
   role: Role;
   is_active: boolean;
-  points: number;
   avatar_url?: string | null;
   bio?: string;
   last_seen?: string | null;
@@ -45,7 +44,6 @@ export interface PublicUser {
   username: string;
   is_admin: boolean;
   role?: Role;
-  points: number;
   avatar_url?: string | null;
 }
 
@@ -54,11 +52,45 @@ export interface UserProfile {
   username: string;
   is_admin: boolean;
   role: Role;
-  points: number;
   avatar_url?: string | null;
   bio: string;
   last_seen?: string | null;
   created_at: string;
+}
+
+/** One bucket of the seven-day activity series (school-local date). */
+export interface DailyActivity {
+  date: string;
+  count: number;
+}
+
+/** Per-user team statistics — the leaderboard is ranked by percentage. */
+export interface LeaderboardEntry {
+  user: PublicUser;
+  rank: number;
+  completion_percentage: number;
+  completed_count: number;
+  total_assignments: number;
+  last_completion_time: string | null;
+  average_speed_hours: number | null;
+  weekly_activity: DailyActivity[];
+  strongest_subject: string | null;
+  weakest_subject: string | null;
+  current_streak: number;
+  best_streak: number;
+  completed_today: boolean;
+}
+
+/** Single-round-trip payload for the home dashboard. */
+export interface TeamOverview {
+  me: LeaderboardEntry;
+  top_users: LeaderboardEntry[];
+  team_record_streak: number;
+  total_assignments: number;
+  total_completions: number;
+  active_users: number;
+  class_completion_percentage: number;
+  weekly_trend: DailyActivity[];
 }
 
 export interface TeamMember {
@@ -450,8 +482,17 @@ export async function fetchTeam(): Promise<PublicUser[]> {
   return request<PublicUser[]>("/users/team");
 }
 
-export async function fetchLeaderboard(): Promise<PublicUser[]> {
-  return request<PublicUser[]>("/users/leaderboard");
+/** Ranked strictly by completion percentage (earlier completion wins ties). */
+export async function fetchLeaderboardStats(): Promise<LeaderboardEntry[]> {
+  return request<LeaderboardEntry[]>("/stats/leaderboard");
+}
+
+export async function fetchTeamOverview(): Promise<TeamOverview> {
+  return request<TeamOverview>("/stats/overview");
+}
+
+export async function fetchUserStats(userId: number): Promise<LeaderboardEntry> {
+  return request<LeaderboardEntry>(`/stats/users/${userId}`);
 }
 
 // ---------- Chat ----------

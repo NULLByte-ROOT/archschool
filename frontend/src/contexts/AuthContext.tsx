@@ -31,7 +31,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const raw = localStorage.getItem("user");
     if (!raw) return null;
     try {
-      return { points: 0, ...JSON.parse(raw) } as User;
+      return JSON.parse(raw) as User;
     } catch {
       return null;
     }

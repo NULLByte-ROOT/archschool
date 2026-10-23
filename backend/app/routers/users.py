@@ -17,19 +17,6 @@ from ..storage import delete_upload
 router = APIRouter()
 
 
-@router.get("/leaderboard", response_model=List[schemas.PublicUserOut])
-def leaderboard(
-    db: Session = Depends(get_db),
-    _: models.User = Depends(get_current_user),
-):
-    return (
-        db.query(models.User)
-        .filter(models.User.is_active.is_(True))
-        .order_by(models.User.points.desc(), models.User.username.asc())
-        .all()
-    )
-
-
 @router.get("/team", response_model=List[schemas.PublicUserOut])
 def team(
     db: Session = Depends(get_db),

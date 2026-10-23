@@ -209,7 +209,7 @@ const ChatSidebar = memo(function ChatSidebar({
               {user?.username}
             </p>
             <p className="font-mono text-[9px] text-fg-500">
-              {user?.points ?? 0} POINTS
+              {user?.role?.toUpperCase() ?? "MEMBER"}
             </p>
           </div>
           <span className="h-2 w-2 rounded-full bg-success shadow-[0_0_8px_#34d399]" />

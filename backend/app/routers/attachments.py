@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from .. import models
-from ..config import settings
 from ..database import get_db
 from ..dependencies import get_current_user
 from ..storage import delete_upload
@@ -35,15 +34,6 @@ def delete_attachment(
         )
 
     file_url = attachment.file_url
-
-    # Only claw back the upload points when the uploader deletes their own file
-    # (never when an admin removes someone else's), and never below zero.
-    if (
-        is_owner
-        and settings.DEDUCT_POINTS_ON_ATTACHMENT_DELETE
-        and current.points
-    ):
-        current.points = max(0, current.points - settings.POINTS_PER_UPLOAD)
 
     db.delete(attachment)
     db.commit()

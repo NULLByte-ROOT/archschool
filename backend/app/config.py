@@ -33,13 +33,24 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     MAX_UPLOAD_MB: int = 25
 
-    # Gamification: points granted per assignment attachment, and whether those
-    # points are taken back when the uploader deletes their own attachment.
-    POINTS_PER_UPLOAD: int = 15
-    DEDUCT_POINTS_ON_ATTACHMENT_DELETE: bool = True
+    # ------------------------------------------------------------------
+    #  Anti-cheat / streak configuration
+    # ------------------------------------------------------------------
+    # A freshly created assignment cannot be marked done before this delay, so
+    # the team cannot "complete" work it never had time to do.
+    COMPLETION_DELAY_MINUTES: int = 30
 
-    # Points awarded to the specific user who marks a shared assignment done.
-    POINTS_PER_ASSIGNMENT: int = 10
+    # More than TOGGLE_LIMIT_PER_HOUR toggles of the same assignment inside one
+    # hour locks that toggle for TOGGLE_LOCK_MINUTES.
+    TOGGLE_LIMIT_PER_HOUR: int = 3
+    TOGGLE_LOCK_MINUTES: int = 60
+
+    # The class lives in Iran (UTC+03:30). Streak days/`completed_today` and the
+    # 7-day activity buckets are computed against this wall clock instead of the
+    # container's UTC clock, so a completion at 01:00 local still belongs to the
+    # correct day. Keeping it as a numeric offset avoids relying on the tzdata
+    # database, which the slim Docker image does not ship.
+    SCHOOL_UTC_OFFSET_HOURS: float = 3.5
 
     @field_validator("CORS_ORIGINS")
     @classmethod

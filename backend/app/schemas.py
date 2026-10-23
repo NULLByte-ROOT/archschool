@@ -39,7 +39,6 @@ class UserOut(UserBase):
     is_admin: bool
     role: str = "member"
     is_active: bool
-    points: int = 0
     avatar_url: Optional[str] = None
     bio: str = ""
     last_seen: Optional[datetime] = None
@@ -54,7 +53,6 @@ class UserProfileOut(BaseModel):
     username: str
     is_admin: bool
     role: str = "member"
-    points: int = 0
     avatar_url: Optional[str] = None
     bio: str = ""
     last_seen: Optional[datetime] = None
@@ -68,7 +66,6 @@ class PublicUserOut(BaseModel):
     username: str
     is_admin: bool
     role: str = "member"
-    points: int = 0
     avatar_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -135,7 +132,7 @@ class AssignmentOut(AssignmentBase):
 
 
 # ------------------------------------------------------------------
-#  چت، پیوست‌ها و امتیازها
+#  چت و پیوست‌ها
 # ------------------------------------------------------------------
 class MessageCreate(BaseModel):
     content: str = Field("", max_length=5000)
@@ -215,6 +212,47 @@ class TeamMemberOut(BaseModel):
     user: PublicUserOut
     completed: bool
     is_self: bool = False
+
+
+# ------------------------------------------------------------------
+#  آمار تیم: درصد تکمیل، استریک و فعالیت هفتگی
+# ------------------------------------------------------------------
+class DailyActivityOut(BaseModel):
+    """One bucket of the seven-day activity series (school-local date)."""
+
+    date: str
+    count: int
+
+
+class LeaderboardEntryOut(BaseModel):
+    """A single user's team stats — the leaderboard is ranked by percentage."""
+
+    user: PublicUserOut
+    rank: int = 0
+    completion_percentage: float = 0.0
+    completed_count: int = 0
+    total_assignments: int = 0
+    last_completion_time: Optional[datetime] = None
+    average_speed_hours: Optional[float] = None
+    weekly_activity: list[DailyActivityOut] = []
+    strongest_subject: Optional[str] = None
+    weakest_subject: Optional[str] = None
+    current_streak: int = 0
+    best_streak: int = 0
+    completed_today: bool = False
+
+
+class TeamOverviewOut(BaseModel):
+    """Everything the dashboard needs in one request."""
+
+    me: LeaderboardEntryOut
+    top_users: list[LeaderboardEntryOut] = []
+    team_record_streak: int = 0
+    total_assignments: int = 0
+    total_completions: int = 0
+    active_users: int = 0
+    class_completion_percentage: float = 0.0
+    weekly_trend: list[DailyActivityOut] = []
 
 
 # ------------------------------------------------------------------

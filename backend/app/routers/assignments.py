@@ -1,3 +1,5 @@
+import math
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -79,10 +81,105 @@ def _get_or_404(db: Session, assignment_id: int) -> models.Assignment:
     return obj
 
 
-def _toggle_completion(
-    db: Session, assignment: models.Assignment, current: models.User
+def _ensure_completion_delay(
+    assignment: models.Assignment, now: datetime
 ) -> None:
-    """Toggle the current user's completion and (de)award their points."""
+    """Reject "Done" before the assignment had time to be done.
+
+    Guards against blanket-checking every task the instant it appears: a user
+    must wait ``COMPLETION_DELAY_MINUTES`` from creation before marking it done.
+    Un-marking is always allowed (it cannot inflate anyone's stats).
+    """
+    delay = timedelta(minutes=max(0, settings.COMPLETION_DELAY_MINUTES))
+    if delay <= timedelta(0):
+        return
+    created_at = assignment.created_at or now
+    remaining = delay - (now - created_at)
+    if remaining > timedelta(0):
+        minutes = max(1, math.ceil(remaining.total_seconds() / 60))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "برای جلوگیری از تقلب، تا "
+                f"{minutes} دقیقهٔ دیگر نمی‌توانید این تکلیف را "
+                "انجام‌شده علامت بزنید."
+            ),
+        )
+
+
+def _guard_toggle_attempt(
+    db: Session,
+    assignment: models.Assignment,
+    current: models.User,
+    now: datetime,
+) -> None:
+    """Rate-limit repeated toggles of one assignment.
+
+    More than ``TOGGLE_LIMIT_PER_HOUR`` attempts inside a rolling hour lock the
+    toggle for ``TOGGLE_LOCK_MINUTES``. The lock is committed *before* raising:
+    the request session would otherwise roll back the very row that has to make
+    the punishment stick.
+    """
+    guard = (
+        db.query(models.CompletionToggleGuard)
+        .filter(
+            models.CompletionToggleGuard.user_id == current.id,
+            models.CompletionToggleGuard.assignment_id == assignment.id,
+        )
+        .first()
+    )
+    if guard is None:
+        guard = models.CompletionToggleGuard(
+            user_id=current.id,
+            assignment_id=assignment.id,
+            window_started_at=now,
+            attempt_count=0,
+        )
+        db.add(guard)
+
+    if guard.locked_until and guard.locked_until > now:
+        minutes = max(
+            1, math.ceil((guard.locked_until - now).total_seconds() / 60)
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "تغییر وضعیت این تکلیف موقتاً قفل شده است. "
+                f"{minutes} دقیقهٔ دیگر دوباره تلاش کنید."
+            ),
+        )
+
+    window = timedelta(hours=1)
+    if guard.window_started_at is None or now - guard.window_started_at >= window:
+        guard.window_started_at = now
+        guard.attempt_count = 0
+        guard.locked_until = None
+
+    guard.attempt_count = (guard.attempt_count or 0) + 1
+    guard.updated_at = now
+
+    if guard.attempt_count > settings.TOGGLE_LIMIT_PER_HOUR:
+        guard.locked_until = now + timedelta(
+            minutes=max(1, settings.TOGGLE_LOCK_MINUTES)
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "تعداد تغییر وضعیت این تکلیف بیش از حد مجاز بود؛ "
+                f"تا {max(1, settings.TOGGLE_LOCK_MINUTES)} دقیقهٔ دیگر قفل است."
+            ),
+        )
+
+
+def _toggle_completion(
+    db: Session,
+    assignment: models.Assignment,
+    current: models.User,
+    now: Optional[datetime] = None,
+) -> None:
+    """Toggle the current user's completion, enforcing the anti-cheat rules."""
+    now = now or datetime.utcnow()
     existing = (
         db.query(models.AssignmentCompletion)
         .filter(
@@ -91,17 +188,20 @@ def _toggle_completion(
         )
         .first()
     )
+    # The 30-minute rule only protects the "mark as done" direction.
+    if existing is None:
+        _ensure_completion_delay(assignment, now)
+    _guard_toggle_attempt(db, assignment, current, now)
     if existing:
         db.delete(existing)
-        current.points = max(0, (current.points or 0) - settings.POINTS_PER_ASSIGNMENT)
     else:
         db.add(
             models.AssignmentCompletion(
                 user_id=current.id,
                 assignment_id=assignment.id,
+                completed_at=now,
             )
         )
-        current.points = (current.points or 0) + settings.POINTS_PER_ASSIGNMENT
 
 
 @router.get("/", response_model=List[schemas.AssignmentOut])
@@ -151,7 +251,7 @@ def assignment_team(
     users = (
         db.query(models.User)
         .filter(models.User.is_active.is_(True))
-        .order_by(models.User.points.desc(), models.User.username.asc())
+        .order_by(models.User.username.asc())
         .all()
     )
 
@@ -202,7 +302,6 @@ async def upload_attachment(
         file_url=url,
         file_name=file_name,
     )
-    current.points = (current.points or 0) + settings.POINTS_PER_UPLOAD
     db.add(attachment)
     db.commit()
     db.refresh(attachment)
@@ -223,18 +322,18 @@ def create_assignment(
         owner_id=current.id,
         creator_id=current.id,
         completed=completed,
-        points_awarded=completed,
     )
     db.add(obj)
     db.flush()
     if completed:
+        # Staff may create an assignment that is already done; the creation
+        # delay intentionally does not apply to this initial state.
         db.add(
             models.AssignmentCompletion(
                 user_id=current.id,
                 assignment_id=obj.id,
             )
         )
-        current.points = (current.points or 0) + settings.POINTS_PER_ASSIGNMENT
     db.commit()
     return _serialize(_get_or_404(db, obj.id), current)
 

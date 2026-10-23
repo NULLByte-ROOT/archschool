@@ -1,4 +1,13 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
@@ -474,6 +483,23 @@ export default function AssignmentsPage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Assignment | null>(null);
+  // Anti-cheat rejections (30-minute delay / toggle lock) are transient: show
+  // them in a toast instead of replacing the whole list with an error panel.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | undefined>(undefined);
+
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 4200);
+  }, []);
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(toastTimer.current);
+    },
+    []
+  );
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -624,8 +650,18 @@ export default function AssignmentsPage() {
 
   const handleOpen = useCallback((id: number) => navigate(`/assignments/${id}`), [navigate]);
   const handleToggle = useCallback(
-    (item: Assignment) => toggleAssignmentCompletion(item.id).then(reload),
-    [reload]
+    (item: Assignment) => {
+      toggleAssignmentCompletion(item.id)
+        .then(reload)
+        .catch((e: unknown) => {
+          showToast(
+            e instanceof Error && e.message
+              ? e.message
+              : "تغییر وضعیت انجام نشد."
+          );
+        });
+    },
+    [reload, showToast]
   );
   const handleDelete = useCallback((item: Assignment) => deleteAssignment(item.id).then(reload), [reload]);
 
@@ -937,6 +973,22 @@ export default function AssignmentsPage() {
         onSaved={reload}
         assignment={editing}
       />
+
+      {/* توست ضدتقلب / خطای تغییر وضعیت */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 14 }}
+            transition={{ duration: 0.18 }}
+            role="status"
+            className="fixed bottom-24 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-2xl border border-danger/40 bg-[#1a0b0d]/95 px-4 py-3 text-center text-[12px] leading-6 font-semibold text-red-100 shadow-xl"
+          >
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

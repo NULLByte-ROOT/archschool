@@ -9,12 +9,19 @@ countdown, and includes a team chat with profiles.
 
 ## Features
 
-- **Dashboard** — activity chart, assignment type breakdown, upcoming
-  deadlines, recent chat messages and latest assignment comments.
+- **Dashboard** — hero streak widget (with a pulsing “streak at risk” warning
+  until something is completed today), percentage top-3, personal focus, class
+  activity pulse, 7-day class trend and tomorrow's schedule.
 - **Timetable** — Sat–Wed, four 90-minute periods (08:00–14:00), live
   countdown for the current/next period, and next school day preview.
-- **Assignments** — urgent/upcoming/completed groups, filters, per-user
-  completion and points.
+- **Assignments** — urgent/upcoming/completed groups, filters and per-user
+  completion.
+- **Leaderboard** — ranked strictly by completion percentage (ties go to
+  whoever got there first), plus current/best streaks, average completion speed,
+  strongest/weakest subject and a 7-day activity chart.
+- **Anti-cheat** — a new assignment can only be marked done 30 minutes after it
+  is created; more than 3 toggles of the same assignment within an hour locks it
+  for an hour.
 - **Accounts** — username + 6-character access code registration and login
   (uppercase English letters and numbers only; the admin code still works),
   editable bio and avatar.
@@ -63,12 +70,15 @@ defaulting to `http://localhost:8000/api`.
 
 Assignments are shared across the team. Every user can see every assignment.
 
-- `admin` — manages users and all assignments
-- `editor` — can edit/delete any assignment
-- `member` — can edit/delete only assignments they created
+- `owner` — special account: everything an admin can do, plus server stats and
+  access-code management
+- `admin` — manages users and all assignments, deletes any chat message
+- `friend` — chats and comments, but cannot manage assignments
+- `member` — read-only apart from toggling their own completion and commenting
+  on assignment pages; the chat page is locked
 
-Completion is per user (`assignment_completions` table). Marking a task done
-awards points to that specific user.
+Completion is per user (`assignment_completions` table). There is no points
+system: the leaderboard is ranked by completion percentage and streaks.
 
 ## Database migrations
 
@@ -99,6 +109,20 @@ docker compose exec -T db psql -U postgres -d archschool_db \
 
 It adds `users.password`, `users.avatar_url`, `users.bio` and
 `users.last_seen`. Both migrations are idempotent and only add columns.
+
+Finally, [`backend/migrations/003_stats_streaks_remove_points.sql`](backend/migrations/003_stats_streaks_remove_points.sql)
+drops the retired `users.points` / `assignments.points_awarded` columns and
+creates the `completion_toggle_guards` anti-abuse table:
+
+```bash
+docker compose exec -T db psql -U postgres -d archschool_db \
+  < backend/migrations/003_stats_streaks_remove_points.sql
+```
+
+> **Run 003 only after `./deploy.sh deploy` finished and the previous slot is
+> stopped.** A still-running pre-003 backend selects the dropped columns and
+> would fail every user query. The new backend creates the guard table on boot,
+> so the script is only required to physically remove the dead points columns.
 
 ## Production (blue-green)
 
@@ -254,8 +278,9 @@ short time (and may be restarted for a rollback). Therefore:
   `.deploy-state` can be deleted without breaking anything.
 
 The backend expects PostgreSQL; connection settings live in `backend/.env` and
-are overridden by `docker-compose.yml`. Existing data is preserved because
-schema changes only add columns/tables.
+are overridden by `docker-compose.yml`. Existing data is preserved because the
+automatic startup path only adds columns/tables (the optional `003` migration is
+the one deliberate exception).
 
 After deploying, users should refresh the app (their role is re-fetched from
 `/api/auth/me` automatically).
