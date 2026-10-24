@@ -34,6 +34,28 @@ class UserCodeUpdate(BaseModel):
     code: str = Field(..., pattern=r"^[A-Z0-9]{6}$")
 
 
+class PushTokenCreate(BaseModel):
+    """Expo push token registered by the mobile app after permission grant."""
+
+    token: str = Field(..., min_length=8, max_length=255)
+    device_type: str = Field("unknown", max_length=20)
+
+
+class PushTokenDelete(BaseModel):
+    token: str = Field(..., min_length=8, max_length=255)
+
+
+class PushTokenOut(BaseModel):
+    id: int
+    user_id: int
+    token: str
+    device_type: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class UserOut(UserBase):
     id: int
     is_admin: bool

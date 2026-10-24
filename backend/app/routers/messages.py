@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import Session
 
-from .. import chat, models, schemas
+from .. import chat, models, notifications, schemas
 from ..database import get_db
 from ..dependencies import get_current_user
 from ..ws_manager import manager
@@ -336,6 +336,18 @@ async def create_message(
 
     await manager.broadcast_message(room, chat.message_payload(message))
     await manager.notify_message_pulses(chat.message_payload(message))
+
+    notifications.notify_chat_message(
+        db,
+        sender_id=current.id,
+        sender_username=current.username,
+        receiver_id=message.receiver_id,
+        assignment_id=message.assignment_id,
+        content=message.content,
+        has_file=bool(message.file_url),
+        message_id=message.id,
+        assignment_title=message.assignment_title,
+    )
     return message
 
 

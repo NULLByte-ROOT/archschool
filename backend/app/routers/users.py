@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from typing import List
+
+from datetime import datetime
 
 from .. import chat, models, schemas
 from ..database import get_db
@@ -60,6 +63,108 @@ def delete_my_avatar(
     if previous:
         delete_upload(previous)
     return current
+
+
+# ---------------------------------------------------------------------------
+#  Mobile push tokens
+# ---------------------------------------------------------------------------
+PUSH_TOKEN_HINT = "توکن اعلان نامعتبر است"
+VALID_DEVICE_TYPES = ("android", "ios", "web", "unknown")
+
+
+def _valid_push_token(token: str) -> bool:
+    """Expo tokens look like ``ExponentPushToken[xxxxxxxx]``.
+
+    The backend only talks to Expo's push service, so tokens from another
+    provider would never deliver and are rejected at registration time.
+    """
+    value = (token or "").strip()
+    return bool(
+        value.startswith(("ExponentPushToken[", "ExpoPushToken["))
+        and value.endswith("]")
+        and len(value) <= 255
+    )
+
+
+@router.post("/push-token", response_model=schemas.PushTokenOut)
+def register_push_token(
+    data: schemas.PushTokenCreate,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Register (or re-own) the token of this device.
+
+    A token is unique: signing into another account on the same phone moves the
+    token instead of leaving a duplicate that would notify the previous user.
+    """
+    token = (data.token or "").strip()
+    if not _valid_push_token(token):
+        raise HTTPException(status_code=400, detail=PUSH_TOKEN_HINT)
+
+    device_type = (data.device_type or "unknown").strip().lower()
+    if device_type not in VALID_DEVICE_TYPES:
+        device_type = "unknown"
+
+    existing = (
+        db.query(models.PushToken)
+        .filter(models.PushToken.token == token)
+        .first()
+    )
+    if existing is not None:
+        existing.user_id = current.id
+        existing.device_type = device_type
+        existing.updated_at = datetime.utcnow()
+        row = existing
+    else:
+        row = models.PushToken(
+            user_id=current.id, token=token, device_type=device_type
+        )
+        db.add(row)
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # Two installs registered the same token at once: keep the winner and
+        # make this request idempotent instead of returning a 500.
+        db.rollback()
+        row = (
+            db.query(models.PushToken)
+            .filter(models.PushToken.token == token)
+            .first()
+        )
+        if row is None:
+            raise HTTPException(status_code=500, detail="ثبت اعلان ناموفق بود")
+        row.user_id = current.id
+        row.device_type = device_type
+        row.updated_at = datetime.utcnow()
+        db.commit()
+
+    db.refresh(row)
+    return row
+
+
+@router.delete("/push-token", status_code=204)
+def unregister_push_token(
+    token: str | None = Query(None, max_length=255),
+    data: schemas.PushTokenDelete | None = Body(None),
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Remove a token on logout, or when the OS rotates it.
+
+    Scoped to the caller so one account can never unregister another account's
+    device. Accepts the token as a query parameter or a JSON body.
+    """
+    value = (token or (data.token if data else "") or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail=PUSH_TOKEN_HINT)
+
+    db.query(models.PushToken).filter(
+        models.PushToken.token == value,
+        models.PushToken.user_id == current.id,
+    ).delete(synchronize_session=False)
+    db.commit()
+    return None
 
 
 @router.get("/{user_id}/profile", response_model=schemas.UserProfileOut)

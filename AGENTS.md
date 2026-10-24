@@ -58,12 +58,26 @@ ArchSchool is a social-network-style school workspace for a class team (11th gra
 - **Themes:** Dark (default) & Light mode, toggle in Sidebar and Auth pages.
 - **Unread badges:** `pulse` WebSocket channel drives sidebar unread counts.
 
+## 7. Mobile App & Push Notifications
+- **Repository:** The Expo client is a separate repo at `D:\Site\archschool-mobile` (GitHub `NULLByte-ROOT/archschool-mobile`), not part of the Vite build. It uses Expo SDK 58 / RN 0.88 / Expo Router, React Query, Zustand, SecureStore, Reanimated, expo-notifications and expo-updates. Its `AGENTS.md` is the source of truth for mobile-only rules.
+- **API/WS:** Production base `https://archschool.vidxsepehr.ir/api`, WS `wss://archschool.vidxsepehr.ir/api/ws?room=…&token=…`. `EXPO_PUBLIC_API_URL` overrides the base for development builds only. The socket is receive-only; all writes go through REST.
+- **Push models:** `push_tokens` (`id`, `user_id`, `token` unique, `device_type`, `created_at`, `updated_at`) and `deadline_notifications` (`assignment_id`, `threshold_hours`, unique together, `sent_at`). The deadline marker is global per assignment/threshold because one send fans out to every still-pending user. Both tables are created by the additive boot migration — no manual SQL.
+- **Endpoints:** `POST /api/users/push-token` (`{token, device_type}`; validates `ExponentPushToken[...]` / `ExpoPushToken[...]`, re-owns a token already registered to another account) and `DELETE /api/users/push-token` (`{token}`). Logout unregisters silently.
+- **Triggers (`backend/app/notifications.py`):** chat messages reach the same audience as the room (global: admin/friend/owner, never chat-locked members; DM: receiver only; assignment comments: everyone active except the author); new assignments reach every active account except the creator; deadline reminders fire 24h and 2h before `due_date` only to users who have not completed the task.
+- **Delivery (`backend/app/push.py`):** Expo HTTP API via `httpx`, batches of 100, background task/thread so requests never block, `DeviceNotRegistered` tokens pruned. Failures are logged as `archschool.push`, never raised.
+- **Scheduler:** One asyncio loop in the FastAPI lifespan (10-minute interval, 20s boot delay). Thresholds already crossed when an assignment is created are reserved immediately, and the unique row is committed before sending, so blue-green/restarts cannot double-send.
+- **Env:** `PUSH_NOTIFICATIONS_ENABLED` (default true), `DEADLINE_CHECK_INTERVAL_MINUTES` (10), `CORS_ORIGIN_REGEX` in `backend/.env.example`. The Expo endpoint is the hardcoded official `https://exp.host/--/api/v2/push/send`. Native mobile requests send no `Origin`; the regex only exists for Expo web/LAN previews.
+- **Deep links:** Notification `data` contains `type` (`chat`/`assignment`/`deadline`), `room` (`global`, `dm:<low>:<high>`, `assignment:<id>`) and `assignment_id`; the app opens the room/detail on tap, cold start included.
+- **EAS/OTA:** `eas.json` has development (dev client, APK), preview (APK) and production (AAB, autoIncrement) profiles with matching update channels. `eas init` fills `extra.eas.projectId`; `eas update:configure` replaces the placeholder `updates.url`. OTA is `ON_LOAD` with `runtimeVersion.policy: appVersion`.
+- **Validation:** `npm run typecheck` and `npx expo export --platform android --output-dir .expo-export-test` in `archschool-mobile`; `py -m compileall -q backend\app` here. Never start Metro/FastAPI locally.
+
 ---
 
 ## ⛔ STRICT RULES FOR THE AI AGENT (DO NOT BREAK THESE)
 1. **NEVER TEST LOCALLY:** Do NOT run `npm run dev`, `fastapi dev`, or start local dev servers. Do NOT connect to or create local SQLite databases.
-2. **BUILD ONLY:** Verify your code by running `npm run build` (Frontend) and `python -m compileall` (Backend).
+2. **BUILD ONLY:** Verify your code by running `npm run build` (Frontend) and `python -m compileall` (Backend). For the mobile app, run `npm run typecheck` and `npx expo export --platform android --output-dir .expo-export-test`.
 3. **NO UI REGRESSIONS:** The mobile and desktop UI have gone through extensive debugging. Do NOT rewrite massive UI components from scratch unless explicitly asked. Fix bugs surgically.
 4. **DEPLOYMENT:** Once `npm run build` passes, **commit and push to GitHub immediately**. Then, provide me with the exact deployment commands for the server (`./deploy.sh deploy` — NEVER bare `docker compose up`).
 5. **RBAC:** Never weaken the exact permission rules in section 4. Backend enforcement always wins over the client.
 6. **DIGITS:** All dynamic numbers in the UI must be Latin digits (see section 4 formatting rule).
+7. **MOBILE REPO:** The Expo client lives in `D:\Site\archschool-mobile` with its own git history. Commit/push it separately; never copy it into this repo or add it as a submodule.

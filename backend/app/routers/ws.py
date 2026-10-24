@@ -5,7 +5,7 @@ from datetime import datetime, UTC
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
-from .. import chat, models
+from .. import chat, models, notifications
 from ..database import SessionLocal
 from ..security import decode_token
 from ..ws_manager import manager
@@ -171,6 +171,20 @@ async def _handle_frame(
         db.commit()
         db.refresh(message)
         payload = chat.message_payload(message)
+
+        # Inside the session: the push audience queries need a live DB handle,
+        # and the payload already carries the sender/room metadata.
+        notifications.notify_chat_message(
+            db,
+            sender_id=user_id,
+            sender_username=payload.get("sender_username"),
+            receiver_id=payload.get("receiver_id"),
+            assignment_id=payload.get("assignment_id"),
+            content=payload.get("content") or "",
+            has_file=bool(payload.get("file_url")),
+            message_id=int(payload["id"]),
+            assignment_title=payload.get("assignment_title"),
+        )
 
     await manager.broadcast_message(room, payload)
     await manager.notify_message_pulses(payload)

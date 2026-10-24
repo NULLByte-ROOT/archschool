@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from .. import models, schemas
+from .. import models, notifications, schemas
 from ..config import settings
 from ..database import get_db
 from ..dependencies import get_current_user
@@ -335,7 +335,10 @@ def create_assignment(
             )
         )
     db.commit()
-    return _serialize(_get_or_404(db, obj.id), current)
+    created = _get_or_404(db, obj.id)
+    result = _serialize(created, current)
+    notifications.notify_new_assignment(db, created)
+    return result
 
 
 @router.patch("/{assignment_id}", response_model=schemas.AssignmentOut)

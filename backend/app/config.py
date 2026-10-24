@@ -19,6 +19,16 @@ class Settings(BaseSettings):
         "http://archschool.vidxsepehr.ir",
     ]
 
+    # Expo starts the web preview on 8081 and a phone in LAN development talks
+    # to `http://192.168.x.x:8000`; a regex covers those ephemeral origins
+    # without listing every machine. Native iOS/Android requests send no Origin
+    # header at all, so CORS only ever gates the optional web build.
+    CORS_ORIGIN_REGEX: str = (
+        r"^https?://(localhost|127\.0\.0\.1|\[::1\]|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+        r"|192\.168\.\d{1,3}\.\d{1,3}"
+        r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(?::\d+)?$"
+    )
+
     SECRET_KEY: str = "change-me-in-production-please"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
@@ -51,6 +61,17 @@ class Settings(BaseSettings):
     # correct day. Keeping it as a numeric offset avoids relying on the tzdata
     # database, which the slim Docker image does not ship.
     SCHOOL_UTC_OFFSET_HOURS: float = 3.5
+
+    # ------------------------------------------------------------------
+    #  Mobile push notifications
+    # ------------------------------------------------------------------
+    # Master switch for the Expo push transport and the deadline watcher.
+    PUSH_NOTIFICATIONS_ENABLED: bool = True
+
+    # How often the in-process watcher looks for assignments entering the
+    # 24-hour / 2-hour warning windows. Runs in the uvicorn event loop; no
+    # Celery/Redis worker is needed (and blue-green stays single-service).
+    DEADLINE_CHECK_INTERVAL_MINUTES: int = 10
 
     @field_validator("CORS_ORIGINS")
     @classmethod

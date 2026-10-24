@@ -87,6 +87,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    push_tokens = relationship(
+        "PushToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class SchoolSchedule(Base):
@@ -348,3 +353,61 @@ class Attachment(Base):
     @property
     def uploader(self) -> "User | None":
         return self.user
+
+
+class PushToken(Base):
+    """One Expo push token registered by a mobile install.
+
+    ``token`` is unique across the table: a phone that logs into a different
+    account must move to that account instead of keeping a stale duplicate, and
+    a token Expo reports as ``DeviceNotRegistered`` is deleted outright.
+    """
+
+    __tablename__ = "push_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token = Column(String(255), nullable=False, unique=True, index=True)
+    device_type = Column(
+        String(20), nullable=False, default="unknown", server_default=text("'unknown'")
+    )
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    user = relationship("User", back_populates="push_tokens")
+
+
+class DeadlineNotification(Base):
+    """Idempotency marker for approaching-deadline pushes.
+
+    The blue-green deploy runs two API instances against one database for a
+    short window. The unique constraint makes the scheduler safe there: the
+    second instance loses the insert race and stays silent. It also means a
+    restart cannot re-send a reminder that already went out.
+    """
+
+    __tablename__ = "deadline_notifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "assignment_id",
+            "threshold_hours",
+            name="uq_deadline_notification_assignment_threshold",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    assignment_id = Column(
+        Integer,
+        ForeignKey("assignments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    threshold_hours = Column(Integer, nullable=False)
+    sent_at = Column(DateTime, default=datetime.utcnow, nullable=False)

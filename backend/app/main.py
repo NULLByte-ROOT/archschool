@@ -1,6 +1,7 @@
+import asyncio
 import logging
 import os
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -270,11 +271,38 @@ _run_boot_migrations()
 UPLOAD_DIR = Path(settings.UPLOAD_DIR)
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title=settings.APP_NAME)
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Own the deadline watcher for the lifetime of the process.
+
+    The task is created after boot migrations and cancelled on shutdown; its
+    first pass waits 20 seconds so a blue-green slot is healthy before it can
+    touch Expo. ``asyncio.to_thread`` keeps the DB scan off the event loop.
+    """
+    watcher: asyncio.Task[None] | None = None
+    if settings.PUSH_NOTIFICATIONS_ENABLED:
+        from .notifications import deadline_watcher
+
+        watcher = asyncio.create_task(
+            deadline_watcher(settings.DEADLINE_CHECK_INTERVAL_MINUTES),
+            name="archschool-deadline-watcher",
+        )
+    try:
+        yield
+    finally:
+        if watcher is not None:
+            watcher.cancel()
+            with suppress(asyncio.CancelledError):
+                await watcher
+
+
+app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=settings.CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=[

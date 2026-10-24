@@ -29,7 +29,9 @@ countdown, and includes a team chat with profiles.
   reply, forward, attachments, admin delete-any/clear-room.
 - **Themes** — dark monochrome (default) and a soft light theme, toggle in
   Settings.
-
+- **Mobile app** — a separate Expo client (`../archschool-mobile`) with the same
+  RBAC, RTL UI and percentage leaderboard, plus Expo push notifications for
+  chat, new assignments and 24h/2h deadline reminders.
 
 ## Structure
 
@@ -37,6 +39,9 @@ countdown, and includes a team chat with profiles.
 backend/   FastAPI app (app/models.py, app/schemas.py, app/routers/)
 frontend/  React app (src/components, src/pages, src/lib)
 ```
+
+The Expo client is maintained in its own repository (`NULLByte-ROOT/archschool-mobile`)
+so its EAS build history and update channels stay independent.
 
 ## Local development
 
@@ -65,6 +70,32 @@ npm run dev
 
 The API base URL is read from `VITE_API_URL` (see `frontend/.env.example`),
 defaulting to `http://localhost:8000/api`.
+
+### Mobile (Expo)
+
+The React Native client is a sibling project, not part of this npm workspace:
+
+```bash
+cd ../archschool-mobile
+npm install
+npm run typecheck
+npx expo start            # Expo Go (UI only)
+npx expo start --dev-client  # after installing the development build
+```
+
+Remote push needs a development/production build (Expo Go on Android cannot
+receive it). Build an installable APK with
+`npx eas-cli@latest build --platform android --profile preview`. Full setup,
+EAS/OTA and push details are in `archschool-mobile/README.md`.
+
+Push endpoints used by the client:
+
+- `POST /api/users/push-token` — `{ "token": "ExponentPushToken[...]", "device_type": "android" }`
+- `DELETE /api/users/push-token` — `{ "token": "..." }`
+
+Both are authenticated. The backend fans out chat, new-assignment and
+24h/2h deadline notifications; delivery is asynchronous and failures never
+block the originating request.
 
 ## Roles & public assignments
 

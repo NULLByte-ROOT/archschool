@@ -48,6 +48,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
+    { name = "httpx" },
     { name = "passlib" },
     { name = "psutil" },
     { name = "psycopg", extra = ["binary"] },
@@ -61,6 +62,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.142.2" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "passlib", specifier = ">=1.7.4" },
     { name = "psutil", specifier = ">=7.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
