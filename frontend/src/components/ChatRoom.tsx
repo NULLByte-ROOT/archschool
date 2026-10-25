@@ -242,7 +242,7 @@ const MessageBubble = memo(function MessageBubble({
       {message.content && (
         <p
           dir="auto"
-          className="max-w-full text-[14.5px] leading-relaxed [overflow-wrap:anywhere] [word-break:normal] whitespace-pre-wrap"
+          className="max-w-full text-[14.5px] leading-relaxed break-words whitespace-pre-wrap"
         >
           {message.content}
         </p>
