@@ -22,6 +22,7 @@ import {
   MessageCircle,
   MoreVertical,
   Paperclip,
+  Pencil,
   Pin,
   PinOff,
   Search,
@@ -33,6 +34,7 @@ import {
 import {
   clearChat,
   deleteMessage,
+  editMessage,
   fetchMessages,
   fetchTeam,
   pinMessage,
@@ -244,13 +246,17 @@ const MessageBubble = memo(function MessageBubble({
       )}
 
       <span
-        className={`absolute bottom-1 right-2 flex items-center gap-0.5 font-mono text-[10px] tabular-nums ${
+        className={`absolute bottom-1 right-2 flex items-center gap-1 font-mono text-[10px] tabular-nums ${
           own ? "text-white/55" : "text-fg-500"
         } ${message.file_url ? "rounded bg-black/40 px-1" : ""}`}
-        dir="ltr"
       >
-        {chatTime(message.created_at)}
-        {own && <Check size={11} className="-mr-0.5" />}
+        {message.edited_at && (
+          <span className="font-sans text-[9px] opacity-80">ویرایش‌شده</span>
+        )}
+        <span className="flex items-center gap-0.5" dir="ltr">
+          {chatTime(message.created_at)}
+          {own && <Check size={11} className="-mr-0.5" />}
+        </span>
       </span>
     </div>
   );
@@ -336,24 +342,28 @@ function SwipeableMessage({
 function ContextMenu({
   menu,
   canDelete,
+  canEdit,
   onClose,
   onReply,
   onCopy,
   onForward,
   onPin,
+  onEdit,
   onDelete,
 }: {
   menu: MenuState;
   canDelete: boolean;
+  canEdit: boolean;
   onClose: () => void;
   onReply: () => void;
   onCopy: () => void;
   onForward: () => void;
   onPin: () => void;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
   const width = 200;
-  const height = (canDelete ? 5 : 4) * 40 + 12;
+  const height = ((canDelete ? 5 : 4) + (canEdit ? 1 : 0)) * 40 + 12;
   const left = Math.min(Math.max(8, menu.x), window.innerWidth - width - 8);
   const top = Math.min(Math.max(8, menu.y), window.innerHeight - height - 8);
 
@@ -376,6 +386,18 @@ function ContextMenu({
       <button type="button" className={item} onClick={onCopy}>
         <Copy className={icon} /> کپی متن
       </button>
+      {canEdit && (
+        <button
+          type="button"
+          className={item}
+          onClick={() => {
+            onEdit();
+            onClose();
+          }}
+        >
+          <Pencil className={icon} /> ویرایش پیام
+        </button>
+      )}
       <button type="button" className={item} onClick={onForward}>
         <Forward className={icon} /> ارسال به…
       </button>
@@ -790,6 +812,12 @@ function ChatRoom({
       if (id) setMessages((prev) => prev.filter((item) => item.id !== id));
     } else if (event.type === "clear") {
       setMessages([]);
+    } else if (event.type === "edit") {
+      const data = event.data as Message | undefined;
+      if (!data) return;
+      setMessages((prev) =>
+        prev.map((item) => (item.id === data.id ? data : item))
+      );
     } else if (event.type === "pin") {
       const data = event.data as Message | undefined;
       if (!data) return;
@@ -1103,6 +1131,25 @@ function ChatRoom({
     }
   }
 
+  async function handleEdit(message: Message) {
+    const next = window.prompt("متن جدید پیام:", message.content);
+    if (next === null) return;
+    const content = next.trim();
+    if (!content && !message.file_url) {
+      showToast("متن پیام خالی است");
+      return;
+    }
+    try {
+      const updated = await editMessage(message.id, content);
+      setMessages((prev) =>
+        prev.map((item) => (item.id === message.id ? updated : item))
+      );
+      showToast("پیام ویرایش شد");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "ویرایش ناموفق بود");
+    }
+  }
+
   async function handleDelete(message: Message) {
     try {
       await deleteMessage(message.id);
@@ -1377,12 +1424,14 @@ function ChatRoom({
             />
             <ContextMenu
               menu={menu}
-              canDelete={isAdmin}
+              canDelete={isAdmin || menu.message.sender_id === user?.id}
+              canEdit={menu.message.sender_id === user?.id}
               onClose={() => setMenu(null)}
               onReply={() => startReply(menu.message)}
               onCopy={() => handleCopy(menu.message)}
               onForward={() => openForward(menu.message)}
               onPin={() => handlePin(menu.message)}
+              onEdit={() => handleEdit(menu.message)}
               onDelete={() => handleDelete(menu.message)}
             />
           </>

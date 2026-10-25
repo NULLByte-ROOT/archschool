@@ -68,8 +68,8 @@ const ConversationRow = memo(function ConversationRow({
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-1.5">
           <span
-            className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[14px] font-bold text-white md:text-[12.5px]"
-            dir={isGlobal ? "rtl" : "ltr"}
+            className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-right text-[14px] font-bold text-white md:text-[12.5px]"
+            dir="rtl"
           >
             <span className="truncate">{name}</span>
             {member?.is_admin && (
@@ -205,7 +205,7 @@ const ChatSidebar = memo(function ChatSidebar({
         <div className="flex items-center gap-2.5 rounded-2xl border border-white/8 bg-white/[0.03] p-2.5">
           <Avatar name={user?.username ?? "?"} src={user?.avatar_url} size="sm" />
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[11px] font-semibold text-white" dir="ltr">
+            <p className="truncate text-right text-[11px] font-semibold text-white" dir="rtl">
               {user?.username}
             </p>
             <p className="font-mono text-[9px] text-fg-500">

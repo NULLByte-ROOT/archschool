@@ -240,7 +240,7 @@ export default function LeaderboardPage() {
     <div className="mx-auto max-w-4xl">
       <PageHeader
         kicker="leaderboard"
-        title="جدول قهرمانان"
+        title="لیدر بورد"
         subtitle="رتبه‌بندی بر اساس درصد تکمیل تکالیف — نه امتیاز"
         action={
           <button

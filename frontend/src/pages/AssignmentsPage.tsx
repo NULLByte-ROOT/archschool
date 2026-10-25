@@ -42,6 +42,7 @@ import Avatar from "../components/Avatar";
 import Corners from "../components/Corners";
 import Dropdown from "../components/Dropdown";
 import AddAssignmentModal from "../components/AddAssignmentModal";
+import SchoolStatusStrip from "../components/SchoolStatusStrip";
 import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
 import {
@@ -323,19 +324,22 @@ const AssignmentItem = memo(function AssignmentItem({
             </h3>
             <CreatorBadge name={item.creator_username} />
           </div>
+          {item.description ? (
+            <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-fg-300">
+              {item.description}
+            </p>
+          ) : null}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
             <span className="text-fg-500">
               {group?.label ?? "بدون دسته"}
               {item.subtype && <span> · {categoryItemLabel(item.subtype)}</span>}
             </span>
-            {item.subject_id && (
-              <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-bold text-fg-300">
-                <BookOpen size={12} className="shrink-0 text-fg-500" />
-                <span className="min-w-0 break-words sm:truncate">
-                  {subjectName(item.subject_id, item.course)}
-                </span>
+            <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-bold text-fg-300">
+              <BookOpen size={12} className="shrink-0 text-fg-500" />
+              <span className="min-w-0 break-words sm:truncate">
+                {subjectName(item.subject_id, item.course) || "بدون درس"}
               </span>
-            )}
+            </span>
             <span className="flex min-w-0 items-center gap-1.5 text-fg-500">
               <Calendar size={11} className="shrink-0 opacity-70" />
               <span className="min-w-0 break-words sm:truncate">{formatDue(item.due_date)}</span>
@@ -405,13 +409,19 @@ const AssignmentItem = memo(function AssignmentItem({
         <CreatorBadge name={item.creator_username} />
       </div>
 
+      {item.description ? (
+        <p className="mb-3 line-clamp-2 pr-2 text-[12px] leading-5 text-fg-300">
+          {item.description}
+        </p>
+      ) : null}
+
       <div className="mb-3 space-y-1.5 pr-2 text-[12px]">
-        {item.subject_id && (
-          <p className="flex items-center gap-1.5 text-[13px] font-bold text-fg-300">
-            <BookOpen size={12} className="shrink-0 text-fg-500" />
-            <span className="min-w-0 break-words">{subjectName(item.subject_id, item.course)}</span>
-          </p>
-        )}
+        <p className="flex items-center gap-1.5 text-[13px] font-bold text-fg-300">
+          <BookOpen size={12} className="shrink-0 text-fg-500" />
+          <span className="min-w-0 break-words">
+            {subjectName(item.subject_id, item.course) || "بدون درس"}
+          </span>
+        </p>
         <p className="flex items-center gap-1.5 text-fg-500">
           <Calendar size={12} className="shrink-0 opacity-70" />
           <span className="min-w-0 break-words">{formatDue(item.due_date)}</span>
@@ -687,6 +697,8 @@ export default function AssignmentsPage() {
           )
         }
       />
+
+      <SchoolStatusStrip className="mb-4" />
 
       {/* داشبورد مینی: میدان دید کلی */}
       <div className="mb-4 grid gap-4 lg:grid-cols-3">

@@ -26,6 +26,7 @@ import type { Assignment, TeamOverview } from "../api/client";
 import Avatar from "../components/Avatar";
 import Corners from "../components/Corners";
 import PulseBox from "../components/PulseBox";
+import SchoolStatusStrip from "../components/SchoolStatusStrip";
 import TomorrowSchedule from "../components/TomorrowSchedule";
 import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
@@ -192,6 +193,8 @@ export default function HomePage() {
         </div>
       </motion.div>
 
+      <SchoolStatusStrip className="mb-4" />
+
       {/* --------------------------------------------------------------
           HERO — استریک من (مهم‌ترین ویجت داشبورد)
       -------------------------------------------------------------- */}
@@ -305,7 +308,7 @@ export default function HomePage() {
             <div className="col-span-2 flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-bold text-fg-300 transition-colors group-hover:border-white/25 group-hover:text-white">
               <span className="flex items-center gap-1.5">
                 <Trophy size={12} className="text-warning" />
-                جدول قهرمانان کلاس
+                لیدر بورد
               </span>
               <ArrowUpRight size={14} />
             </div>
@@ -338,6 +341,59 @@ export default function HomePage() {
             </button>
           </div>
         )}
+      </motion.div>
+
+      {/* --------------------------------------------------------------
+          دسترسی سریع و پررنگ به تکالیف
+      -------------------------------------------------------------- */}
+      <motion.div
+        role="button"
+        tabIndex={0}
+        onClick={() => navigate("/assignments")}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            navigate("/assignments");
+          }
+        }}
+        initial={{ opacity: 0, y: 14 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1], delay: 0.04 }}
+        className="group mb-4 flex cursor-pointer flex-wrap items-center justify-between gap-4 overflow-hidden rounded-3xl border border-white/20 bg-gradient-to-l from-white/[0.10] via-white/[0.045] to-transparent p-4 text-right transition-colors hover:border-white/35 sm:p-5"
+      >
+        <div className="flex min-w-0 items-center gap-3.5">
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-black shadow-[0_0_28px_-8px_rgba(255,255,255,0.8)]">
+            <ClipboardList size={22} strokeWidth={2.4} />
+          </span>
+          <div className="min-w-0">
+            <p className="mono-label">// ASSIGNMENTS</p>
+            <h3 className="truncate text-lg font-black text-white">تکالیف من</h3>
+            <p className="mt-0.5 text-[11.5px] text-fg-300">
+              <span className="font-bold text-white">{personal.pending}</span> تکلیف
+              باقی‌مانده
+              {personal.urgent > 0 ? (
+                <>
+                  <span className="mx-1.5 opacity-40">·</span>
+                  <span className="font-bold text-red-300">
+                    {personal.urgent} فوری
+                  </span>
+                </>
+              ) : null}
+            </p>
+          </div>
+        </div>
+
+        <span className="flex shrink-0 items-center gap-3">
+          {personal.next[0] ? (
+            <span className="hidden max-w-[220px] truncate rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-[11px] text-fg-300 sm:inline-block">
+              نزدیک‌ترین: {personal.next[0].title}
+            </span>
+          ) : null}
+          <span className="flex items-center gap-1.5 rounded-xl bg-white px-4 py-2.5 text-[12px] font-black text-black transition-transform group-hover:-translate-x-0.5">
+            مشاهده تکالیف
+            <ArrowUpRight size={15} strokeWidth={2.6} />
+          </span>
+        </span>
       </motion.div>
 
       {/* --------------------------------------------------------------

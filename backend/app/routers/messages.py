@@ -12,10 +12,10 @@ from ..ws_manager import manager
 
 router = APIRouter()
 
-# Members are chat-locked everywhere EXCEPT assignment comment rooms;
-# friends chat but can never delete messages. Admin/owner are unrestricted.
+# Members are chat-locked everywhere EXCEPT assignment comment rooms.
+# Any sender may edit/delete their own message; staff may delete any message.
 CHAT_LOCK_DETAIL = "برای دسترسی به گفتگو، از ادمین اجازه بگیرید."
-DELETE_LOCK_DETAIL = "حذف پیام فقط برای ادمین مجاز است"
+DELETE_LOCK_DETAIL = "فقط فرستندهٔ پیام یا مدیر می‌تواند آن را حذف کند"
 
 
 def _require_chat_writer(user: models.User, assignment_room: bool = False) -> None:
@@ -414,6 +414,42 @@ async def clear_messages(
     return None
 
 
+@router.patch("/{message_id}", response_model=schemas.MessageOut)
+async def edit_message(
+    message_id: int,
+    data: schemas.MessageUpdate,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Edit your own message (text only) and notify everyone in the room.
+
+    Staff keep the extra "delete any message" power, but nobody can rewrite
+    somebody else's words — moderation is delete, not impersonation.
+    """
+    message = chat.load_visible_message(db, message_id, current.id)
+    if message.sender_id != current.id:
+        raise HTTPException(
+            status_code=403, detail="فقط فرستنده می‌تواند پیام خودش را ویرایش کند"
+        )
+
+    _require_chat_writer(current, assignment_room=message.assignment_id is not None)
+
+    content = data.content.strip()
+    if not content and not message.file_url:
+        raise HTTPException(status_code=400, detail="پیام خالی است")
+    if content == message.content:
+        return message
+
+    message.content = content
+    message.edited_at = datetime.utcnow()
+    db.commit()
+    db.refresh(message)
+
+    payload = chat.message_payload(message)
+    await manager.broadcast(chat.message_room(message), {"type": "edit", "data": payload})
+    return message
+
+
 @router.delete("/{message_id}", status_code=204)
 async def delete_message(
     message_id: int,
@@ -421,8 +457,8 @@ async def delete_message(
     current: models.User = Depends(get_current_user),
 ):
     message = chat.load_visible_message(db, message_id, current.id)
-    # ویرایش‌گرها (Friend) اجازهٔ حذف ندارند؛ فقط ادمین و Owner (فرستنده یا هر پیام).
-    if not models.is_staff(current):
+    # Everyone may delete their own message "for everyone"; staff may delete any.
+    if message.sender_id != current.id and not models.is_staff(current):
         raise HTTPException(status_code=403, detail=DELETE_LOCK_DETAIL)
     room = chat.message_room(message)
     db.delete(message)

@@ -119,6 +119,7 @@ export interface Message {
   file_url: string | null;
   reply_to: ReplyPreview | null;
   is_pinned: boolean;
+  edited_at?: string | null;
   created_at: string;
 }
 
@@ -523,6 +524,13 @@ export async function sendMessage(data: {
   return request<Message>("/messages/", {
     method: "POST",
     body: JSON.stringify(data),
+  });
+}
+
+export async function editMessage(id: number, content: string): Promise<Message> {
+  return request<Message>(`/messages/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ content }),
   });
 }
 

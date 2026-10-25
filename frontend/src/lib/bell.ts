@@ -1,4 +1,10 @@
-import { DAY_MS, parseDue, calendarDayDiff, todayIndex } from "./assignments";
+import {
+  DAY_MS,
+  parseDue,
+  calendarDayDiff,
+  nextSchoolDayIndex,
+  todayIndex,
+} from "./assignments";
 import { PERIOD_LABELS, PERIOD_TIMES, TIMETABLE } from "../data";
 import type { SchoolPeriod } from "../api/client";
 
@@ -144,6 +150,145 @@ export function activeBell(date: Date, bells: Bell[]): Bell | null {
     }
   }
   return null;
+}
+
+// ------------------------------------------------------------------
+//  وضعیت لحظه‌ای مدرسه: زنگ، زنگ تفریح، قبل/بعد از مدرسه
+// ------------------------------------------------------------------
+
+export type CurrentBellState =
+  | {
+      state: "class";
+      bell: Bell;
+      bellIndex: number;
+      remainingMs: number;
+      progress: number;
+      endsAtMs: number;
+    }
+  | {
+      state: "break";
+      previousBell: Bell;
+      nextBell: Bell;
+      nextBellIndex: number;
+      remainingMs: number;
+      progress: number;
+      startedAtMs: number;
+      endsAtMs: number;
+    }
+  | {
+      state: "before";
+      firstBell: Bell;
+      remainingMs: number;
+      startsAtMs: number;
+    }
+  | { state: "after"; lastBell: Bell }
+  | { state: "holiday" };
+
+/**
+ * وضعیت مدرسه را از روی همان زنگ‌های ذخیره‌شده در پنل ادمین می‌سازد.
+ *
+ * «زنگ تفریح» یک رکورد جداگانه در دیتابیس نیست؛ هر فاصلهٔ خالی بین پایان
+ * زنگ N و شروع زنگ N+1 یک زنگ تفریح است. به همین دلیل تغییر زمان‌ها در
+ * `/admin/bells` بلافاصله هم زنگ جاری و هم زنگ تفریح را جابه‌جا می‌کند.
+ */
+export function getCurrentBellState(
+  now: number = Date.now(),
+  bells: Bell[] = []
+): CurrentBellState {
+  const list = bells.length > 0 ? bells : bellsFrom(DEFAULT_PERIODS);
+  const date = new Date(now);
+  const window = dayBellWindow(date, list);
+  if (!window.isSchoolDay) return { state: "holiday" };
+
+  const at = (minute: number) => window.dayStartMs + minute * 60_000;
+  const remaining = (target: number) => Math.max(0, target - now);
+
+  const first = list[0];
+  if (now < at(first.start)) {
+    return {
+      state: "before",
+      firstBell: first,
+      remainingMs: remaining(at(first.start)),
+      startsAtMs: at(first.start),
+    };
+  }
+
+  for (let index = 0; index < list.length; index += 1) {
+    const bell = list[index];
+    const startMs = at(bell.start);
+    const endMs = at(bell.end);
+    if (now >= startMs && now < endMs) {
+      return {
+        state: "class",
+        bell,
+        bellIndex: index,
+        remainingMs: remaining(endMs),
+        progress: Math.min(1, Math.max(0, (now - startMs) / (endMs - startMs))),
+        endsAtMs: endMs,
+      };
+    }
+  }
+
+  for (let index = 0; index < list.length - 1; index += 1) {
+    const previousBell = list[index];
+    const nextBell = list[index + 1];
+    const startedAtMs = at(previousBell.end);
+    const endsAtMs = at(nextBell.start);
+    if (endsAtMs > startedAtMs && now >= startedAtMs && now < endsAtMs) {
+      return {
+        state: "break",
+        previousBell,
+        nextBell,
+        nextBellIndex: index + 1,
+        remainingMs: remaining(endsAtMs),
+        progress: Math.min(
+          1,
+          Math.max(0, (now - startedAtMs) / (endsAtMs - startedAtMs))
+        ),
+        startedAtMs,
+        endsAtMs,
+      };
+    }
+  }
+
+  return { state: "after", lastBell: list[list.length - 1] };
+}
+
+export interface ScheduleTarget {
+  /** اندیس روز در TIMETABLE (۰ = شنبه) */
+  dayIndex: number;
+  /** آیا هدف، نزدیک‌ترین روز مدرسه‌ی بعد از امروز است؟ (نه امروز) */
+  isTomorrow: boolean;
+  /** آیا ساعت از پایان مدرسه گذشته است؟ */
+  isAfterSchool: boolean;
+  /** آیا امروز پنجشنبه یا جمعه (تعطیلات آخر هفته) است؟ */
+  isWeekend: boolean;
+  /** آیا روز هدف دقیقاً فردای تقویمی است؟ */
+  isLiteralTomorrow: boolean;
+}
+
+/**
+ * «برنامه‌ی پیش‌رو» را بر اساس پایانِ آخرین زنگِ ذخیره‌شده حساب می‌کند.
+ * اگر ادمین مدرسه را تا ۱۵:۰۰ تمدید کند، داشبورد هم بلافاصله بعد از ۱۵:۰۰
+ * به روز بعد می‌رود — نه ساعت ۱۴:۰۰ هاردکدشده.
+ */
+export function scheduleTarget(
+  now: number = Date.now(),
+  bells: Bell[] = []
+): ScheduleTarget {
+  const base = new Date(now);
+  const minutes = base.getHours() * 60 + base.getMinutes();
+  const today = todayIndex(base);
+  const isWeekend = today >= TIMETABLE.length;
+  const isAfterSchool = minutes >= schoolEnd(bells) || isWeekend;
+  const dayIndex = isAfterSchool ? nextSchoolDayIndex(today) : today;
+  return {
+    dayIndex,
+    isTomorrow: isAfterSchool || dayIndex !== today,
+    isAfterSchool,
+    isWeekend,
+    isLiteralTomorrow: dayIndex === (today + 1) % 7,
+  };
 }
 
 // ------------------------------------------------------------------

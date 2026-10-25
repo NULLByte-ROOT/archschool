@@ -98,6 +98,7 @@ def _ensure_columns() -> None:
         "messages": {
             "reply_to_id": "INTEGER REFERENCES messages(id) ON DELETE SET NULL",
             "is_pinned": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "edited_at": "TIMESTAMP",
         },
     }
 

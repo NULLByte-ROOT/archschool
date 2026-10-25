@@ -266,6 +266,7 @@ class Message(Base):
     is_pinned = Column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    edited_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     reply_to = relationship("Message", remote_side=[id], foreign_keys=[reply_to_id])

@@ -13,10 +13,11 @@ import {
   dayEntries,
   deadlineTone,
   relativeDue,
-  scheduleTarget,
   todayIndex,
   type DeadlineTone,
 } from "../lib/assignments";
+import { scheduleTarget } from "../lib/bell";
+import { useBellSchedule } from "../hooks/useBellSchedule";
 
 const BADGE_TONE: Record<DeadlineTone, string> = {
   red: "border-red-500/40 bg-red-500/10 text-red-400",
@@ -98,6 +99,7 @@ export default function TomorrowSchedule({
    */
   mode?: "next" | "tomorrow";
 }) {
+  const { bells } = useBellSchedule();
   const target = useMemo(() => {
     if (mode === "tomorrow") {
       const dayIndex = (todayIndex(new Date(now)) + 1) % 7;
@@ -109,8 +111,8 @@ export default function TomorrowSchedule({
         isLiteralTomorrow: true,
       };
     }
-    return scheduleTarget(now);
-  }, [now, mode]);
+    return scheduleTarget(now, bells);
+  }, [now, mode, bells]);
   const day = useMemo(() => dayAtIndex(target.dayIndex), [target.dayIndex]);
 
   const rows = useMemo<Row[]>(() => {

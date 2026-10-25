@@ -36,10 +36,12 @@ import {
   categoryGroup,
   categoryItemLabel,
   deadlineTone,
+  formatClock,
   formatDue,
   relativeDue,
   type DeadlineTone,
 } from "../lib/assignments";
+import type { Bell } from "../lib/bell";
 
 interface HoverState {
   key: string;
@@ -125,7 +127,13 @@ function FreeCell() {
 // ------------------------------------------------------------------
 //  جدول هفتگی — دسکتاپ
 // ------------------------------------------------------------------
-function DesktopTimetable({ bySubject }: { bySubject: Record<string, Assignment[]> }) {
+function DesktopTimetable({
+  bySubject,
+  bells,
+}: {
+  bySubject: Record<string, Assignment[]>;
+  bells: Bell[];
+}) {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const leaveTimer = useRef<number | null>(null);
@@ -215,16 +223,26 @@ function DesktopTimetable({ bySubject }: { bySubject: Record<string, Assignment[
             </div>
           ))}
 
-          {PERIOD_LABELS.map((label, i) => (
-            <div
-              key={label}
-              style={{ gridColumn: 1, gridRow: i + 2 } as CSSProperties}
-              className="flex flex-col items-center justify-center gap-1"
-            >
-              <Clock size={14} className="text-fg-500" />
-              <span className="text-xs font-medium text-fg-300">{label}</span>
-            </div>
-          ))}
+          {PERIOD_LABELS.map((label, i) => {
+            const bell = bells[i];
+            return (
+              <div
+                key={label}
+                style={{ gridColumn: 1, gridRow: i + 2 } as CSSProperties}
+                className="flex flex-col items-center justify-center gap-1 text-center"
+              >
+                <Clock size={14} className="text-fg-500" />
+                <span className="text-xs font-medium text-fg-300">
+                  {bell?.label ?? label}
+                </span>
+                {bell ? (
+                  <span className="mono text-[9px] tabular-nums text-fg-500" dir="ltr">
+                    {formatClock(bell.start)}–{formatClock(bell.end)}
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
 
           {TIMETABLE.map((day, d) => {
             if (day.cells.length === 0) {
@@ -836,14 +854,16 @@ function MobileTimetable({ bySubject }: { bySubject: Record<string, Assignment[]
 // ------------------------------------------------------------------
 function Timetable({
   bySubject,
+  bells,
 }: {
   bySubject: Record<string, Assignment[]>;
+  bells: Bell[];
 }) {
   const isMobile = useIsMobileWidth();
   return isMobile ? (
     <MobileTimetable bySubject={bySubject} />
   ) : (
-    <DesktopTimetable bySubject={bySubject} />
+    <DesktopTimetable bySubject={bySubject} bells={bells} />
   );
 }
 

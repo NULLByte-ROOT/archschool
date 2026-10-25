@@ -164,6 +164,10 @@ class MessageCreate(BaseModel):
     reply_to_id: Optional[int] = None
 
 
+class MessageUpdate(BaseModel):
+    content: str = Field("", max_length=5000)
+
+
 class ReplyPreview(BaseModel):
     id: int
     sender_id: int
@@ -186,6 +190,7 @@ class MessageOut(BaseModel):
     file_url: Optional[str] = None
     reply_to: Optional[ReplyPreview] = None
     is_pinned: bool = False
+    edited_at: Optional[datetime] = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

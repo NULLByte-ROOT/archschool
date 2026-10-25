@@ -8,8 +8,10 @@ import CurrentPeriodCard from "../components/CurrentPeriodCard";
 import Timetable from "../components/Timetable";
 import TomorrowSchedule from "../components/TomorrowSchedule";
 import PageHeader from "../components/PageHeader";
+import { useBellSchedule } from "../hooks/useBellSchedule";
 import { useNow } from "../hooks/useNow";
-import { groupAssignmentsBySubject, jalaliToday } from "../lib/assignments";
+import { formatClock, groupAssignmentsBySubject, jalaliToday } from "../lib/assignments";
+import { schoolEnd, schoolStart } from "../lib/bell";
 
 /**
  * The ticking header clock. It owns its own 1s interval so the rest of the
@@ -36,6 +38,7 @@ export default function TimetablePage() {
   // Day-level granularity: the header date, the schedule preview and the
   // chosen day change at most once a minute — not once a second.
   const now = useNow(30_000);
+  const { bells } = useBellSchedule();
 
   useEffect(() => {
     fetchAssignments()
@@ -52,7 +55,7 @@ export default function TimetablePage() {
       <PageHeader
         kicker="timetable"
         title="برنامه هفتگی"
-        subtitle={`شنبه تا چهارشنبه · ۰۸:۰۰ تا ۱۴:۰۰ · امروز ${jalaliToday(now)}`}
+        subtitle={`شنبه تا چهارشنبه · ${formatClock(schoolStart(bells))} تا ${formatClock(schoolEnd(bells))} · امروز ${jalaliToday(now)}`}
         action={<LiveClock />}
       />
 
@@ -85,10 +88,13 @@ export default function TimetablePage() {
               </p>
             </div>
           </div>
-          <span className="badge">۴ زنگ · ۹۰ دقیقه‌ای</span>
+          <span className="badge">
+            {bells.length} زنگ · {formatClock(schoolStart(bells))}–
+            {formatClock(schoolEnd(bells))}
+          </span>
         </div>
 
-        <Timetable bySubject={bySubject} />
+        <Timetable bySubject={bySubject} bells={bells} />
       </motion.section>
 
       <TomorrowSchedule bySubject={bySubject} now={now} />
