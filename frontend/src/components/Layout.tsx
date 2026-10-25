@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Menu } from "lucide-react";
@@ -15,11 +15,53 @@ export default function Layout() {
   const immersive =
     location.pathname === "/chat" || /^\/assignments\/[^/]+$/.test(location.pathname);
 
+  /**
+   * On-screen keyboard (mobile web).
+   *
+   * `100dvh` only reacts to browser chrome, not to the keyboard: on Android
+   * Chrome the layout viewport keeps its full height, so a `h-dvh` chat shell
+   * pushes the composer underneath the keyboard. Mirroring `visualViewport`
+   * into an explicit pixel height keeps the composer reachable while typing.
+   * The pixel height is only applied while the keyboard is actually open
+   * (`innerHeight - visualViewport.height > 120`), so nothing changes on
+   * desktop or in normal mobile browsing.
+   */
+  const [keyboardHeight, setKeyboardHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    let frame = 0;
+    const sync = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const visual = Math.round(vv.height);
+        const layout = Math.round(window.innerHeight);
+        const covered = layout - visual;
+        setKeyboardHeight(visual > 0 && covered > 120 ? visual : null);
+      });
+    };
+
+    sync();
+    vv.addEventListener("resize", sync);
+    window.addEventListener("orientationchange", sync);
+    return () => {
+      cancelAnimationFrame(frame);
+      vv.removeEventListener("resize", sync);
+      window.removeEventListener("orientationchange", sync);
+    };
+  }, []);
+
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
 
   return (
-    <div className="app-shell relative flex h-dvh overflow-hidden bg-black font-sans" dir="rtl">
+    <div
+      className="app-shell relative flex h-dvh overflow-hidden bg-black font-sans"
+      dir="rtl"
+      style={keyboardHeight ? { height: `${keyboardHeight}px` } : undefined}
+    >
       {/* پس‌زمینه شبکه */}
       <div
         className="pointer-events-none fixed inset-0 z-0 grid-bg"

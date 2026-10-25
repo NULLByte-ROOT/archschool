@@ -135,8 +135,8 @@ const MessageBubble = memo(function MessageBubble({
     <div
       className={`relative min-w-0 select-none rounded-2xl px-3 pt-2 pb-5 ${
         own
-          ? "max-w-[84%] bubble-own rounded-br-sm text-white sm:max-w-[72%]"
-          : "max-w-[78%] bubble-other rounded-bl-sm text-fg-100 sm:max-w-[68%]"
+          ? "max-w-[calc(100%_-_2.75rem)] bubble-own rounded-br-sm text-white sm:max-w-[72%]"
+          : "max-w-[calc(100%_-_3rem)] bubble-other rounded-bl-sm text-fg-100 sm:max-w-[68%]"
       } ${showTail ? (own ? "bubble-tail-own" : "bubble-tail-other") : ""} ${
         animate === "pop" ? "msg-pop" : animate === "in" ? "msg-in" : ""
       } ${highlighted ? "ring-2 ring-[#3390ec]" : ""}`}
@@ -240,7 +240,10 @@ const MessageBubble = memo(function MessageBubble({
       )}
 
       {message.content && (
-        <p className="text-[14.5px] leading-relaxed whitespace-pre-wrap break-words">
+        <p
+          dir="auto"
+          className="max-w-full text-[14.5px] leading-relaxed [overflow-wrap:anywhere] [word-break:normal] whitespace-pre-wrap"
+        >
           {message.content}
         </p>
       )}
@@ -472,7 +475,7 @@ const MessageList = memo(function MessageList({
         nearBottomRef.current =
           el.scrollHeight - el.scrollTop - el.clientHeight < 160;
       }}
-      className="chat-body chat-scroll relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-black px-3 py-3 [-webkit-overflow-scrolling:touch]"
+      className="chat-body chat-scroll relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain bg-black px-2 py-3 sm:px-3 [-webkit-overflow-scrolling:touch]"
     >
       {loading ? (
         <div className="relative flex h-full items-center justify-center gap-2 text-xs text-fg-500">
@@ -500,8 +503,8 @@ const MessageList = memo(function MessageList({
               )}
               <div
                 id={`msg-${item.message.id}`}
-                className={`group flex w-full items-end gap-2 ${
-                  item.own ? "justify-start" : "justify-end"
+                className={`group flex w-full items-end ${
+                  item.own ? "justify-start gap-2" : "justify-end gap-1.5"
                 }`}
               >
                 <SwipeableMessage swipe={swipe} message={item.message} onReply={onReply}>
