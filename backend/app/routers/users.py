@@ -6,7 +6,8 @@ from typing import List
 
 from datetime import datetime
 
-from .. import chat, models, schemas
+from .. import chat, models, push, schemas
+from ..config import settings
 from ..database import get_db
 from ..dependencies import get_current_admin, get_current_owner, get_current_user
 from ..security import (
@@ -165,6 +166,117 @@ def unregister_push_token(
     ).delete(synchronize_session=False)
     db.commit()
     return None
+
+
+def _token_preview(token: str) -> str:
+    """Short, log-safe rendering of a push token (it is a send credential)."""
+    value = (token or "").strip()
+    if len(value) <= 30:
+        return value
+    return f"{value[:24]}…{value[-4:]}"
+
+
+@router.get("/push-token", response_model=schemas.PushDiagnosticsOut)
+def push_token_diagnostics(
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Self-scoped push diagnostics: does this account have a deliverable token?
+
+    `token_count == 0` after a successful login means the phone never registered
+    — on Android that is almost always a build without Firebase credentials
+    (`getExpoPushTokenAsync` throws before any request), or a denied
+    notification permission.
+    """
+    rows = (
+        db.query(models.PushToken)
+        .filter(models.PushToken.user_id == current.id)
+        .order_by(models.PushToken.updated_at.desc())
+        .all()
+    )
+    return schemas.PushDiagnosticsOut(
+        user_id=current.id,
+        username=current.username,
+        push_enabled=settings.PUSH_NOTIFICATIONS_ENABLED,
+        access_token_configured=bool((settings.EXPO_ACCESS_TOKEN or "").strip()),
+        token_count=len(rows),
+        tokens=[
+            schemas.PushTokenDiagnosticOut(
+                id=row.id,
+                device_type=row.device_type,
+                token_preview=_token_preview(row.token),
+                notify_chat=row.notify_chat,
+                notify_assignments=row.notify_assignments,
+                notify_deadlines=row.notify_deadlines,
+                created_at=row.created_at,
+                updated_at=row.updated_at,
+            )
+            for row in rows
+        ],
+    )
+
+
+@router.post("/push-token/test", response_model=schemas.PushTestOut)
+async def send_test_push(
+    data: schemas.PushTestIn | None = Body(None),
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Send one notification to the caller's own devices and return Expo tickets.
+
+    This is the shortest path from «nothing arrives» to a cause:
+
+    * `DeviceNotRegistered` — the app was uninstalled or the token was revoked;
+    * `InvalidCredentials` / `MismatchSenderId` — the FCM V1 service account in
+      EAS does not match the app's package;
+    * `http_error` with 401 — the Expo project requires an access token
+      (`EXPO_ACCESS_TOKEN` is empty);
+    * `ok` with an `id` — Expo accepted it, so the miss is on the device
+      (channel, battery optimisation, or notifications disabled in Settings).
+
+    Self-scoped on purpose: no user can probe another account's device.
+    """
+    payload = data or schemas.PushTestIn()
+
+    query = db.query(models.PushToken).filter(
+        models.PushToken.user_id == current.id
+    )
+    if payload.token:
+        query = query.filter(models.PushToken.token == payload.token.strip())
+    tokens = [row.token for row in query.all()]
+
+    if not tokens:
+        raise HTTPException(
+            status_code=404,
+            detail="برای این حساب توکن اعلانی ثبت نشده است",
+        )
+    if not settings.PUSH_NOTIFICATIONS_ENABLED:
+        raise HTTPException(
+            status_code=409,
+            detail="ارسال اعلان در سرور غیرفعال است (PUSH_NOTIFICATIONS_ENABLED=false)",
+        )
+
+    report = await push.send_push_report(
+        tokens,
+        payload.title,
+        payload.body,
+        {"type": "test"},
+        channel_id="default",
+    )
+
+    return schemas.PushTestOut(
+        sent=len(tokens),
+        results=[
+            schemas.PushTestTicketOut(
+                token_preview=_token_preview(str(item.get("token") or "")),
+                status=str(item.get("status") or "unknown"),
+                error=item.get("error"),
+                message=item.get("message"),
+                http_status=item.get("http_status"),
+            )
+            for item in report
+        ],
+    )
 
 
 @router.get(

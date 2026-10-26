@@ -78,6 +78,57 @@ class PushTokenOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PushTokenDiagnosticOut(BaseModel):
+    """One registered device, as seen by the caller's own diagnostics panel."""
+
+    id: int
+    device_type: str
+    token_preview: str
+    notify_chat: bool = True
+    notify_assignments: bool = True
+    notify_deadlines: bool = True
+    created_at: datetime
+    updated_at: datetime
+
+
+class PushDiagnosticsOut(BaseModel):
+    """Everything needed to answer «چرا اعلان نمی‌آید؟» in one response."""
+
+    user_id: int
+    username: str
+    push_enabled: bool
+    access_token_configured: bool
+    token_count: int
+    tokens: list[PushTokenDiagnosticOut] = []
+
+
+class PushTestIn(BaseModel):
+    """Optional overrides for the self-test notification."""
+
+    title: str = Field("اعلان آزمایشی", max_length=120)
+    body: str = Field(
+        "اگر این اعلان را می‌بینی، مسیر ارسال درست کار می‌کند.",
+        max_length=240,
+    )
+    # Restrict the test to one device (must belong to the caller).
+    token: Optional[str] = Field(None, max_length=255)
+
+
+class PushTestTicketOut(BaseModel):
+    token_preview: str
+    status: str
+    error: Optional[str] = None
+    message: Optional[str] = None
+    http_status: Optional[int] = None
+
+
+class PushTestOut(BaseModel):
+    sent: int
+    results: list[PushTestTicketOut] = []
+
+    model_config = {"from_attributes": True}
+
+
 class UserOut(UserBase):
     id: int
     is_admin: bool

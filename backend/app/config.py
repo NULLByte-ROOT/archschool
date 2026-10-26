@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     # Celery/Redis worker is needed (and blue-green stays single-service).
     DEADLINE_CHECK_INTERVAL_MINUTES: int = 10
 
+    # Only needed when the Expo project turns on "enhanced push security".
+    # When set, every request to exp.host carries `Authorization: Bearer …`;
+    # when empty the header is omitted (the default public endpoint).
+    EXPO_ACCESS_TOKEN: str = ""
+
     @field_validator("CORS_ORIGINS")
     @classmethod
     def _normalize_origins(cls, origins: list[str]) -> list[str]:
