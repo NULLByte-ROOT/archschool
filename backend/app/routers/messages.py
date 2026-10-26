@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import String, and_, cast, func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .. import chat, models, notifications, schemas
@@ -148,7 +149,7 @@ def unread_summary(
     return schemas.UnreadSummary(rooms=rooms, total=total)
 
 
-@router.post("/{room}/read", response_model=schemas.UnreadRoom)
+@router.post("/rooms/{room}/read", response_model=schemas.UnreadRoom)
 async def mark_room_read(
     room: str,
     db: Session = Depends(get_db),
@@ -158,27 +159,169 @@ async def mark_room_read(
 
     `resolve_room` doubles as the permission gate: private rooms stay
     members-only, otherwise only global/assignment rooms can be marked.
+
+    The path moved under ``/rooms/`` so it cannot collide with the per-message
+    ``POST /messages/{message_id}/read`` receipt endpoint.
     """
     chat.resolve_room(db, room, current.id)
 
-    now = datetime.utcnow()
+    state = _touch_read_state(db, room, current.id, datetime.utcnow())
+    db.commit()
+    return schemas.UnreadRoom(room=state.room, unread_count=0)
+
+
+def _touch_read_state(
+    db: Session, room: str, user_id: int, now: datetime
+) -> models.ChatReadState:
+    """Create/bump the unread bookmark for one (user, room) pair."""
     state = (
         db.query(models.ChatReadState)
         .filter(
-            models.ChatReadState.user_id == current.id,
+            models.ChatReadState.user_id == user_id,
             models.ChatReadState.room == room,
         )
         .first()
     )
     if state is None:
-        state = models.ChatReadState(
-            user_id=current.id, room=room, last_read_at=now
-        )
+        state = models.ChatReadState(user_id=user_id, room=room, last_read_at=now)
         db.add(state)
     else:
         state.last_read_at = now
+    return state
+
+
+def _room_messages_query(db: Session, room: str, user_id: int):
+    """Every message that belongs to a room the caller may open."""
+    fields = chat.resolve_room(db, room, user_id)
+    query = db.query(models.Message)
+    if fields["assignment_id"] is not None:
+        return query.filter(
+            models.Message.assignment_id == fields["assignment_id"]
+        )
+    if fields["receiver_id"] is not None:
+        peer_id = fields["receiver_id"]
+        return query.filter(
+            or_(
+                and_(
+                    models.Message.sender_id == user_id,
+                    models.Message.receiver_id == peer_id,
+                ),
+                and_(
+                    models.Message.sender_id == peer_id,
+                    models.Message.receiver_id == user_id,
+                ),
+            )
+        )
+    return query.filter(
+        models.Message.receiver_id.is_(None),
+        models.Message.assignment_id.is_(None),
+    )
+
+
+@router.post("/read-batch", response_model=schemas.ReadBatchOut)
+async def read_batch(
+    data: schemas.ReadBatchIn,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Mark every unseen message of a room as read by the caller.
+
+    Called when a chat room is opened (and again when it regains focus). The
+    response lists the message ids so the caller can flip its own ticks
+    optimistically; the room also receives a ``read`` frame for live updates.
+    """
+    now = datetime.utcnow()
+    query = _room_messages_query(db, data.room, current.id).filter(
+        models.Message.sender_id != current.id,
+        ~models.Message.reads.any(models.MessageRead.user_id == current.id),
+    )
+    if data.up_to_id:
+        query = query.filter(models.Message.id <= data.up_to_id)
+
+    rows = (
+        query.order_by(models.Message.id.desc()).limit(500).all()
+    )
+    message_ids: list[int] = []
+    for message in rows:
+        db.add(
+            models.MessageRead(
+                message_id=message.id, user_id=current.id, read_at=now
+            )
+        )
+        message_ids.append(message.id)
+
+    # Opening a room also clears its unread badge, in the same transaction.
+    _touch_read_state(db, data.room, current.id, now)
     db.commit()
-    return schemas.UnreadRoom(room=room, unread_count=0)
+
+    if message_ids:
+        await manager.broadcast(
+            data.room,
+            {
+                "type": "read",
+                "data": {
+                    "room": data.room,
+                    "reader_id": current.id,
+                    "reader_username": current.username,
+                    "read_at": now.replace(tzinfo=UTC).isoformat(),
+                    "message_ids": message_ids,
+                },
+            },
+        )
+
+    return schemas.ReadBatchOut(room=data.room, message_ids=message_ids, read_at=now)
+
+
+@router.post("/{message_id}/read", response_model=schemas.MessageOut)
+async def read_message(
+    message_id: int,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Record that the caller has seen one message.
+
+    Idempotent: a second open of the same room does not move the timestamp, so
+    the sender's "seen at" stays truthful.
+    """
+    message = chat.load_visible_message(db, message_id, current.id)
+    if message.sender_id == current.id:
+        return message
+
+    existing = (
+        db.query(models.MessageRead)
+        .filter(
+            models.MessageRead.message_id == message.id,
+            models.MessageRead.user_id == current.id,
+        )
+        .first()
+    )
+    if existing is None:
+        now = datetime.utcnow()
+        db.add(
+            models.MessageRead(
+                message_id=message.id, user_id=current.id, read_at=now
+            )
+        )
+        try:
+            db.commit()
+        except IntegrityError:
+            # A concurrent read (two devices) already wrote the row.
+            db.rollback()
+        db.refresh(message)
+        await manager.broadcast(
+            chat.message_room(message),
+            {
+                "type": "read",
+                "data": {
+                    "room": chat.message_room(message),
+                    "reader_id": current.id,
+                    "reader_username": current.username,
+                    "read_at": now.replace(tzinfo=UTC).isoformat(),
+                    "message_ids": [message.id],
+                },
+            },
+        )
+    return message
 
 
 @router.get("/overview", response_model=schemas.ChatOverview)

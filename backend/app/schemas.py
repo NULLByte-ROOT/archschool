@@ -45,11 +45,33 @@ class PushTokenDelete(BaseModel):
     token: str = Field(..., min_length=8, max_length=255)
 
 
+class NotificationPreferencesIn(BaseModel):
+    """Settings toggles from the mobile app.
+
+    ``token`` narrows the update to one device; omitting it applies the same
+    choice to every device the caller has registered.
+    """
+
+    token: Optional[str] = Field(None, max_length=255)
+    chat: bool = True
+    assignments: bool = True
+    deadlines: bool = True
+
+
+class NotificationPreferencesOut(BaseModel):
+    chat: bool = True
+    assignments: bool = True
+    deadlines: bool = True
+
+
 class PushTokenOut(BaseModel):
     id: int
     user_id: int
     token: str
     device_type: str
+    notify_chat: bool = True
+    notify_assignments: bool = True
+    notify_deadlines: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -178,6 +200,13 @@ class ReplyPreview(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ReadReceiptOut(BaseModel):
+    """One reader of a message (never the sender)."""
+
+    username: Optional[str] = None
+    read_at: datetime
+
+
 class MessageOut(BaseModel):
     id: int
     sender_id: int
@@ -192,8 +221,22 @@ class MessageOut(BaseModel):
     is_pinned: bool = False
     edited_at: Optional[datetime] = None
     created_at: datetime
+    seen_by: list[ReadReceiptOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class ReadBatchIn(BaseModel):
+    """Mark every message of one room as read by the caller."""
+
+    room: str = Field(..., min_length=1, max_length=80)
+    up_to_id: Optional[int] = None
+
+
+class ReadBatchOut(BaseModel):
+    room: str
+    message_ids: list[int] = []
+    read_at: datetime
 
 
 class DirectPreview(BaseModel):

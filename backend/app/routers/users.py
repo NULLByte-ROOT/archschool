@@ -167,6 +167,60 @@ def unregister_push_token(
     return None
 
 
+@router.get(
+    "/push-token/preferences", response_model=schemas.NotificationPreferencesOut
+)
+def get_notification_preferences(
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Current per-device switches (defaults to everything on).
+
+    When the account has more than one registered device, the most recently
+    updated token wins — the Settings page then reflects what the user last
+    chose on this phone.
+    """
+    row = (
+        db.query(models.PushToken)
+        .filter(models.PushToken.user_id == current.id)
+        .order_by(models.PushToken.updated_at.desc())
+        .first()
+    )
+    if row is None:
+        return schemas.NotificationPreferencesOut()
+    return schemas.NotificationPreferencesOut(
+        chat=bool(row.notify_chat),
+        assignments=bool(row.notify_assignments),
+        deadlines=bool(row.notify_deadlines),
+    )
+
+
+@router.patch(
+    "/push-token/preferences", response_model=schemas.NotificationPreferencesOut
+)
+def update_notification_preferences(
+    data: schemas.NotificationPreferencesIn,
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Save the mobile Settings toggles for one device (or all of them)."""
+    query = db.query(models.PushToken).filter(
+        models.PushToken.user_id == current.id
+    )
+    if data.token:
+        query = query.filter(models.PushToken.token == data.token.strip())
+    rows = query.all()
+    for row in rows:
+        row.notify_chat = data.chat
+        row.notify_assignments = data.assignments
+        row.notify_deadlines = data.deadlines
+        row.updated_at = datetime.utcnow()
+    db.commit()
+    return schemas.NotificationPreferencesOut(
+        chat=data.chat, assignments=data.assignments, deadlines=data.deadlines
+    )
+
+
 @router.get("/{user_id}/profile", response_model=schemas.UserProfileOut)
 def user_profile(
     user_id: int,

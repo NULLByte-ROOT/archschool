@@ -107,6 +107,11 @@ export interface ReplyPreview {
   file_url: string | null;
 }
 
+export interface ReadReceipt {
+  username: string | null;
+  read_at: string;
+}
+
 export interface Message {
   id: number;
   sender_id: number;
@@ -121,6 +126,8 @@ export interface Message {
   is_pinned: boolean;
   edited_at?: string | null;
   created_at: string;
+  /** Everyone except the sender who opened this message (double-tick source). */
+  seen_by?: ReadReceipt[];
 }
 
 export interface Attachment {
@@ -571,9 +578,34 @@ export async function fetchUnreadSummary(): Promise<UnreadSummary> {
 }
 
 export async function markRoomRead(room: string): Promise<UnreadRoom> {
-  return request<UnreadRoom>(`/messages/${encodeURIComponent(room)}/read`, {
+  return request<UnreadRoom>(`/messages/rooms/${encodeURIComponent(room)}/read`, {
     method: "POST",
   });
+}
+
+export interface ReadBatchResult {
+  room: string;
+  message_ids: number[];
+  read_at: string;
+}
+
+/**
+ * Mark every unseen message of a room as read (and clear its badge).
+ * Returns the affected ids so the sender can flip ticks without a refetch.
+ */
+export async function readRoomBatch(
+  room: string,
+  upToId?: number
+): Promise<ReadBatchResult> {
+  return request<ReadBatchResult>("/messages/read-batch", {
+    method: "POST",
+    body: JSON.stringify({ room, up_to_id: upToId ?? null }),
+  });
+}
+
+/** Record a single read receipt for one message. */
+export async function markMessageRead(id: number): Promise<Message> {
+  return request<Message>(`/messages/${id}/read`, { method: "POST" });
 }
 
 export async function pinMessage(id: number): Promise<Message> {

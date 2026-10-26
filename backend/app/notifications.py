@@ -47,15 +47,28 @@ ASSIGNMENT_TITLE = "تکلیف جدید"
 # ---------------------------------------------------------------------------
 #  Audience helpers
 # ---------------------------------------------------------------------------
-def tokens_for_users(db: Session, user_ids: Iterable[int]) -> list[str]:
+def tokens_for_users(
+    db: Session, user_ids: Iterable[int], channel: str = "chat"
+) -> list[str]:
+    """Active Expo tokens of these users for one notification channel.
+
+    The per-token switches saved from the mobile Settings page are applied here,
+    before anything reaches Expo, so muting a channel costs zero requests.
+    """
     ids = [int(user_id) for user_id in set(user_ids) if user_id]
     if not ids:
         return []
+    channel_column = {
+        "chat": models.PushToken.notify_chat,
+        "assignments": models.PushToken.notify_assignments,
+        "deadlines": models.PushToken.notify_deadlines,
+    }.get(channel, models.PushToken.notify_chat)
     rows = (
         db.query(models.PushToken.token)
         .join(models.User, models.User.id == models.PushToken.user_id)
         .filter(
             models.PushToken.user_id.in_(ids),
+            channel_column.is_(True),
             models.User.is_active.is_(True),
         )
         .all()
@@ -113,7 +126,7 @@ def notify_chat_message(
         room = "global"
         recipients = _active_user_ids(db, exclude=sender_id, roles=CHAT_ROLES)
 
-    tokens = tokens_for_users(db, recipients)
+    tokens = tokens_for_users(db, recipients, channel="chat")
     if not tokens:
         return
 
@@ -174,7 +187,7 @@ def notify_new_assignment(db: Session, assignment: models.Assignment) -> None:
         return
 
     recipients = _active_user_ids(db, exclude=assignment.creator_id)
-    tokens = tokens_for_users(db, recipients)
+    tokens = tokens_for_users(db, recipients, channel="assignments")
 
     parts = [assignment.title]
     if assignment.course:
@@ -278,7 +291,7 @@ def collect_deadline_jobs() -> list[dict[str, Any]]:
                 for user_id in _active_user_ids(db)
                 if user_id not in completed
             ]
-            tokens = tokens_for_users(db, pending)
+            tokens = tokens_for_users(db, pending, channel="deadlines")
             if not tokens:
                 continue
 

@@ -100,6 +100,11 @@ def _ensure_columns() -> None:
             "is_pinned": "BOOLEAN NOT NULL DEFAULT FALSE",
             "edited_at": "TIMESTAMP",
         },
+        "push_tokens": {
+            "notify_chat": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "notify_assignments": "BOOLEAN NOT NULL DEFAULT TRUE",
+            "notify_deadlines": "BOOLEAN NOT NULL DEFAULT TRUE",
+        },
     }
 
     for table, columns in wanted.items():

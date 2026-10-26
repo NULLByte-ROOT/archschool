@@ -51,20 +51,33 @@ const numberFormatter = new Intl.NumberFormat("en-US", {
 });
 
 function lastSeenLabel(value?: string | null): string {
-  if (!value) return "اخیراً دیده نشده";
+  if (!value) return "آخرین بازدید: نامشخص";
   const date = parseDue(value);
   const diff = Date.now() - date.getTime();
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 2) return "همین حالا آنلاین";
-  if (minutes < 60) return `${minutes} دقیقه پیش`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} ساعت پیش`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} روز پیش`;
-  return date.toLocaleDateString("fa-IR-u-nu-latn", {
+  if (diff < 2 * 60_000) return "آنلاین";
+  if (diff < 60 * 60_000) {
+    const minutes = Math.max(1, Math.round(diff / 60_000));
+    return `آخرین بازدید: ${minutes} دقیقه پیش`;
+  }
+
+  const clock = date.toLocaleTimeString("fa-IR-u-nu-latn", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfDay = new Date(date);
+  startOfDay.setHours(0, 0, 0, 0);
+  const dayDiff = Math.round(
+    (startOfToday.getTime() - startOfDay.getTime()) / 86_400_000
+  );
+  if (dayDiff === 0) return `آخرین بازدید: امروز، ساعت ${clock}`;
+  if (dayDiff === 1) return `آخرین بازدید: دیروز، ساعت ${clock}`;
+  if (dayDiff < 7) return `آخرین بازدید: ${dayDiff} روز پیش`;
+  return `آخرین بازدید: ${date.toLocaleDateString("fa-IR-u-nu-latn", {
     day: "numeric",
     month: "long",
-  });
+  })}، ساعت ${clock}`;
 }
 
 function relativeAgo(value?: string | null): string {
@@ -169,15 +182,15 @@ export default function UserProfileModal({
             initial={{ y: 36, opacity: 0, scale: 0.98 }}
             animate={{ y: 0, opacity: 1, scale: 1 }}
             exit={{ y: 24, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 320, damping: 30 }}
+            transition={{ duration: 0.16, ease: "easeOut" }}
             onClick={(event) => event.stopPropagation()}
             className="chat-scroll relative max-h-[92dvh] w-full max-w-md overflow-x-hidden overflow-y-auto rounded-t-3xl border border-white/12 bg-[#0b0b10] shadow-2xl will-change-transform sm:rounded-3xl"
           >
             {/* پوشش بالای کارت */}
             <div className="relative h-32 overflow-hidden">
-              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-orange-500/25 via-warning/10 to-transparent" />
+              <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/16 via-white/5 to-transparent" />
               <div className="pointer-events-none absolute inset-0 grid-bg opacity-30" />
-              <div className="pointer-events-none absolute -top-24 left-1/2 h-56 w-56 -translate-x-1/2 rounded-full bg-orange-500/20 blur-3xl" />
+              <div className="pointer-events-none absolute -top-24 left-1/2 h-56 w-56 -translate-x-1/2 rounded-full bg-white/10 blur-3xl" />
               <span className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-l from-transparent via-white/50 to-transparent" />
               <button
                 type="button"
@@ -258,8 +271,8 @@ export default function UserProfileModal({
                       <motion.div
                         initial={{ scaleX: 0 }}
                         animate={{ scaleX: pct / 100 }}
-                        transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-                        className="h-full w-full origin-right rounded-full bg-gradient-to-l from-orange-500 via-warning to-amber-200"
+                        transition={{ duration: 0.18, ease: "easeOut" }}
+                        className="h-full w-full origin-right rounded-full bg-gradient-to-l from-zinc-500 via-zinc-200 to-white"
                         style={{ willChange: "transform" }}
                       />
                     </div>

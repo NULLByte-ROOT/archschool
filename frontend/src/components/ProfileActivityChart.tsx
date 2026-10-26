@@ -56,12 +56,12 @@ export default function ProfileActivityChart({
           >
             <defs>
               <linearGradient id="profileBar" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fb923c" stopOpacity={0.95} />
-                <stop offset="100%" stopColor="#f97316" stopOpacity={0.35} />
+                <stop offset="0%" stopColor="#e4e4e7" stopOpacity={0.85} />
+                <stop offset="100%" stopColor="#a1a1aa" stopOpacity={0.35} />
               </linearGradient>
               <linearGradient id="profileBarToday" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fef08a" stopOpacity={1} />
-                <stop offset="100%" stopColor="#fbbf24" stopOpacity={0.45} />
+                <stop offset="0%" stopColor="#ffffff" stopOpacity={1} />
+                <stop offset="100%" stopColor="#d4d4d8" stopOpacity={0.45} />
               </linearGradient>
             </defs>
             <XAxis
@@ -91,7 +91,7 @@ export default function ProfileActivityChart({
                 direction: "rtl",
               }}
               labelStyle={{ color: "#fafafa", fontWeight: 700 }}
-              itemStyle={{ color: "#fed7aa" }}
+              itemStyle={{ color: "#d4d4d8" }}
               cursor={{ fill: "rgba(255,255,255,0.05)" }}
               formatter={
                 ((value: unknown) =>
@@ -102,7 +102,7 @@ export default function ProfileActivityChart({
               dataKey="count"
               name="فعالیت"
               radius={[6, 6, 0, 0]}
-              animationDuration={700}
+              animationDuration={180}
               animationEasing="ease-out"
             >
               {chartData.map((point) => (

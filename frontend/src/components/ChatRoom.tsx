@@ -11,6 +11,7 @@ import type { ReactNode, RefObject } from "react";
 import { AnimatePresence, motion, useMotionValue, useTransform } from "framer-motion";
 import {
   Check,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -18,6 +19,7 @@ import {
   FileText,
   Forward,
   Globe2,
+  Info,
   Loader2,
   MessageCircle,
   MoreVertical,
@@ -37,7 +39,9 @@ import {
   editMessage,
   fetchMessages,
   fetchTeam,
+  markMessageRead,
   pinMessage,
+  readRoomBatch,
   resolveMediaUrl,
   sendMessage,
   unpinMessage,
@@ -111,6 +115,7 @@ const MessageBubble = memo(function MessageBubble({
   onPressEnd,
   onProfile,
   onOpenImage,
+  onSeenInfo,
 }: {
   message: Message;
   own: boolean;
@@ -124,12 +129,15 @@ const MessageBubble = memo(function MessageBubble({
   onPressEnd: () => void;
   onProfile: (id: number) => void;
   onOpenImage: (message: Message) => void;
+  onSeenInfo: (message: Message) => void;
 }) {
   const media = resolveMediaUrl(message.file_url);
   const isImage = !!message.file_url && IMAGE_RE.test(message.file_url);
   const [imageFailed, setImageFailed] = useState(false);
   const showImage = !!message.file_url && isImage && !imageFailed;
   const name = message.sender_username || "کاربر";
+  // One reader is enough for the second tick; the sheet lists them all.
+  const seenCount = message.seen_by?.length ?? 0;
 
   return (
     <div
@@ -258,7 +266,27 @@ const MessageBubble = memo(function MessageBubble({
         )}
         <span className="flex items-center gap-0.5" dir="ltr">
           {chatTime(message.created_at)}
-          {own && <Check size={11} className="-mr-0.5" />}
+          {own && (
+            <button
+              type="button"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSeenInfo(message);
+              }}
+              aria-label={
+                seenCount > 0
+                  ? `دیده‌شده توسط ${seenCount} نفر`
+                  : "ارسال شد"
+              }
+              title={seenCount > 0 ? `${seenCount} نفر دیده‌اند` : "ارسال شد"}
+              className={`-mr-0.5 flex items-center rounded px-0.5 transition hover:text-white ${
+                seenCount > 0 ? "text-[#4fa3e3]" : ""
+              }`}
+            >
+              {seenCount > 0 ? <CheckCheck size={12} /> : <Check size={11} />}
+            </button>
+          )}
         </span>
       </span>
     </div>
@@ -462,6 +490,7 @@ const MessageList = memo(function MessageList({
   onPressEnd,
   onProfile,
   onOpenImage,
+  onSeenInfo,
 }: {
   items: ChatItem[];
   loading: boolean;
@@ -475,6 +504,7 @@ const MessageList = memo(function MessageList({
   onPressEnd: () => void;
   onProfile: (id: number) => void;
   onOpenImage: (message: Message) => void;
+  onSeenInfo: (message: Message) => void;
 }) {
   return (
     <div
@@ -539,6 +569,7 @@ const MessageList = memo(function MessageList({
                     onPressEnd={onPressEnd}
                     onProfile={onProfile}
                     onOpenImage={onOpenImage}
+                    onSeenInfo={onSeenInfo}
                   />
                 </SwipeableMessage>
                 {!item.own && (
@@ -772,6 +803,7 @@ function ChatRoom({
   const [forwardFor, setForwardFor] = useState<Message | null>(null);
   const [forwardTeam, setForwardTeam] = useState<PublicUser[]>([]);
   const [profileId, setProfileId] = useState<number | null>(null);
+  const [infoMessage, setInfoMessage] = useState<Message | null>(null);
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const moreRef = useRef<HTMLDivElement>(null);
@@ -823,34 +855,77 @@ function ChatRoom({
       setMessages((prev) => mergeMessages(prev, [message]));
       // The room is open: everything arriving in it is instantly read.
       markRoomRead(room);
+      // A single receipt (instead of a full batch) keeps the sender's double
+      // tick immediate for every message that arrives while we are looking.
+      if (message.sender_id !== user?.id) {
+        void markMessageRead(message.id).catch(() => {
+          // Reconnect/poll paths reconcile the tick; never block the list.
+        });
+      }
     },
-    [mergeMessages, room]
+    [mergeMessages, room, user?.id]
   );
 
-  const handleEvent = useCallback((event: ChatSocketEvent) => {
-    if (event.type === "delete") {
-      const id = (event.data as { id?: number } | undefined)?.id;
-      if (id) setMessages((prev) => prev.filter((item) => item.id !== id));
-    } else if (event.type === "clear") {
-      setMessages([]);
-    } else if (event.type === "edit") {
-      const data = event.data as Message | undefined;
-      if (!data) return;
-      setMessages((prev) =>
-        prev.map((item) => (item.id === data.id ? data : item))
-      );
-    } else if (event.type === "pin") {
-      const data = event.data as Message | undefined;
-      if (!data) return;
-      setMessages((prev) =>
-        prev.map((item) => {
-          if (item.id === data.id) return { ...item, is_pinned: data.is_pinned };
-          if (data.is_pinned) return { ...item, is_pinned: false };
-          return item;
-        })
-      );
-    }
-  }, []);
+  const handleEvent = useCallback(
+    (event: ChatSocketEvent) => {
+      if (event.type === "delete") {
+        const id = (event.data as { id?: number } | undefined)?.id;
+        if (id) setMessages((prev) => prev.filter((item) => item.id !== id));
+      } else if (event.type === "clear") {
+        setMessages([]);
+      } else if (event.type === "edit") {
+        const data = event.data as Message | undefined;
+        if (!data) return;
+        setMessages((prev) =>
+          prev.map((item) => (item.id === data.id ? data : item))
+        );
+      } else if (event.type === "read") {
+        const data = event.data as
+          | {
+              reader_id?: number;
+              reader_username?: string | null;
+              read_at?: string;
+              message_ids?: number[];
+            }
+          | undefined;
+        if (!data?.message_ids?.length) return;
+        // Our own receipt is already implied by the single tick.
+        if (data.reader_id === user?.id) return;
+        const ids = new Set(data.message_ids);
+        const receipt = {
+          username: data.reader_username ?? null,
+          read_at: data.read_at ?? new Date().toISOString(),
+        };
+        setMessages((prev) =>
+          prev.map((item) => {
+            if (!ids.has(item.id)) return item;
+            const existing = item.seen_by ?? [];
+            if (
+              existing.some(
+                (entry) =>
+                  entry.username === receipt.username &&
+                  entry.read_at === receipt.read_at
+              )
+            ) {
+              return item;
+            }
+            return { ...item, seen_by: [...existing, receipt] };
+          })
+        );
+      } else if (event.type === "pin") {
+        const data = event.data as Message | undefined;
+        if (!data) return;
+        setMessages((prev) =>
+          prev.map((item) => {
+            if (item.id === data.id) return { ...item, is_pinned: data.is_pinned };
+            if (data.is_pinned) return { ...item, is_pinned: false };
+            return item;
+          })
+        );
+      }
+    },
+    [user?.id]
+  );
 
   const refreshMessages = useCallback(() => {
     fetchMessages({ scope, peerId, assignmentId, limit: 150 })
@@ -881,6 +956,11 @@ function ChatRoom({
     // server persist the bookmark. Leaving the room clears "active".
     setActiveRoom(room);
     markRoomRead(room);
+    // Persist one receipt per unread message so every sender's tick upgrades
+    // to double, live, without a refresh.
+    void readRoomBatch(room).catch(() => {
+      // Offline: the next open retries.
+    });
     fetchMessages({ scope, peerId, assignmentId, limit: 150 })
       .then((data) => {
         if (active) setMessages((prev) => mergeMessages(prev, data));
@@ -1413,6 +1493,7 @@ function ChatRoom({
         onPressEnd={handlePressEnd}
         onProfile={setProfileId}
         onOpenImage={openRoomImage}
+        onSeenInfo={setInfoMessage}
       />
 
       {/* ورودی */}
@@ -1474,7 +1555,7 @@ function ChatRoom({
               initial={{ y: 40, scale: 0.98 }}
               animate={{ y: 0, scale: 1 }}
               exit={{ y: 40, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 320, damping: 30 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
               onClick={(event) => event.stopPropagation()}
               className="max-h-[70dvh] w-full max-w-sm overflow-hidden rounded-t-2xl border border-white/10 bg-[#1c2733] sm:rounded-2xl"
             >
@@ -1531,6 +1612,72 @@ function ChatRoom({
           onClose={() => setProfileId(null)}
         />
       )}
+
+      {/* مشاهده‌کنندگان پیام — from the tick */}
+      <AnimatePresence>
+        {infoMessage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
+            onMouseDown={() => setInfoMessage(null)}
+            onTouchStart={() => setInfoMessage(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.98 }}
+              transition={{ duration: 0.15 }}
+              onClick={(event) => event.stopPropagation()}
+              className="w-full max-w-sm overflow-hidden rounded-t-2xl border border-white/10 bg-[#1c2733] sm:rounded-2xl"
+            >
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-white">
+                  <Info size={15} className="text-[#4fa3e3]" /> مشاهده پیام
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setInfoMessage(null)}
+                  className="flex h-9 w-9 items-center justify-center rounded-full text-fg-500 hover:bg-white/10"
+                  aria-label="بستن"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="chat-scroll max-h-[52dvh] overflow-y-auto p-2">
+                {(infoMessage.seen_by ?? []).length === 0 ? (
+                  <p className="px-3 py-6 text-center text-[12.5px] text-fg-300">
+                    هنوز کسی این پیام را ندیده است.
+                  </p>
+                ) : (
+                  (infoMessage.seen_by ?? []).map((entry, index) => (
+                    <div
+                      key={`${entry.username}-${entry.read_at}-${index}`}
+                      className="flex items-center gap-3 rounded-xl px-3 py-2"
+                    >
+                      <Avatar name={entry.username ?? "کاربر"} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className="truncate text-[13px] font-semibold text-white"
+                          dir="ltr"
+                        >
+                          {entry.username || "کاربر"}
+                        </p>
+                        <p className="text-[11px] text-fg-500">
+                          {chatDayLabel(entry.read_at)}، {chatTime(entry.read_at)}
+                        </p>
+                      </div>
+                      <CheckCheck size={15} className="text-[#4fa3e3]" />
+                    </div>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* توست */}
       <AnimatePresence>

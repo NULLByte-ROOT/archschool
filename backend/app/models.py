@@ -285,6 +285,13 @@ class Message(Base):
         back_populates="messages",
         foreign_keys=[assignment_id],
     )
+    reads = relationship(
+        "MessageRead",
+        back_populates="message",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="MessageRead.id",
+    )
 
     @property
     def sender_username(self) -> str | None:
@@ -297,6 +304,58 @@ class Message(Base):
     @property
     def assignment_title(self) -> str | None:
         return self.assignment.title if self.assignment else None
+
+    @property
+    def seen_by(self) -> list[dict]:
+        """Everyone except the sender who opened this message, with timestamps.
+
+        Exposed as ``MessageOut.seen_by`` so a single tick becomes a double tick
+        on the sender's screen; the sender is never part of their own receipt.
+        """
+        return [
+            {"username": read.username, "read_at": read.read_at}
+            for read in self.reads
+            if read.user_id != self.sender_id and read.username
+        ]
+
+
+class MessageRead(Base):
+    """One "this user has seen this message" row.
+
+    A join table (instead of ``read_by`` on the message) is the only shape that
+    can express a group chat: ten people each need their own timestamp. The
+    unique pair makes the write idempotent, so opening a room twice is free.
+    """
+
+    __tablename__ = "message_reads"
+    __table_args__ = (
+        UniqueConstraint(
+            "message_id", "user_id", name="uq_message_read_message_user"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(
+        Integer,
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    read_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    message = relationship("Message", back_populates="reads")
+    # `joined` keeps `MessageOut.seen_by` from issuing one query per receipt.
+    user = relationship("User", lazy="joined")
+
+    @property
+    def username(self) -> str | None:
+        return self.user.username if self.user else None
 
 
 class ChatReadState(Base):
@@ -376,6 +435,18 @@ class PushToken(Base):
     token = Column(String(255), nullable=False, unique=True, index=True)
     device_type = Column(
         String(20), nullable=False, default="unknown", server_default=text("'unknown'")
+    )
+    # Per-device notification switches from the mobile Settings page. Stored
+    # here (not only in AsyncStorage) so the sender filters the audience before
+    # a push is ever dispatched, and so a reinstall restores the choices.
+    notify_chat = Column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    notify_assignments = Column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    notify_deadlines = Column(
+        Boolean, nullable=False, default=True, server_default=text("true")
     )
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
