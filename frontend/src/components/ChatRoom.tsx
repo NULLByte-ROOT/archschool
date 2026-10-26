@@ -133,10 +133,10 @@ const MessageBubble = memo(function MessageBubble({
 
   return (
     <div
-      className={`relative min-w-0 select-none rounded-2xl px-3 pt-2 pb-5 ${
+      className={`relative select-none rounded-2xl px-3 pt-2 pb-5 ${
         own
-          ? "max-w-[calc(100%_-_2.75rem)] bubble-own rounded-br-sm text-white sm:max-w-[72%]"
-          : "max-w-[calc(100%_-_3rem)] bubble-other rounded-bl-sm text-fg-100 sm:max-w-[68%]"
+          ? "bubble-own rounded-br-sm text-white"
+          : "bubble-other rounded-bl-sm text-fg-100"
       } ${showTail ? (own ? "bubble-tail-own" : "bubble-tail-other") : ""} ${
         animate === "pop" ? "msg-pop" : animate === "in" ? "msg-in" : ""
       } ${highlighted ? "ring-2 ring-[#3390ec]" : ""}`}
@@ -279,10 +279,12 @@ function SwipeInner({
   message,
   children,
   onReply,
+  className = "",
 }: {
   message: Message;
   children: React.ReactNode;
   onReply: (message: Message) => void;
+  className?: string;
 }) {
   const x = useMotionValue(0);
 
@@ -294,6 +296,7 @@ function SwipeInner({
   return (
     <motion.div
       style={{ x, position: "relative" }}
+      className={className}
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={0.3}
@@ -328,15 +331,21 @@ function SwipeableMessage({
   message,
   children,
   onReply,
+  className = "",
 }: {
   swipe: boolean;
   message: Message;
   children: React.ReactNode;
   onReply: (message: Message) => void;
+  className?: string;
 }) {
-  if (!swipe) return children;
+  if (!swipe) {
+    // حتی بدون قابلیت کشیدن، عرض حباب باید روی همین flex item محدود شود
+    // (محدودکردن درصدی روی خود حباب، داخل یک آیتم با عرض نامشخص، باکس را جمع می‌کند)
+    return <div className={className}>{children}</div>;
+  }
   return (
-    <SwipeInner message={message} onReply={onReply}>
+    <SwipeInner message={message} onReply={onReply} className={className}>
       {children}
     </SwipeInner>
   );
@@ -503,11 +512,20 @@ const MessageList = memo(function MessageList({
               )}
               <div
                 id={`msg-${item.message.id}`}
-                className={`group flex w-full items-end ${
-                  item.own ? "justify-start gap-2" : "justify-end gap-1.5"
+                className={`group flex w-full items-end gap-1.5 ${
+                  item.own ? "justify-start" : "justify-end"
                 }`}
               >
-                <SwipeableMessage swipe={swipe} message={item.message} onReply={onReply}>
+                <SwipeableMessage
+                  swipe={swipe}
+                  message={item.message}
+                  onReply={onReply}
+                  className={`min-w-0 ${
+                    item.own
+                      ? "max-w-[calc(100%_-_2.5rem)] sm:max-w-[72%]"
+                      : "max-w-[calc(100%_-_2.5rem)] sm:max-w-[68%]"
+                  }`}
+                >
                   <MessageBubble
                     message={item.message}
                     own={item.own}
@@ -524,7 +542,7 @@ const MessageList = memo(function MessageList({
                   />
                 </SwipeableMessage>
                 {!item.own && (
-                  <span className="w-9 shrink-0 self-end">
+                  <span className="flex w-8 shrink-0 items-end justify-center">
                     {item.showName && (
                       <button
                         type="button"
