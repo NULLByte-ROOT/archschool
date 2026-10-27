@@ -37,6 +37,29 @@ ArchSchool is a social-network-style school workspace for a class team (11th gra
 - **Chat implementation notes:** `is_staff` = admin/owner (assignment CRUD, delete-any, room clearing). Every sender can edit and delete **their own** message for everyone (`PATCH/DELETE /api/messages/{id}`); staff can additionally delete any message. Comments on an assignment live in the embedded `ChatRoom room=assignment:<id>` on the assignment detail page, where members are allowed to write; the `/chat` page itself remains blocked for members.
 - **Number formatting rule:** ALL dynamic numbers in the UI use Latin (English) digits. Persian calendar dates use locale `"fa-IR-u-nu-latn"` (Persian wording/months, Latin digits); pure numbers/bytes/counters use `"en-US"` `Intl.NumberFormat`. Never use bare `"fa-IR"` locales or Persian digit converters in new code.
 
+### 4.1 Role-gated UI matrix (single source of truth for web + mobile)
+Every gated element below is enforced on the backend too; the UI must never show a control the API will reject, and must never hide a control the role is allowed to use.
+
+| Element | Minimum role | Web | Mobile |
+| --- | --- | --- | --- |
+| Assignments, Leaderboard, Profile, Timetable, Team Status | `member` (everyone) | always in sidebar | always in tab bar |
+| Chat tab / DM / global chat | `friend` | chat nav hidden for members | chat tab locked for members |
+| Assignment comments (inside the assignment room) | `member` | allowed | allowed |
+| «کاربران» page / user management | `admin` | `/rootvoid` (`adminOnly`) | `/users` row in Profile `// APP` |
+| «افزودن تکلیف» button | `admin` | `AssignmentsPage` header + empty state (`isAdmin`) | create FAB / empty state (`isStaff`) |
+| «پاک کردن کل گفتگو» + delete any message | `admin` | chat room staff menu | chat room staff menu |
+| Edit/delete own chat message | `friend` | always (own only) | always (own only) |
+| «تنظیمات زنگ‌های مدرسه» | `owner` | `/admin/bells` (`ownerOnly`) + Sidebar `// OWNER` | `/admin-bells` + Profile `// OWNER` row |
+| «آمار سرور» | `owner` | `/admin/stats` (`ownerOnly`) + Sidebar `// OWNER` | (web only) |
+| «تغییر کد دسترسی» | `owner` | Users page code sheet (`isOwner`) | Users page code sheet (`isOwner`) |
+| Owner hint / owner badge | `owner` | profile role badge | Profile `// OWNER` hint |
+
+Notes:
+- `isAdmin` on the web includes `owner` (`user.is_admin || role === "admin" || role === "owner"`), so the Owner sees the `// ADMIN` block **and** the `// OWNER` block.
+- `isStaff` on mobile is the same predicate as web `isAdmin`; `isOwner` is `role === "owner"` only.
+- Never gate a control with `!isMember` when the intended minimum is `admin` — that leaks the control to `friend`.
+
+
 ## 5. Deployment Workflow & Scripts
 - **GitHub Repo:** `https://github.com/NULLByte-ROOT/archschool` (Branch: `main`).
 - **Deployment Script:** `./deploy.sh` on the server — blue-green. `./deploy.sh deploy` pulls, builds the inactive slot, verifies it, switches the host Nginx upstream and soaks; `rollback`, `cleanup`, `status`, `fix-nginx` are the other subcommands. NEVER use `docker compose up -d`/`down`/`--remove-orphans` directly: slots are Compose profiles and the database is shared.

@@ -1,6 +1,7 @@
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -193,6 +194,39 @@ class AssignmentCompletion(Base):
 
     user = relationship("User", back_populates="completions")
     assignment = relationship("Assignment", back_populates="completions")
+
+
+class DailyActivity(Base):
+    """Historical "did this user do anything that school day" ledger.
+
+    Streaks used to be derived from ``assignment_completions`` alone, so
+    deleting an assignment (which cascades its completions away) could shorten
+    or reset somebody's streak. This table is the delete-safe history: a row is
+    written when a user marks an assignment done, decremented only when that
+    same user un-marks it, and **never** touched when an assignment is deleted.
+    The day is the school-local date (``SCHOOL_UTC_OFFSET_HOURS``).
+    """
+
+    __tablename__ = "daily_activity"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id", "activity_date", name="uq_daily_activity_user_date"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    activity_date = Column(Date, nullable=False, index=True)
+    completions = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
 
 class CompletionToggleGuard(Base):

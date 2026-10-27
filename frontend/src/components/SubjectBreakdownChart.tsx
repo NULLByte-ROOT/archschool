@@ -22,28 +22,40 @@ const PALETTE = [
 interface Slice {
   name: string;
   value: number;
+  completed: number;
   color: string;
 }
 
 function SubjectBreakdownChart({ items }: { items: Assignment[] }) {
   const slices = useMemo<Slice[]>(() => {
-    const counts = new Map<string, number>();
+    const counts = new Map<string, { total: number; completed: number }>();
     for (const item of items) {
       if (!item.subject_id) continue;
-      counts.set(item.subject_id, (counts.get(item.subject_id) ?? 0) + 1);
+      const entry = counts.get(item.subject_id) ?? { total: 0, completed: 0 };
+      entry.total += 1;
+      if (item.is_completed_by_me) entry.completed += 1;
+      counts.set(item.subject_id, entry);
     }
-    const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    const ranked = [...counts.entries()].sort((a, b) => b[1].total - a[1].total);
     const top = ranked.slice(0, 5);
-    const rest = ranked.slice(5).reduce((sum, [, v]) => sum + v, 0);
-    const result: Slice[] = top.map(([id, value], i) => ({
+    const rest = ranked.slice(5).reduce(
+      (acc, [, stat]) => ({
+        total: acc.total + stat.total,
+        completed: acc.completed + stat.completed,
+      }),
+      { total: 0, completed: 0 }
+    );
+    const result: Slice[] = top.map(([id, stat], i) => ({
       name: subjectName(id) || id,
-      value,
+      value: stat.total,
+      completed: stat.completed,
       color: PALETTE[i % PALETTE.length],
     }));
-    if (rest > 0) {
+    if (rest.total > 0) {
       result.push({
         name: "سایر درس‌ها",
-        value: rest,
+        value: rest.total,
+        completed: rest.completed,
         color: PALETTE[PALETTE.length - 1],
       });
     }
@@ -88,10 +100,16 @@ function SubjectBreakdownChart({ items }: { items: Assignment[] }) {
                   }}
                   itemStyle={{ color: "#d4d4d8" }}
                   formatter={
-                    ((value: unknown, name: unknown) => [
-                      `${String(value)} تکلیف`,
-                      String(name),
-                    ]) as never
+                    ((value: unknown, name: unknown, item: { payload?: Slice }) => {
+                      const slice = item?.payload;
+                      const count = Number(value) || 0;
+                      const completed = slice?.completed ?? 0;
+                      const pct = count > 0 ? Math.round((completed / count) * 100) : 0;
+                      return [
+                        `${count} تکلیف · ${completed} انجام‌شده (${pct}%)`,
+                        String(name),
+                      ];
+                    }) as never
                   }
                 />
                 <Pie
@@ -100,9 +118,11 @@ function SubjectBreakdownChart({ items }: { items: Assignment[] }) {
                   nameKey="name"
                   innerRadius={46}
                   outerRadius={68}
-                  paddingAngle={3}
-                  cornerRadius={6}
-                  stroke="none"
+                  paddingAngle={2}
+                  cornerRadius={4}
+                  stroke="#09090b"
+                  strokeWidth={2}
+                  activeShape={{ outerRadius: 74 }}
                   animationDuration={850}
                   animationEasing="ease-out"
                   isAnimationActive

@@ -469,7 +469,7 @@ const CHIP: Record<CountdownTone, string> = {
 
 export default function AssignmentsPage() {
   const navigate = useNavigate();
-  const { user, isMember } = useAuth();
+  const { user, isAdmin } = useAuth();
   const now = useNow(30_000);
   // دقیقاً همان منبع دادهٔ صفحهٔ جزئیات: هوک مشترک برنامهٔ زنگ‌ها
   const { bells } = useBellSchedule();
@@ -682,7 +682,7 @@ export default function AssignmentsPage() {
         title="تکالیف و پروژه‌ها"
         subtitle="مدیریت، زمان‌بندی و پیگیری تکالیف درسی"
         action={
-          isMember ? undefined : (
+          isAdmin ? (
             <motion.button
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
@@ -694,7 +694,7 @@ export default function AssignmentsPage() {
               </span>
               افزودن تکالیف
             </motion.button>
-          )
+          ) : undefined
         }
       />
 
@@ -929,7 +929,7 @@ export default function AssignmentsPage() {
           <p className="text-sm text-fg-500">
             {items.length === 0 ? "هنوز تکلیفی ثبت نشده" : "تکلیفی با این فیلترها پیدا نشد"}
           </p>
-          {items.length === 0 && (
+          {items.length === 0 && isAdmin && (
             <button onClick={openCreate} className="btn-ghost mt-1">
               <Plus size={14} />
               افزودن اولین تکلیف

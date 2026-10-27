@@ -1,9 +1,12 @@
 """Team analytics: completion percentage, streaks and seven-day activity.
 
 The whole class is tiny (a single school team), so every aggregate is computed
-from the tables on demand instead of being cached in denormalised columns. That
-keeps one source of truth: deleting a completion immediately fixes every
-percentage and streak, and there is no background job to keep in sync.
+from the tables on demand instead of being cached in denormalised columns.
+
+Streaks and the seven-day history read the delete-safe ``daily_activity``
+ledger (written on every explicit toggle, never touched by assignment
+deletion), merged with the live ``assignment_completions`` rows. Percentages
+stay live: deleting an assignment immediately fixes them.
 
 Days are bucketed on the school's wall clock (``SCHOOL_UTC_OFFSET_HOURS``), not
 on the container's UTC clock, otherwise a completion at 01:00 local time would
@@ -110,7 +113,8 @@ def _load(db: Session):
     )
     assignments = db.query(models.Assignment).all()
     completions = db.query(models.AssignmentCompletion).all()
-    return users, assignments, completions
+    activity = db.query(models.DailyActivity).all()
+    return users, assignments, completions, activity
 
 
 def build_leaderboard(db: Session) -> tuple[list[dict], dict]:
@@ -121,7 +125,7 @@ def build_leaderboard(db: Session) -> tuple[list[dict], dict]:
     strictly by ``completion_percentage``; ties are broken by the earlier
     ``last_completion_time`` (the person who finished first ranks higher).
     """
-    users, assignments, completions = _load(db)
+    users, assignments, completions, activity_rows = _load(db)
     active_ids = {user.id for user in users}
     # Inactive accounts keep their rows (for a possible re-activation) but must
     # not inflate the class trend or the class percentage.
@@ -130,6 +134,20 @@ def build_leaderboard(db: Session) -> tuple[list[dict], dict]:
     ]
     total_assignments = len(assignments)
     assignment_by_id = {assignment.id: assignment for assignment in assignments}
+
+    # Delete-safe history. `assignment_completions` rows disappear when an
+    # assignment is deleted, but `daily_activity` never does, so a streak cannot
+    # be shortened by removing work from the board.
+    activity_by_user: dict[int, Counter[str]] = defaultdict(Counter)
+    for row in activity_rows:
+        if row.user_id not in active_ids or not row.completions:
+            continue
+        key = (
+            row.activity_date.isoformat()
+            if hasattr(row.activity_date, "isoformat")
+            else str(row.activity_date)[:10]
+        )
+        activity_by_user[row.user_id][key] += row.completions
 
     completions_by_user: dict[int, list[models.AssignmentCompletion]] = defaultdict(list)
     for completion in active_completions:
@@ -142,6 +160,7 @@ def build_leaderboard(db: Session) -> tuple[list[dict], dict]:
 
     keys = weekly_keys()
     today_key = school_now().date().isoformat()
+    trend_by_day: Counter[str] = Counter()
 
     entries: list[dict] = []
     for user in users:
@@ -174,10 +193,22 @@ def build_leaderboard(db: Session) -> tuple[list[dict], dict]:
 
         average_speed = round(sum(speeds) / len(speeds), 1) if speeds else None
 
-        day_counts = Counter(date_key(value) for value in completion_times)
+        live_counts = Counter(date_key(value) for value in completion_times)
+        history = activity_by_user.get(user.id, Counter())
+        # max(), not sum: the ledger and the live completions describe the same
+        # events, and during a blue-green deploy one slot may have written only
+        # one of the two. Taking the larger also keeps deleted work in history.
+        day_counts = Counter(
+            {
+                key: max(live_counts.get(key, 0), history.get(key, 0))
+                for key in set(live_counts) | set(history)
+            }
+        )
         weekly_activity = [
             {"date": key, "count": day_counts.get(key, 0)} for key in keys
         ]
+        for key in keys:
+            trend_by_day[key] += day_counts.get(key, 0)
 
         current_streak, best_streak = streak_from_days(day_counts.keys())
 
@@ -229,11 +260,6 @@ def build_leaderboard(db: Session) -> tuple[list[dict], dict]:
     for index, entry in enumerate(entries, start=1):
         entry["rank"] = index
 
-    completions_per_day = Counter(
-        date_key(row.completed_at)
-        for row in active_completions
-        if row.completed_at
-    )
     active_users = len(users)
     aggregates = {
         "team_record_streak": max(
@@ -253,7 +279,7 @@ def build_leaderboard(db: Session) -> tuple[list[dict], dict]:
             else 0.0
         ),
         "weekly_trend": [
-            {"date": key, "count": completions_per_day.get(key, 0)} for key in keys
+            {"date": key, "count": trend_by_day.get(key, 0)} for key in keys
         ],
     }
     return entries, aggregates

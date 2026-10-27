@@ -28,6 +28,7 @@ export default function ProfileActivityChart({
       return {
         day: date.toLocaleDateString("fa-IR-u-nu-latn", { weekday: "short" }),
         count: point.count,
+        active: point.count > 0,
         today: index === lastIndex,
       };
     });
@@ -47,6 +48,17 @@ export default function ProfileActivityChart({
         </span>
       </div>
 
+      <div className="mb-2 flex items-center gap-3 text-[9px] text-fg-500">
+        <span className="flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-success" />
+          روز فعال
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-danger" />
+          بدون فعالیت
+        </span>
+      </div>
+
       <div className="h-[132px] w-full" dir="ltr">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart
@@ -56,12 +68,16 @@ export default function ProfileActivityChart({
           >
             <defs>
               <linearGradient id="profileBar" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#e4e4e7" stopOpacity={0.85} />
-                <stop offset="100%" stopColor="#a1a1aa" stopOpacity={0.35} />
+                <stop offset="0%" stopColor="#6ee7b7" stopOpacity={0.9} />
+                <stop offset="100%" stopColor="#34d399" stopOpacity={0.45} />
               </linearGradient>
               <linearGradient id="profileBarToday" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ffffff" stopOpacity={1} />
-                <stop offset="100%" stopColor="#d4d4d8" stopOpacity={0.45} />
+                <stop offset="0%" stopColor="#a7f3d0" stopOpacity={1} />
+                <stop offset="100%" stopColor="#34d399" stopOpacity={0.6} />
+              </linearGradient>
+              <linearGradient id="profileBarEmpty" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#f87171" stopOpacity={0.75} />
+                <stop offset="100%" stopColor="#ef4444" stopOpacity={0.35} />
               </linearGradient>
             </defs>
             <XAxis
@@ -102,6 +118,7 @@ export default function ProfileActivityChart({
               dataKey="count"
               name="فعالیت"
               radius={[6, 6, 0, 0]}
+              minPointSize={3}
               animationDuration={180}
               animationEasing="ease-out"
             >
@@ -109,7 +126,11 @@ export default function ProfileActivityChart({
                 <Cell
                   key={point.day}
                   fill={
-                    point.today ? "url(#profileBarToday)" : "url(#profileBar)"
+                    !point.active
+                      ? "url(#profileBarEmpty)"
+                      : point.today
+                        ? "url(#profileBarToday)"
+                        : "url(#profileBar)"
                   }
                 />
               ))}

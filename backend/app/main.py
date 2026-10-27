@@ -11,6 +11,7 @@ from starlette.responses import Response
 from sqlalchemy import func, inspect, text
 
 from . import models
+from .analytics import school_date
 from .config import settings
 from .database import Base, engine
 from .routers import (
@@ -154,11 +155,42 @@ def _backfill_rbac_data() -> None:
                 pass
 
 
+def _backfill_daily_activity() -> None:
+    """Seed the delete-safe activity ledger from the completions that exist now.
+
+    Runs once (the table is empty on the first boot after this feature lands).
+    Afterwards the ledger is maintained by the toggle endpoint and is never
+    rewritten, which is exactly what keeps streaks alive when an assignment is
+    deleted.
+    """
+    from sqlalchemy.orm import Session
+
+    with Session(engine) as db:
+        if db.query(models.DailyActivity).first() is not None:
+            return
+        counts: dict[tuple[int, object], int] = {}
+        for completion in db.query(models.AssignmentCompletion).all():
+            if not completion.completed_at:
+                continue
+            key = (completion.user_id, school_date(completion.completed_at))
+            counts[key] = counts.get(key, 0) + 1
+        for (user_id, day), count in counts.items():
+            db.add(
+                models.DailyActivity(
+                    user_id=user_id,
+                    activity_date=day,
+                    completions=count,
+                )
+            )
+        db.commit()
+
+
 def _run_boot_migrations() -> None:
     with _migration_lock():
         Base.metadata.create_all(bind=engine)
         _ensure_columns()
         _backfill_rbac_data()
+        _backfill_daily_activity()
         _seed_school_schedule()
         _ensure_owner_account()
 

@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from .. import models, notifications, schemas
+from ..analytics import school_date
 from ..config import settings
 from ..database import get_db
 from ..dependencies import get_current_user
@@ -172,6 +173,37 @@ def _guard_toggle_attempt(
         )
 
 
+def _record_daily_activity(
+    db: Session, user_id: int, when: datetime, delta: int
+) -> None:
+    """Keep the delete-safe ``daily_activity`` ledger in step with a toggle.
+
+    Called on an explicit "Done" (+1) or "Undo" (-1) only. Assignment deletion
+    deliberately does not call this: the whole point of the ledger is that the
+    day survives the assignment.
+    """
+    day = school_date(when)
+    row = (
+        db.query(models.DailyActivity)
+        .filter(
+            models.DailyActivity.user_id == user_id,
+            models.DailyActivity.activity_date == day,
+        )
+        .first()
+    )
+    if row is None:
+        if delta > 0:
+            db.add(
+                models.DailyActivity(
+                    user_id=user_id,
+                    activity_date=day,
+                    completions=delta,
+                )
+            )
+        return
+    row.completions = max(0, (row.completions or 0) + delta)
+
+
 def _toggle_completion(
     db: Session,
     assignment: models.Assignment,
@@ -194,6 +226,7 @@ def _toggle_completion(
     _guard_toggle_attempt(db, assignment, current, now)
     if existing:
         db.delete(existing)
+        _record_daily_activity(db, current.id, now, -1)
     else:
         db.add(
             models.AssignmentCompletion(
@@ -202,6 +235,7 @@ def _toggle_completion(
                 completed_at=now,
             )
         )
+        _record_daily_activity(db, current.id, now, +1)
 
 
 @router.get("/", response_model=List[schemas.AssignmentOut])
@@ -334,6 +368,7 @@ def create_assignment(
                 assignment_id=obj.id,
             )
         )
+        _record_daily_activity(db, current.id, datetime.utcnow(), +1)
     db.commit()
     created = _get_or_404(db, obj.id)
     result = _serialize(created, current)

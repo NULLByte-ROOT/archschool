@@ -105,15 +105,18 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     [isMember, unreadTotal]
   );
 
+  // Admin+ gets the users page. Bells and server stats are Owner-only.
   const adminLinks = useMemo(
+    () => [{ to: "/rootvoid", label: "کاربران", icon: Users }],
+    []
+  );
+
+  const ownerLinks = useMemo(
     () => [
-      { to: "/rootvoid", label: "کاربران", icon: Users },
       { to: "/admin/bells", label: "زنگ‌های مدرسه", icon: BellRing },
-      ...(isOwner
-        ? [{ to: "/admin/stats", label: "آمار سرور", icon: Gauge }]
-        : []),
+      { to: "/admin/stats", label: "آمار سرور", icon: Gauge },
     ],
-    [isOwner]
+    []
   );
 
   const handleLogout = useCallback(() => {
@@ -165,6 +168,20 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
               // ADMIN
             </motion.p>
             <LinkList links={adminLinks} onClose={onClose} delayBase={0.1} />
+          </>
+        )}
+
+        {isOwner && (
+          <>
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.18, duration: 0.3 }}
+              className="mono-label px-3 py-2"
+            >
+              // OWNER
+            </motion.p>
+            <LinkList links={ownerLinks} onClose={onClose} delayBase={0.15} />
           </>
         )}
 

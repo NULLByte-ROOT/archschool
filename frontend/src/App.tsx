@@ -36,11 +36,11 @@ export default function App() {
             {/* پنل ادمین — بالای منو، فقط نقش‌های staff */}
             <Route element={<ProtectedRoute adminOnly />}>
               <Route path="rootvoid" element={<UsersPage />} />
-              <Route path="admin/bells" element={<BellSchedulePage />} />
             </Route>
 
-            {/* داشبورد زندهٔ سرور — فقط Owner */}
+            {/* تنظیمات زنگ‌ها و داشبورد زندهٔ سرور — فقط Owner */}
             <Route element={<ProtectedRoute ownerOnly />}>
+              <Route path="admin/bells" element={<BellSchedulePage />} />
               <Route path="admin/stats" element={<ServerStatsPage />} />
             </Route>
 

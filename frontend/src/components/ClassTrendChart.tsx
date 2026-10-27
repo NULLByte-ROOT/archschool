@@ -41,6 +41,27 @@ export default function ClassTrendChart({
     [chartData]
   );
 
+  // Green = at least one completion that day, red = no activity at all.
+  const renderDot = (props: {
+    cx?: number;
+    cy?: number;
+    payload?: { count?: number };
+  }) => {
+    const { cx, cy, payload } = props;
+    if (cx == null || cy == null) return <g />;
+    const active = (payload?.count ?? 0) > 0;
+    return (
+      <circle
+        cx={cx}
+        cy={cy}
+        r={3}
+        fill={active ? "#34d399" : "#f87171"}
+        stroke="#09090b"
+        strokeWidth={1.5}
+      />
+    );
+  };
+
   return (
     <button
       type="button"
@@ -125,7 +146,7 @@ export default function ClassTrendChart({
                 stroke="#34d399"
                 strokeWidth={2.5}
                 fill="url(#classTrendFill)"
-                dot={false}
+                dot={renderDot as never}
                 activeDot={{
                   r: 4,
                   fill: "#34d399",

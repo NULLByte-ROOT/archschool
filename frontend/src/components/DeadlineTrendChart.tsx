@@ -51,7 +51,20 @@ function DeadlineTrendChart({ items, now }: { items: Assignment[]; now: number }
     for (let i = 0; i < 7; i++) {
       const d = new Date(day0);
       d.setDate(d.getDate() + i);
-      data.push({ day: DAY_NAMES[todayIndex(d)] ?? "", count: countsMap.get(i) ?? 0 });
+      data.push({
+        day: DAY_NAMES[todayIndex(d)] ?? "",
+        // Latin digits, Persian wording — the tooltip shows the exact day.
+        date: d.toLocaleDateString("fa-IR-u-nu-latn", {
+          day: "numeric",
+          month: "short",
+        }),
+        fullDate: d.toLocaleDateString("fa-IR-u-nu-latn", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        }),
+        count: countsMap.get(i) ?? 0,
+      });
     }
     return { data, weekTotal: data.reduce((sum, p) => sum + p.count, 0) };
   }, [items, day0]);
@@ -118,6 +131,10 @@ function DeadlineTrendChart({ items, now }: { items: Assignment[]; now: number }
                 labelStyle={{ color: "#fafafa", fontWeight: 700 }}
                 itemStyle={{ color: "#d4d4d8" }}
                 cursor={{ stroke: "rgba(255,255,255,0.25)", strokeDasharray: "3 3" }}
+                labelFormatter={
+                  ((_label: unknown, payload: { payload?: { fullDate?: string } }[]) =>
+                    payload?.[0]?.payload?.fullDate ?? "") as never
+                }
                 formatter={
                   ((value: unknown) =>
                     [`${String(value)} تکلیف`, "روند مهلت"]) as never
@@ -130,9 +147,14 @@ function DeadlineTrendChart({ items, now }: { items: Assignment[]; now: number }
                 stroke="#ffffff"
                 strokeWidth={2.5}
                 fill="url(#deadlineFill)"
-                dot={false}
+                dot={{
+                  r: 3,
+                  fill: "#ffffff",
+                  stroke: "rgba(255,255,255,0.35)",
+                  strokeWidth: 2,
+                }}
                 activeDot={{
-                  r: 4,
+                  r: 5,
                   fill: "#ffffff",
                   stroke: "rgba(255,255,255,0.35)",
                   strokeWidth: 4,
