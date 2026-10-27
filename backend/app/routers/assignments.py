@@ -288,7 +288,7 @@ def list_overdue_assignments(
         _base_query(db)
         .filter(
             models.Assignment.due_date.isnot(None),
-            models.Assignment.due_date <= now,
+            models.Assignment.due_date < now,
         )
         .order_by(models.Assignment.due_date.desc())
     )

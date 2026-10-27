@@ -601,7 +601,13 @@ export default function AssignmentsPage() {
   const upcoming = useMemo(
     () =>
       sortByAlignedDeadline(
-        items.filter((item) => !item.is_completed_by_me && item.due_date),
+        items.filter(
+          (item) =>
+            !item.is_completed_by_me &&
+            item.due_date &&
+            // مهلت‌گذشته‌ها فقط در صفحهٔ اختصاصی دیده می‌شوند
+            parseDueTs(item.due_date) >= now
+        ),
         now,
         bells
       ).slice(0, 5),
@@ -614,8 +620,9 @@ export default function AssignmentsPage() {
   );
 
   // گروه‌بندی اکید بر اساس زمان منطبق با زنگ‌های مدرسه:
-  // - تکالیفی که مهلتشان گذشته در فهرست نمی‌آیند؛ صفحهٔ اختصاصی «مهلت گذشته»
-  //   آن‌ها را نشان می‌دهد (کارت پایین همین صفحه).
+  // - «مهلت گذشته» اول از همه بررسی می‌شود: هر تکلیفی که due_date آن گذشته
+  //   باشد — انجام‌شده یا انجام‌نشده — از این صفحه حذف و فقط در صفحهٔ
+  //   «تکالیف مهلت گذشته» نمایش داده می‌شود (کارت پایین همین صفحه).
   // - «فوری» = کمتر از ۴۸ ساعت تا مهلت مؤثر
   // - «پیش‌رو» = ۴۸ ساعت و بیشتر
   const groups = useMemo(() => {
@@ -623,6 +630,8 @@ export default function AssignmentsPage() {
     const later: Assignment[] = [];
     const completed: Assignment[] = [];
     for (const item of displayed) {
+      // مهلت گذشته → فقط در صفحهٔ «تکالیف مهلت گذشته» (حتی اگر انجام شده باشد)
+      if (item.due_date && parseDueTs(item.due_date) < now) continue;
       if (item.is_completed_by_me) {
         completed.push(item);
         continue;
@@ -631,8 +640,6 @@ export default function AssignmentsPage() {
         later.push(item);
         continue;
       }
-      // مهلت خام گذشته → فقط در صفحهٔ «تکالیف مهلت گذشته»
-      if (parseDueTs(item.due_date) <= now) continue;
       const cd = dueCountdown(item.due_date, now, bells, item.subject_id);
       if (!cd) {
         later.push(item);
