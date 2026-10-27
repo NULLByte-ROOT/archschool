@@ -95,6 +95,8 @@ def _ensure_columns() -> None:
             "subtype": "VARCHAR(40) DEFAULT ''",
             "subject_id": "VARCHAR(40) DEFAULT ''",
             "creator_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
+            # Soft delete. NULL = live; existing rows backfill to NULL.
+            "deleted_at": "TIMESTAMP",
         },
         "messages": {
             "reply_to_id": "INTEGER REFERENCES messages(id) ON DELETE SET NULL",

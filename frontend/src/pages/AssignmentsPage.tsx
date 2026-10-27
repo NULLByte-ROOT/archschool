@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import {
   fetchAssignments,
+  fetchOverdueAssignments,
   deleteAssignment,
   toggleAssignmentCompletion,
 } from "../api/client";
@@ -55,6 +56,7 @@ import {
   categoryItemLabel,
   formatDue,
   parseDue,
+  parseDueTs,
   subjectName,
 } from "../lib/assignments";
 import {
@@ -535,6 +537,19 @@ export default function AssignmentsPage() {
     return () => controller.abort();
   }, [status, refreshKey]);
 
+  // شمارندهٔ کارت «مهلت گذشته» از همان منبعی می‌آید که صفحهٔ اختصاصی می‌خواند،
+  // تا عددِ نشان‌داده‌شده همیشه با محتوای آن صفحه یکی باشد.
+  const [overdueCount, setOverdueCount] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchOverdueAssignments(controller.signal)
+      .then((data) => setOverdueCount(data.length))
+      .catch(() => {
+        if (!controller.signal.aborted) setOverdueCount(0);
+      });
+    return () => controller.abort();
+  }, [refreshKey]);
+
   const categoryGroups = useMemo(() => [{ options: CATEGORY_OPTIONS }], []);
   const subjectGroups = useMemo(
     () => [
@@ -599,11 +614,11 @@ export default function AssignmentsPage() {
   );
 
   // گروه‌بندی اکید بر اساس زمان منطبق با زنگ‌های مدرسه:
-  // - «فوری» فقط تکالیفی که دقیقاً کمتر از ۴۸ ساعت تا مهلت مؤثر دارند
-  // - گذشته‌ها گروه جداگانه‌اند تا با مهلت‌های واقعی قاطی نشوند
+  // - تکالیفی که مهلتشان گذشته در فهرست نمی‌آیند؛ صفحهٔ اختصاصی «مهلت گذشته»
+  //   آن‌ها را نشان می‌دهد (کارت پایین همین صفحه).
+  // - «فوری» = کمتر از ۴۸ ساعت تا مهلت مؤثر
   // - «پیش‌رو» = ۴۸ ساعت و بیشتر
   const groups = useMemo(() => {
-    const overdue: Assignment[] = [];
     const urgent: Assignment[] = [];
     const later: Assignment[] = [];
     const completed: Assignment[] = [];
@@ -616,22 +631,18 @@ export default function AssignmentsPage() {
         later.push(item);
         continue;
       }
+      // مهلت خام گذشته → فقط در صفحهٔ «تکالیف مهلت گذشته»
+      if (parseDueTs(item.due_date) <= now) continue;
       const cd = dueCountdown(item.due_date, now, bells, item.subject_id);
-      if (!cd || cd.overdue) {
-        overdue.push(item);
-      } else if (cd.urgent) {
+      if (!cd) {
+        later.push(item);
+      } else if (cd.urgent || cd.overdue) {
         urgent.push(item);
       } else {
         later.push(item);
       }
     }
     return [
-      {
-        key: "overdue",
-        title: "گذشته از مهلت",
-        tone: "red" as const,
-        items: overdue,
-      },
       {
         key: "urgent",
         title: "فوری (کمتر از ۴۸ ساعت)",
@@ -976,6 +987,39 @@ export default function AssignmentsPage() {
               </div>
             </section>
           ))}
+
+          {/* تکالیف مهلت گذشته: کارت مستقل به‌جای فهرست درون‌صفحه‌ای */}
+          <motion.button
+            type="button"
+            onClick={() => navigate("/assignments/overdue")}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileHover={{ scale: 1.005 }}
+            whileTap={{ scale: 0.995 }}
+            className="group relative flex w-full items-center gap-4 overflow-hidden rounded-3xl border border-danger/25 bg-gradient-to-l from-danger/[0.14] via-white/[0.03] to-transparent p-5 text-right shadow-[0_0_50px_-26px_rgba(239,68,68,0.95)] backdrop-blur-xl transition-colors hover:border-danger/45"
+          >
+            <Corners className="border-danger/40" />
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-danger/30 bg-danger/15 text-danger">
+              <CalendarClock size={20} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-black text-white">تکالیف مهلت گذشته</span>
+                <span className="mono rounded-full border border-danger/35 bg-danger/15 px-2 py-0.5 text-[10px] tabular-nums text-danger">
+                  {overdueCount}
+                </span>
+              </span>
+              <span className="mt-1 block text-[11px] leading-5 text-fg-500">
+                {overdueCount > 0
+                  ? "همهٔ تکالیفی که مهلتشان گذشته — انجام‌شده و انجام‌نشده"
+                  : "هیچ تکلیفی از مهلت نگذشته"}
+              </span>
+            </span>
+            <ChevronLeft
+              size={18}
+              className="shrink-0 text-fg-500 transition-transform group-hover:-translate-x-1"
+            />
+          </motion.button>
         </div>
       )}
 

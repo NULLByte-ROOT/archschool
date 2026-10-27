@@ -237,6 +237,7 @@ def collect_deadline_jobs() -> list[dict[str, Any]]:
         assignments = (
             db.query(models.Assignment)
             .filter(
+                models.Assignment.deleted_at.is_(None),
                 models.Assignment.due_date.isnot(None),
                 models.Assignment.due_date > now,
                 models.Assignment.due_date <= horizon,

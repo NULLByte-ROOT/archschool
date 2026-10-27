@@ -52,7 +52,10 @@ def resolve_room(db: Session, room: str, user_id: int) -> dict:
             raise HTTPException(status_code=400, detail="اتاق گفتگو نامعتبر است") from exc
         assignment = (
             db.query(models.Assignment)
-            .filter(models.Assignment.id == assignment_id)
+            .filter(
+                models.Assignment.id == assignment_id,
+                models.Assignment.deleted_at.is_(None),
+            )
             .first()
         )
         if not assignment:

@@ -5,6 +5,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import HomePage from "./pages/HomePage";
 import TimetablePage from "./pages/TimetablePage";
 import AssignmentsPage from "./pages/AssignmentsPage";
+import OverdueAssignmentsPage from "./pages/OverdueAssignmentsPage";
 import AssignmentDetailPage from "./pages/AssignmentDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import NotFoundPage from "./pages/NotFoundPage";
@@ -28,6 +29,7 @@ export default function App() {
             <Route index element={<HomePage />} />
             <Route path="timetable" element={<TimetablePage />} />
             <Route path="assignments" element={<AssignmentsPage />} />
+            <Route path="assignments/overdue" element={<OverdueAssignmentsPage />} />
             <Route path="assignments/:id" element={<AssignmentDetailPage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="leaderboard" element={<LeaderboardPage />} />

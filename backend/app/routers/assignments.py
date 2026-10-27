@@ -11,7 +11,7 @@ from ..analytics import school_date
 from ..config import settings
 from ..database import get_db
 from ..dependencies import get_current_user
-from ..storage import delete_upload, save_upload
+from ..storage import save_upload
 
 router = APIRouter()
 
@@ -63,11 +63,21 @@ def _serialize(
 
 
 def _base_query(db: Session):
-    return db.query(models.Assignment).options(
-        selectinload(models.Assignment.creator),
-        selectinload(models.Assignment.completions).selectinload(
-            models.AssignmentCompletion.user
-        ),
+    """Live assignments only.
+
+    Soft-deleted rows stay in the table (so ``assignment_completions`` and the
+    stats derived from them survive) but never appear in any list, detail,
+    attachment or team query. Analytics bypasses this helper on purpose.
+    """
+    return (
+        db.query(models.Assignment)
+        .filter(models.Assignment.deleted_at.is_(None))
+        .options(
+            selectinload(models.Assignment.creator),
+            selectinload(models.Assignment.completions).selectinload(
+                models.AssignmentCompletion.user
+            ),
+        )
     )
 
 
@@ -263,6 +273,28 @@ def list_assignments(
     ]
 
 
+@router.get("/overdue", response_model=List[schemas.AssignmentOut])
+def list_overdue_assignments(
+    db: Session = Depends(get_db),
+    current: models.User = Depends(get_current_user),
+):
+    """Every assignment whose deadline has passed — completed ones included.
+
+    Declared before ``/{assignment_id}`` so FastAPI does not try to parse
+    "overdue" as an integer path parameter.
+    """
+    now = datetime.utcnow()
+    q = (
+        _base_query(db)
+        .filter(
+            models.Assignment.due_date.isnot(None),
+            models.Assignment.due_date <= now,
+        )
+        .order_by(models.Assignment.due_date.desc())
+    )
+    return [_serialize(obj, current) for obj in q.all()]
+
+
 @router.get("/{assignment_id}", response_model=schemas.AssignmentOut)
 def get_assignment(
     assignment_id: int,
@@ -423,12 +455,16 @@ def delete_assignment(
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
+    """Soft delete: hide the assignment but keep every completion row.
+
+    Hard-deleting would cascade to ``assignment_completions`` and silently
+    shrink other users' completion percentages, streaks and activity charts.
+    Attachments are kept too so history stays recoverable.
+    """
     obj = _get_or_404(db, assignment_id)
     if not _can_manage(obj, current):
         raise HTTPException(
             status_code=403, detail="شما اجازهٔ حذف این تکلیف را ندارید"
         )
-    for attachment in list(obj.attachments):
-        delete_upload(attachment.file_url)
-    db.delete(obj)
+    obj.deleted_at = datetime.utcnow()
     db.commit()

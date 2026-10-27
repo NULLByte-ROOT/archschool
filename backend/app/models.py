@@ -133,6 +133,10 @@ class Assignment(Base):
     )
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Soft delete: the row (and every completion) stays in the database so
+    # percentages, streaks and activity history never shrink. Lists filter it
+    # out; analytics deliberately does not.
+    deleted_at = Column(DateTime, nullable=True, index=True)
 
     owner = relationship(
         "User",

@@ -378,6 +378,17 @@ export async function fetchAssignments(
   return request<Assignment[]>(`/assignments/${qs ? "?" + qs : ""}`, { signal });
 }
 
+/**
+ * Every assignment whose due date has already passed — including the ones the
+ * current user has completed. Served by `GET /api/assignments/overdue`, which
+ * is declared before `/assignments/{id}` so "overdue" is not parsed as an id.
+ */
+export async function fetchOverdueAssignments(
+  signal?: AbortSignal
+): Promise<Assignment[]> {
+  return request<Assignment[]>("/assignments/overdue", { signal });
+}
+
 export async function createAssignment(data: {
   title: string;
   description?: string;
@@ -396,9 +407,7 @@ export async function createAssignment(data: {
 
 export async function fetchAssignment(id: number): Promise<Assignment> {
   return request<Assignment>(`/assignments/${id}`);
-}
-
-export async function updateAssignment(
+}export async function updateAssignment(
   id: number,
   data: Partial<Assignment>
 ): Promise<Assignment> {
