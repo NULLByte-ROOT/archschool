@@ -32,10 +32,11 @@ import {
 import {
   fetchAssignments,
   fetchOverdueAssignments,
+  fetchUserStats,
   deleteAssignment,
   toggleAssignmentCompletion,
 } from "../api/client";
-import type { Assignment } from "../api/client";
+import type { Assignment, LeaderboardEntry } from "../api/client";
 import PageHeader from "../components/PageHeader";
 import ActivityChart from "../components/ActivityChart";
 import AssignmentTypesChart from "../components/AssignmentTypesChart";
@@ -476,6 +477,9 @@ export default function AssignmentsPage() {
   // دقیقاً همان منبع دادهٔ صفحهٔ جزئیات: هوک مشترک برنامهٔ زنگ‌ها
   const { bells } = useBellSchedule();
   const [items, setItems] = useState<Assignment[]>(() => listCache.get(cacheKey("all")) ?? []);
+  // The single backend formula, independent of the active status filter. The
+  // card must show the same number as the profile and leaderboard.
+  const [meStats, setMeStats] = useState<LeaderboardEntry | null>(null);
   const [status, setStatus] = useState<Status>("all");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
@@ -536,6 +540,18 @@ export default function AssignmentsPage() {
       });
     return () => controller.abort();
   }, [status, refreshKey]);
+
+  // آمار شخصی از همان تابعی می‌آید که پروفایل و لیدر بورد استفاده می‌کنند.
+  useEffect(() => {
+    if (!user?.id) return;
+    const controller = new AbortController();
+    fetchUserStats(user.id, controller.signal)
+      .then(setMeStats)
+      .catch(() => {
+        if (!controller.signal.aborted) setMeStats(null);
+      });
+    return () => controller.abort();
+  }, [user?.id, refreshKey]);
 
   // شمارندهٔ کارت «مهلت گذشته» از همان منبعی می‌آید که صفحهٔ اختصاصی می‌خواند،
   // تا عددِ نشان‌داده‌شده همیشه با محتوای آن صفحه یکی باشد.
@@ -740,7 +756,11 @@ export default function AssignmentsPage() {
 
       {/* مینی‌داشبورد */}
       <div className="mb-5 grid gap-4 lg:grid-cols-3">
-        <ActivityChart completed={completedCount} total={items.length} />
+        <ActivityChart
+          completed={meStats?.completed_count ?? completedCount}
+          total={meStats?.total_assignments ?? items.length}
+          percentage={meStats?.completion_percentage}
+        />
         <AssignmentTypesChart items={items} />
         <div className="panel relative overflow-hidden rounded-3xl p-5">
           <div className="mb-4 flex items-center justify-between gap-2">

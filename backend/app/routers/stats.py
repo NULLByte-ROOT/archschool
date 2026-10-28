@@ -22,6 +22,7 @@ def _entry(entry: dict) -> schemas.LeaderboardEntryOut:
         completion_percentage=entry["completion_percentage"],
         completed_count=entry["completed_count"],
         total_assignments=entry["total_assignments"],
+        upload_count=entry.get("upload_count", 0),
         last_completion_time=entry["last_completion_time"],
         average_speed_hours=entry["average_speed_hours"],
         weekly_activity=[
@@ -32,6 +33,7 @@ def _entry(entry: dict) -> schemas.LeaderboardEntryOut:
         current_streak=entry["current_streak"],
         best_streak=entry["best_streak"],
         completed_today=entry["completed_today"],
+        streak_at_risk=entry.get("streak_at_risk", False),
     )
 
 

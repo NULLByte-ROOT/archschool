@@ -7,14 +7,20 @@ import { useIsMobileWidth } from "../hooks/useMediaQuery";
 function ActivityChart({
   completed,
   total,
+  percentage,
 }: {
   completed: number;
   total: number;
+  /** Server value from `compute_user_stats` (completion ratio + upload bonus). */
+  percentage?: number;
 }) {
   const navigate = useNavigate();
   const isMobile = useIsMobileWidth();
   const pending = Math.max(0, total - completed);
-  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const rawPct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const pct = Math.round(
+    Math.max(0, Math.min(100, percentage ?? rawPct))
+  );
 
   const radius = 54;
   const circumference = useMemo(() => 2 * Math.PI * radius, []);
@@ -54,7 +60,7 @@ function ActivityChart({
                 willChange: "transform",
               }}
               initial={{ scaleX: 0 }}
-              animate={{ scaleX: total ? completed / total : 0 }}
+              animate={{ scaleX: pct / 100 }}
               transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
             />
           </div>
@@ -86,7 +92,7 @@ function ActivityChart({
                 strokeDasharray={circumference}
                 initial={{ strokeDashoffset: circumference }}
                 animate={{
-                  strokeDashoffset: circumference * (1 - (total ? completed / total : 0)),
+                  strokeDashoffset: circumference * (1 - pct / 100),
                 }}
                 transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
                 style={{ willChange: "stroke-dashoffset" }}

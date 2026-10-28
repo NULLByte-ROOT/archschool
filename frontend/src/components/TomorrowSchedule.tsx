@@ -11,12 +11,15 @@ import {
   categoryItemLabel,
   dayAtIndex,
   dayEntries,
-  deadlineTone,
-  relativeDue,
   todayIndex,
   type DeadlineTone,
 } from "../lib/assignments";
-import { scheduleTarget } from "../lib/bell";
+import {
+  countdownTone,
+  dueCountdown,
+  scheduleTarget,
+  type DueCountdown,
+} from "../lib/bell";
 import { useBellSchedule } from "../hooks/useBellSchedule";
 
 const BADGE_TONE: Record<DeadlineTone, string> = {
@@ -31,9 +34,10 @@ interface Row {
   events: Assignment[];
   exams: Assignment[];
   tone: DeadlineTone;
+  countdown: DueCountdown | null;
 }
 
-const ScheduleRow = memo(function ScheduleRow({ row, now }: { row: Row; now: number }) {
+const ScheduleRow = memo(function ScheduleRow({ row }: { row: Row }) {
   const hasEvents = row.events.length > 0;
   const isExam = row.exams.length > 0;
   const badgeTone: DeadlineTone = isExam ? "red" : row.tone;
@@ -64,7 +68,9 @@ const ScheduleRow = memo(function ScheduleRow({ row, now }: { row: Row; now: num
           <p className="mt-0.5 truncate text-[10px] text-fg-500">
             {categoryItemLabel(nearest.subtype)}
             <span className="opacity-60"> · </span>
-            <span className={TONE_TEXT[row.tone]}>{relativeDue(nearest.due_date, now)}</span>
+            <span className={TONE_TEXT[row.tone]}>
+              {row.countdown?.short ?? "بدون مهلت"}
+            </span>
           </p>
         )}
       </div>
@@ -120,12 +126,19 @@ export default function TomorrowSchedule({
     return dayEntries(day).map(({ subject, period }) => {
       const events = (bySubject[subject.id] ?? []).filter((a) => !a.completed);
       const exams = events.filter((a) => a.category === "exam");
-      const tone: DeadlineTone = events.length
-        ? deadlineTone(events[0].due_date, now)
-        : "none";
-      return { subject, period, events, exams, tone };
+      const countdown = events.length
+        ? dueCountdown(events[0].due_date, now, bells, subject.id)
+        : null;
+      return {
+        subject,
+        period,
+        events,
+        exams,
+        tone: countdownTone(countdown),
+        countdown,
+      };
     });
-  }, [day, bySubject, now]);
+  }, [day, bySubject, now, bells]);
 
   const totalEvents = useMemo(
     () => rows.reduce((sum, row) => sum + row.events.length, 0),
@@ -196,7 +209,7 @@ export default function TomorrowSchedule({
       ) : (
         <ul className="space-y-2.5">
           {rows.map((row) => (
-            <ScheduleRow key={row.subject.id} row={row} now={now} />
+            <ScheduleRow key={row.subject.id} row={row} />
           ))}
         </ul>
       )}

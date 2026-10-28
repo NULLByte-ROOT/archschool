@@ -96,6 +96,10 @@ function PeriodCard({ bySubject }: { bySubject: Record<string, Assignment[]> }) 
       ? state.progress
       : null;
 
+  // بعد از پایان آخرین زنگ، کارت به‌کل پنهان می‌شود و نیمه‌شبِ بعد (وقتی
+  // وضعیت به «before» برمی‌گردد) دوباره ظاهر می‌شود.
+  if (state.state === "after") return null;
+
   return (
     <motion.section
       initial={{ opacity: 0, y: 14 }}
@@ -239,7 +243,7 @@ function PeriodCard({ bySubject }: { bySubject: Record<string, Assignment[]> }) 
         </div>
       )}
 
-      {(state.state === "after" || state.state === "holiday") && targetDay && (
+      {state.state === "holiday" && targetDay && (
         <div className="relative mt-4 flex items-center gap-2 rounded-2xl border border-white/8 bg-white/[0.025] px-3 py-2.5 text-[12px] text-fg-300">
           <CalendarClock size={14} className="shrink-0 text-fg-500" />
           <span>

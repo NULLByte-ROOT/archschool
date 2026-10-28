@@ -353,6 +353,8 @@ class LeaderboardEntryOut(BaseModel):
     completion_percentage: float = 0.0
     completed_count: int = 0
     total_assignments: int = 0
+    # Files this user uploaded to live assignments; each adds +5% (capped 100).
+    upload_count: int = 0
     last_completion_time: Optional[datetime] = None
     average_speed_hours: Optional[float] = None
     weekly_activity: list[DailyActivityOut] = []
@@ -361,6 +363,8 @@ class LeaderboardEntryOut(BaseModel):
     current_streak: int = 0
     best_streak: int = 0
     completed_today: bool = False
+    # True only after 12:00 school time when nothing was completed today.
+    streak_at_risk: bool = False
 
 
 class TeamOverviewOut(BaseModel):

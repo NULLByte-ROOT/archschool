@@ -30,13 +30,12 @@ import SchoolStatusStrip from "../components/SchoolStatusStrip";
 import TomorrowSchedule from "../components/TomorrowSchedule";
 import { useAuth } from "../contexts/AuthContext";
 import { useNow } from "../hooks/useNow";
+import { useBellSchedule } from "../hooks/useBellSchedule";
+import { countdownTone, dueCountdown } from "../lib/bell";
 import {
-  DAY_MS,
   groupAssignmentsBySubject,
   jalaliToday,
   jalaliTime,
-  parseDue,
-  relativeDue,
 } from "../lib/assignments";
 import { seedFeed, toPulseItem } from "../lib/unread";
 
@@ -130,29 +129,32 @@ export default function HomePage() {
     };
   }, []);
 
+  const { bells } = useBellSchedule();
+
   const personal = useMemo(() => {
     const done = items.filter((item) => item.is_completed_by_me).length;
     const pending = items.filter((item) => !item.is_completed_by_me);
-    const urgent = pending.filter(
-      (item) =>
-        item.due_date && parseDue(item.due_date).getTime() - now < DAY_MS * 2
-    ).length;
+    const targetOf = (item: Assignment) =>
+      dueCountdown(item.due_date, now, bells, item.subject_id)?.alignedDueMs ??
+      Number.POSITIVE_INFINITY;
+    const urgent = pending.filter((item) => {
+      const countdown = dueCountdown(item.due_date, now, bells, item.subject_id);
+      return Boolean(countdown && (countdown.urgent || countdown.overdue));
+    }).length;
     const next = [...pending]
       .filter((item) => item.due_date)
-      .sort(
-        (a, b) =>
-          parseDue(a.due_date as string).getTime() -
-          parseDue(b.due_date as string).getTime()
-      )
+      .sort((a, b) => targetOf(a) - targetOf(b))
       .slice(0, 2);
     return { total: items.length, done, pending: pending.length, urgent, next };
-  }, [items, now]);
+  }, [items, now, bells]);
 
   const bySubject = useMemo(() => groupAssignmentsBySubject(items), [items]);
 
   const me = overview?.me;
   const streak = me?.current_streak ?? 0;
-  const atRisk = Boolean(overview && !overview.me.completed_today);
+  // Never computed in the browser: the backend only raises the flag after
+  // 12:00 Tehran time when today has no completion yet.
+  const atRisk = Boolean(overview?.me.streak_at_risk);
   const teamRecord = overview?.team_record_streak ?? 0;
   const bestStreak = me?.best_streak ?? 0;
 
@@ -626,20 +628,37 @@ export default function HomePage() {
             </div>
           ) : personal.next.length > 0 ? (
             <ul className="mt-auto space-y-1.5">
-              {personal.next.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5"
-                >
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
-                  <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-fg-300">
-                    {item.title}
-                  </span>
-                  <span className="shrink-0 text-[9.5px] text-fg-500">
-                    {relativeDue(item.due_date, now)}
-                  </span>
-                </li>
-              ))}
+              {personal.next.map((item) => {
+                const countdown = dueCountdown(
+                  item.due_date,
+                  now,
+                  bells,
+                  item.subject_id
+                );
+                const tone = countdownTone(countdown);
+                return (
+                  <li
+                    key={item.id}
+                    className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-2.5 py-1.5"
+                  >
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
+                    <span className="min-w-0 flex-1 truncate text-[11px] font-semibold text-fg-300">
+                      {item.title}
+                    </span>
+                    <span
+                      className={`shrink-0 text-[9.5px] ${
+                        tone === "red"
+                          ? "text-red-400"
+                          : tone === "yellow"
+                            ? "text-yellow-400"
+                            : "text-fg-500"
+                      }`}
+                    >
+                      {countdown?.short ?? "بدون مهلت"}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="flex flex-1 items-center justify-center py-6 text-[11px] text-fg-500">

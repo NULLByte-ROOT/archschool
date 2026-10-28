@@ -71,6 +71,8 @@ export interface LeaderboardEntry {
   completion_percentage: number;
   completed_count: number;
   total_assignments: number;
+  /** Uploaded files on live assignments; every one adds +5% (capped at 100). */
+  upload_count: number;
   last_completion_time: string | null;
   average_speed_hours: number | null;
   weekly_activity: DailyActivity[];
@@ -79,6 +81,8 @@ export interface LeaderboardEntry {
   current_streak: number;
   best_streak: number;
   completed_today: boolean;
+  /** Server-computed: true only after 12:00 school time with an empty day. */
+  streak_at_risk: boolean;
 }
 
 /** Single-round-trip payload for the home dashboard. */
@@ -508,8 +512,11 @@ export async function fetchTeamOverview(): Promise<TeamOverview> {
   return request<TeamOverview>("/stats/overview");
 }
 
-export async function fetchUserStats(userId: number): Promise<LeaderboardEntry> {
-  return request<LeaderboardEntry>(`/stats/users/${userId}`);
+export async function fetchUserStats(
+  userId: number,
+  signal?: AbortSignal
+): Promise<LeaderboardEntry> {
+  return request<LeaderboardEntry>(`/stats/users/${userId}`, { signal });
 }
 
 // ---------- Chat ----------

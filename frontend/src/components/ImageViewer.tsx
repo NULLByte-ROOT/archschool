@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
 
 /**
  * نمایش تصویر سراسری به سبک تلگرام:
@@ -80,6 +80,46 @@ export function openImageGallery(images: ViewerImage[], startIndex = 0) {
 function closeImageViewer() {
   current = null;
   emit();
+}
+
+function fileNameFor(image: ViewerImage): string {
+  const alt = image.alt?.trim();
+  if (alt) return alt;
+  try {
+    const path = new URL(image.src, window.location.href).pathname;
+    const last = decodeURIComponent(path.split("/").pop() ?? "");
+    if (last) return last;
+  } catch {
+    // ignore malformed URLs and fall through
+  }
+  return "image";
+}
+
+/** Save the image with a real download; falls back to opening it directly when CORS blocks the blob. */
+async function downloadImage(image: ViewerImage) {
+  const fileName = fileNameFor(image);
+  try {
+    const response = await fetch(image.src);
+    if (!response.ok) throw new Error(String(response.status));
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  } catch {
+    const link = document.createElement("a");
+    link.href = image.src;
+    link.download = fileName;
+    link.target = "_blank";
+    link.rel = "noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
 }
 
 const MIN_ZOOM = 1;
@@ -353,6 +393,20 @@ export default function ImageViewer() {
           className="absolute top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
         >
           <X size={20} />
+        </button>
+
+        {/* دانلود */}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            void downloadImage(image);
+          }}
+          aria-label="دانلود تصویر"
+          title="دانلود تصویر"
+          className="absolute top-[max(1rem,env(safe-area-inset-top))] left-[max(1rem,env(safe-area-inset-left))] z-10 flex h-11 w-11 items-center justify-center rounded-full border border-white/20 bg-white/10 text-white transition hover:bg-white/20"
+        >
+          <Download size={20} />
         </button>
 
         {/* شمارنده */}
