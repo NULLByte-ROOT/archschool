@@ -25,6 +25,7 @@ ArchSchool is a social-network-style school workspace for a class team (11th gra
 
 ## 4. Authentication & Roles (RBAC) — EXACT RULES
 - **Access Code Only:** There are no passwords. Authentication is done via `username` + a **6-character alphanumeric uppercase Access Code** (`^[A-Z0-9]{6}$`, e.g. `ROOT01`).
+- **Admin code is not a bypass:** `ADMIN_CODE` only authenticates an **existing** admin/owner account whose username is supplied as well. It must never auto-create an account or sign in an arbitrary username; a login always requires the username and the code to match.
 - **Roles:** There are **3 assignable roles** (`admin`, `friend`, `member`) and **1 special account** (`owner`). The legacy `editor` role is retired (boot migration converts those accounts to `admin`).
 - **Permissions (exact):**
   - **Everyone (all roles):** Can toggle assignment completion ("Done"/"Read"), appear in Team Status and the Leaderboard, and view assignments.

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   fetchMe,
@@ -68,11 +68,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persist(await apiRegister(username, code));
   };
 
-  const refreshUser = async () => {
+  const refreshUser = useCallback(async () => {
     const fresh = await fetchMe();
     localStorage.setItem("user", JSON.stringify(fresh));
     setUser(fresh);
-  };
+  }, []);
+
+  // Role changes happen in the admin panel (possibly on another device).
+  // Re-read the user when the tab becomes visible so a promoted friend gets
+  // chat access without a full reload.
+  useEffect(() => {
+    if (!localStorage.getItem("token")) return;
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refreshUser().catch(() => undefined);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refreshUser]);
 
   const logout = () => {
     localStorage.removeItem("token");

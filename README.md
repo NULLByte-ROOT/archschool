@@ -23,8 +23,9 @@ countdown, and includes a team chat with profiles.
   is created; more than 3 toggles of the same assignment within an hour locks it
   for an hour.
 - **Accounts** — username + 6-character access code registration and login
-  (uppercase English letters and numbers only; the admin code still works),
-  editable bio and avatar.
+  (uppercase English letters and numbers only; the shared admin code only signs
+  in an existing admin account whose username is also supplied), editable bio
+  and avatar.
 - **Chat** — global, private and per-assignment rooms; profile modal, pin,
   reply, forward, attachments, admin delete-any/clear-room.
 - **Themes** — dark monochrome (default) and a soft light theme, toggle in

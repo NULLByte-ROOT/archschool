@@ -10,7 +10,6 @@ from ..database import get_db
 from ..dependencies import get_current_user
 from ..security import (
     create_access_token,
-    generate_code,
     is_valid_access_code,
     normalize_access_code,
     normalize_username,
@@ -93,20 +92,15 @@ def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
         )
 
     if code == settings.ADMIN_CODE:
+        # The admin code is a shared secret, so it must never create a new
+        # account (that let anyone log in with any username + the code and get
+        # an admin). It only works for an existing staff account whose username
+        # is supplied too: both the username and the code have to match.
         user = _find_user(db, username)
-        if not user:
-            user = models.User(
-                username=username,
-                code=generate_code(),
-                is_admin=True,
-                role=models.ROLE_ADMIN,
-                is_active=True,
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-        elif not user.is_admin:
-            raise HTTPException(status_code=403, detail="Username taken")
+        if not user or not models.is_staff(user):
+            raise HTTPException(status_code=401, detail="نام کاربری یا کد اشتباه است")
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="حساب غیرفعال است")
     elif code == normalize_access_code(settings.OWNER_ACCESS_CODE or ""):
         owner = _find_user(db, username)
         if not owner:
