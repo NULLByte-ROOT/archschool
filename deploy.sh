@@ -1108,9 +1108,15 @@ ensure_env() {
 # account on every boot from these two values.
 generate_access_code() {
     # 6-char uppercase alphanumeric access code (matches backend rules).
-    local pool="ABCDEFGHJKLMNPQRSTUVWXYZ23456789" pool_len="${#pool}" out="" i r
+    # `local a=... b="${#a}"` does NOT work under `set -u`: every argument of
+    # `local` is expanded in the caller's scope *before* `local` runs, so
+    # `${#pool}` would read an unset variable. Assign in separate statements.
+    local pool="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    local pool_len="${#pool}"
+    local out="" i r
     for (( i = 0; i < 6; i++ )); do
-        r="$(od -An -N1 -tu1 /dev/urandom | tr -d ' ' || echo 0)"
+        r="$(od -An -N1 -tu1 /dev/urandom 2>/dev/null | tr -d ' ' || true)"
+        r="${r:-0}"
         out+="${pool:r % pool_len:1}"
     done
     printf '%s' "${out}"
