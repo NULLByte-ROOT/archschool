@@ -1556,6 +1556,100 @@ cmd_deploy() {
     info "Cleanup:   sudo ./deploy.sh cleanup"
 }
 
+# ------------------------------------------------------------- deploy dev ---
+
+cmd_deploy_dev() {
+    preflight || return 1
+
+    if (( SKIP_PULL == 0 )); then
+        pull_code || return 1
+    fi
+    ensure_env
+    read_revision
+
+    info "Starting isolated Dev/Staging environment..."
+
+    # 1. Start database container if not running
+    run_privileged docker compose up -d db
+    wait_db_ready || return 1
+
+    # 2. Ensure archschool_dev_db database exists in Postgres
+    info "Ensuring 'archschool_dev_db' database exists..."
+    run_privileged docker exec -i archschool_db psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'archschool_dev_db'" | grep -q 1 || \
+        run_privileged docker exec -i archschool_db psql -U postgres -c "CREATE DATABASE archschool_dev_db;"
+
+    # 3. Build & start dev slot
+    info "Building and launching dev slot (backend-dev & frontend-dev)..."
+    run_privileged docker compose --profile dev up -d --build --force-recreate backend-dev frontend-dev || return 1
+
+    # 4. Wait for healthy
+    info "Waiting for dev services to be healthy on port 6245..."
+    local ok=0
+    for i in {1..30}; do
+        if curl -s -f http://127.0.0.1:6245/healthz >/dev/null 2>&1; then
+            ok=1
+            break
+        fi
+        sleep 2
+    done
+
+    if (( ok == 0 )); then
+        error "Dev frontend did not report healthy on http://127.0.0.1:6245/healthz within 60s."
+        return 1
+    fi
+
+    success "Dev containers are running and healthy on 127.0.0.1:6245!"
+
+    # 5. Configure host Nginx for dev.archschool.vidxsepehr.ir if Nginx exists
+    if nginx_present; then
+        local dev_conf="/etc/nginx/sites-available/archschool-dev"
+        local dev_enabled="/etc/nginx/sites-enabled/archschool-dev"
+        local dev_domain="${DEV_DOMAIN:-dev.archschool.vidxsepehr.ir}"
+
+        if [[ ! -f "${dev_conf}" ]]; then
+            info "Writing Nginx virtual host for ${dev_domain}..."
+            local tmp
+            tmp="$(mktemp)"
+            cat > "${tmp}" <<EOF
+server {
+    listen 80;
+    server_name ${dev_domain};
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:6245;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        # WebSocket support
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+EOF
+            run_privileged mv "${tmp}" "${dev_conf}"
+            run_privileged mkdir -p /etc/nginx/sites-enabled
+            run_privileged ln -sf "${dev_conf}" "${dev_enabled}"
+            if nginx_test; then
+                nginx_reload
+                success "Nginx configured for http://${dev_domain}"
+            fi
+        fi
+    fi
+
+    echo
+    success "========================================================="
+    success " Dev/Staging environment deployed successfully!"
+    success " URL: https://${DEV_DOMAIN:-dev.archschool.vidxsepehr.ir}"
+    success " Port: 127.0.0.1:6245"
+    success " Database: archschool_dev_db (isolated from production)"
+    success "========================================================="
+    echo
+}
+
 # --------------------------------------------------------------- rollback ---
 
 cmd_rollback() {
@@ -2299,6 +2393,7 @@ EOF
     echo " 12) List backups"
     echo " 13) Fix host Nginx (upstream + WebSocket headers)"
     echo " 14) Set Owner Credentials (Username & Access Code)"
+    echo " 15) Deploy to DEV/STAGING (dev.archschool.vidxsepehr.ir)"
     echo "  0) Exit"
     echo
 }
@@ -2308,7 +2403,7 @@ interactive_menu() {
     check_sudo
     while true; do
         show_menu
-        if ! read -r -p "Select an option [0-14]: " choice; then
+        if ! read -r -p "Select an option [0-15]: " choice; then
             echo
             exit 0
         fi
@@ -2336,6 +2431,7 @@ interactive_menu() {
             12) cmd_list_backups || warn "Could not list the backups." ;;
             13) cmd_fix_nginx || warn "Could not repair the host Nginx configuration." ;;
             14) set_owner_credentials || warn "Owner credentials were not changed." ;;
+            15) cmd_deploy_dev || warn "Dev deployment failed. Check the output above." ;;
             0) printf "${GREEN}Bye.${NC}\n"; exit 0 ;;
             *) warn "Invalid option: ${choice}" ;;
         esac
@@ -2396,6 +2492,7 @@ main() {
 
     case "${COMMAND}" in
         deploy)   cmd_deploy ;;
+        deploy-dev|dev) cmd_deploy_dev ;;
         rollback) cmd_rollback ;;
         cleanup)  cmd_cleanup ;;
         status)   cmd_status ;;

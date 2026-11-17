@@ -145,6 +145,36 @@ services:
       backend-green:
         condition: service_healthy
 
+  # ------------------------------------------------------------------- dev --
+
+  backend-dev:
+    <<: *backend-common
+    profiles: ["dev"]
+    container_name: archschool_backend_dev
+    labels:
+      archschool.slot: "dev"
+      archschool.revision: "${GIT_SHA:-unknown}"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@archschool_db:5432/archschool_dev_db
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - archschool_dev_uploads:/app/uploads
+
+  frontend-dev:
+    <<: *frontend-common
+    profiles: ["dev"]
+    container_name: archschool_frontend_dev
+    labels:
+      archschool.slot: "dev"
+      archschool.revision: "${GIT_SHA:-unknown}"
+    environment:
+      BACKEND_HOST: archschool_backend_dev
+    ports:
+      - "127.0.0.1:6245:80"
+    depends_on:
+      backend-dev:
+        condition: service_healthy
+
 networks:
   archschool_net:
     name: archschool_net
@@ -155,3 +185,5 @@ volumes:
     name: archschool_db_data
   archschool_uploads:
     name: archschool_uploads
+  archschool_dev_uploads:
+    name: archschool_dev_uploads
