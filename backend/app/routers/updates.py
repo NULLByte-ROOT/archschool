@@ -264,18 +264,104 @@ def check_for_updates(
 
     # 3. Native expo-updates protocol check (Protocol Version 1)
     if request.headers.get("expo-protocol-version") == "1":
-        boundary = "archschool_ota_boundary"
-        active_b_id = active_bundle_id or "b-1795027345"
-        raw_hash = hashlib.sha256(active_b_id.encode("utf-8")).hexdigest()
-        manifest_uuid = f"{raw_hash[:8]}-{raw_hash[8:12]}-{raw_hash[12:16]}-{raw_hash[16:20]}-{raw_hash[20:32]}"
+        try:
+            boundary = "archschool_ota_boundary"
+            active_b_id = active_bundle_id or "b-1795032628"
+            raw_hash = hashlib.sha256(active_b_id.encode("utf-8")).hexdigest()
+            manifest_uuid = f"{raw_hash[:8]}-{raw_hash[8:12]}-{raw_hash[12:16]}-{raw_hash[16:20]}-{raw_hash[20:32]}"
 
-        client_update_id = request.headers.get("expo-current-update-id")
-        if client_update_id and client_update_id.lower() == manifest_uuid.lower():
+            client_update_id = request.headers.get("expo-current-update-id")
+            if client_update_id and client_update_id.lower() == manifest_uuid.lower():
+                content = (
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: inline; name="directive"\r\n'
+                    f"Content-Type: application/json; charset=utf-8\r\n\r\n"
+                    f'{json.dumps({"type": "noUpdateAvailable"})}\r\n'
+                    f"--{boundary}--\r\n"
+                )
+                return Response(
+                    content=content.encode("utf-8"),
+                    media_type=f'multipart/mixed; boundary="{boundary}"',
+                    headers={
+                        "expo-protocol-version": "1",
+                        "expo-sfv-version": "0",
+                        "cache-control": "private, max-age=0",
+                    },
+                )
+
+            b_hash = update_data.get("bundleHash") or ""
+            try:
+                b_hash_b64 = base64.urlsafe_b64encode(bytes.fromhex(b_hash)).decode("utf-8").rstrip("=")
+            except Exception:
+                b_hash_b64 = b_hash
+
+            bundle_path = update_data.get("bundleUrl", "")
+            host_url = getattr(settings, "HOST_URL", "https://archschool.vidxsepehr.ir").rstrip("/")
+            bundle_full_url = (
+                bundle_path
+                if bundle_path.startswith("http")
+                else f"{host_url}{bundle_path}"
+            )
+
+            manifest_assets = []
+            raw_assets = update_data.get("assets") or []
+            for a in raw_assets:
+                a_key = a.key if hasattr(a, "key") else (a.get("key", "") if isinstance(a, dict) else "")
+                a_url = a.url if hasattr(a, "url") else (a.get("url", "") if isinstance(a, dict) else "")
+                a_hash = a.hash if hasattr(a, "hash") else (a.get("hash", "") if isinstance(a, dict) else "")
+                try:
+                    a_hash_b64 = base64.urlsafe_b64encode(bytes.fromhex(a_hash)).decode("utf-8").rstrip("=")
+                except Exception:
+                    a_hash_b64 = a_hash
+                a_full_url = a_url if a_url.startswith("http") else f"{host_url}{a_url}"
+                ext = Path(a_key).suffix
+                mtype, _ = mimetypes.guess_type(a_key)
+                manifest_assets.append({
+                    "hash": a_hash_b64,
+                    "key": a_key,
+                    "contentType": mtype or "application/octet-stream",
+                    "fileExtension": ext if ext else "",
+                    "url": a_full_url,
+                })
+
+            created_at_val = update_data.get("createdAt")
+            if hasattr(created_at_val, "isoformat"):
+                created_at_str = created_at_val.isoformat() + "Z"
+            elif created_at_val:
+                created_at_str = str(created_at_val)
+            else:
+                created_at_str = "2026-11-18T19:00:00.000Z"
+
+            manifest_obj = {
+                "id": manifest_uuid,
+                "createdAt": created_at_str,
+                "runtimeVersion": resolved_runtime,
+                "launchAsset": {
+                    "hash": b_hash_b64,
+                    "key": active_b_id,
+                    "contentType": "application/javascript",
+                    "url": bundle_full_url,
+                },
+                "assets": manifest_assets,
+                "metadata": {},
+                "extra": {
+                    "expoClient": {
+                        "name": "ArchSchool",
+                        "slug": "archschool",
+                        "version": resolved_app_ver or "1.0.0",
+                    }
+                },
+            }
+
             content = (
                 f"--{boundary}\r\n"
-                f'Content-Disposition: inline; name="directive"\r\n'
+                f'Content-Disposition: inline; name="manifest"\r\n'
                 f"Content-Type: application/json; charset=utf-8\r\n\r\n"
-                f'{json.dumps({"type": "noUpdateAvailable"})}\r\n'
+                f"{json.dumps(manifest_obj)}\r\n"
+                f"--{boundary}\r\n"
+                f'Content-Disposition: inline; name="extensions"\r\n'
+                f"Content-Type: application/json; charset=utf-8\r\n\r\n"
+                f'{json.dumps({"assetRequestHeaders": {}})}\r\n'
                 f"--{boundary}--\r\n"
             )
             return Response(
@@ -287,61 +373,9 @@ def check_for_updates(
                     "cache-control": "private, max-age=0",
                 },
             )
-
-        b_hash = update_data.get("bundleHash") or ""
-        try:
-            b_hash_b64 = base64.urlsafe_b64encode(bytes.fromhex(b_hash)).decode("utf-8").rstrip("=")
-        except Exception:
-            b_hash_b64 = b_hash
-
-        bundle_path = update_data.get("bundleUrl", "")
-        bundle_full_url = (
-            bundle_path
-            if bundle_path.startswith("http")
-            else f"{settings.HOST_URL or 'https://archschool.vidxsepehr.ir'}{bundle_path}"
-        )
-
-        manifest_obj = {
-            "id": manifest_uuid,
-            "createdAt": str(update_data.get("createdAt") or "2026-11-18T19:00:00.000Z"),
-            "runtimeVersion": resolved_runtime,
-            "launchAsset": {
-                "hash": b_hash_b64,
-                "key": active_b_id,
-                "contentType": "application/javascript",
-                "url": bundle_full_url,
-            },
-            "assets": [],
-            "metadata": {},
-            "extra": {
-                "expoClient": {
-                    "name": "ArchSchool",
-                    "slug": "archschool",
-                    "version": resolved_app_ver or "1.0.0",
-                }
-            },
-        }
-
-        content = (
-            f"--{boundary}\r\n"
-            f'Content-Disposition: inline; name="manifest"\r\n'
-            f"Content-Type: application/json; charset=utf-8\r\n\r\n"
-            f"{json.dumps(manifest_obj)}\r\n"
-            f"--{boundary}\r\n"
-            f'Content-Disposition: inline; name="extensions"\r\n'
-            f"Content-Type: application/json; charset=utf-8\r\n\r\n"
-            f'{json.dumps({"assetRequestHeaders": {}})}\r\n'
-            f"--{boundary}--\r\n"
-        )
-        return Response(
-            content=content.encode("utf-8"),
-            media_type=f'multipart/mixed; boundary="{boundary}"',
-            headers={
-                "expo-protocol-version": "1",
-                "expo-sfv-version": "0",
-                "cache-control": "private, max-age=0",
-            },
-        )
+        except Exception as exc:
+            logger.exception("Failed to build Expo protocol 1 manifest response: %s", exc)
+            raise HTTPException(status_code=500, detail="Failed to build update manifest")
 
     return schemas.UpdateCheckResponse(
         updateType="ota",

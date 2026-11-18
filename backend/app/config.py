@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     #  Mobile OTA & APK Update Delivery (R4, R5)
     # ------------------------------------------------------------------
+    HOST_URL: str = "https://archschool.vidxsepehr.ir"
     UPDATES_DIR: str = "uploads/updates"
     KEEP_BUNDLES_COUNT: int = 3
     MIN_APK_VERSION: str = "1.0.0"

@@ -195,6 +195,7 @@ def _run_boot_migrations() -> None:
         _backfill_rbac_data()
         _backfill_daily_activity()
         _seed_school_schedule()
+        _sync_manifest_updates()
         _ensure_owner_account()
 
 
@@ -305,6 +306,98 @@ def _seed_school_schedule() -> None:
             )
         db.commit()
         logger.info("Seeded default school schedule (08:00-14:00, 4 periods)")
+
+
+def _sync_manifest_updates() -> None:
+    """Sync mobile updates from meta/updates.json into app_updates table on boot.
+
+    Ensures that newly deployed bundles are immediately active in the DB.
+    """
+    from datetime import datetime, UTC
+    from .routers.updates import _get_updates_dir
+    from .database import SessionLocal
+    import json
+
+    try:
+        manifest_file = _get_updates_dir() / "meta" / "updates.json"
+        if not manifest_file.is_file():
+            return
+
+        with manifest_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        items = []
+        if isinstance(data, dict) and "updates" in data and isinstance(data["updates"], list):
+            items = data["updates"]
+        elif isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = [data]
+
+        with SessionLocal() as db:
+            for item in items:
+                b_id = item.get("bundleId")
+                platform = item.get("platform", "android")
+                runtime_ver = item.get("runtimeVersion", "1.0.0")
+                if not b_id:
+                    continue
+
+                existing = (
+                    db.query(models.AppUpdate)
+                    .filter(models.AppUpdate.bundle_id == b_id)
+                    .first()
+                )
+                if not existing:
+                    # Deactivate previous active updates for this platform + runtime
+                    db.query(models.AppUpdate).filter(
+                        models.AppUpdate.platform == platform,
+                        models.AppUpdate.runtime_version == runtime_ver,
+                    ).update({"is_active": False})
+
+                    created_str = item.get("createdAt")
+                    created_dt = None
+                    if created_str:
+                        try:
+                            created_dt = datetime.fromisoformat(
+                                created_str.replace("Z", "+00:00")
+                            ).replace(tzinfo=None)
+                        except Exception:
+                            created_dt = datetime.now(UTC).replace(tzinfo=None)
+                    else:
+                        created_dt = datetime.now(UTC).replace(tzinfo=None)
+
+                    assets = item.get("assets", [])
+                    new_rec = models.AppUpdate(
+                        platform=platform,
+                        runtime_version=runtime_ver,
+                        bundle_id=b_id,
+                        bundle_url=item.get("bundleUrl", ""),
+                        bundle_hash=item.get("bundleHash", ""),
+                        bundle_size=item.get("bundleSize", 0),
+                        is_active=item.get("isActive", True),
+                        mandatory=item.get("mandatory", False),
+                        min_apk_version=item.get("minApkVersion"),
+                        apk_url=item.get("apkUrl"),
+                        apk_size=item.get("apkSize"),
+                        apk_hash=item.get("apkHash"),
+                        release_notes=item.get("releaseNotes", ""),
+                        assets_json=json.dumps(assets),
+                        created_at=created_dt,
+                    )
+                    db.add(new_rec)
+                    db.commit()
+                    logger.info("Auto-synced new mobile update bundle %s into database", b_id)
+                else:
+                    if item.get("isActive", True) and not existing.is_active:
+                        db.query(models.AppUpdate).filter(
+                            models.AppUpdate.platform == platform,
+                            models.AppUpdate.runtime_version == runtime_ver,
+                        ).update({"is_active": False})
+                        existing.is_active = True
+                        db.commit()
+                        logger.info("Activated mobile update bundle %s in database", b_id)
+    except Exception as exc:
+        logger.warning("Failed to auto-sync mobile updates: %s", exc)
 
 
 _run_boot_migrations()
