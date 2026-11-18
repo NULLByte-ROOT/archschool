@@ -28,6 +28,10 @@ def _get_updates_dir(custom_dir: Optional[Path | str] = None) -> Path:
         d = Path(custom_dir)
     else:
         d = Path(settings.UPDATES_DIR)
+        if not (d / "bundles").exists():
+            backend_updates = Path(__file__).resolve().parent.parent.parent / "updates"
+            if (backend_updates / "bundles").exists():
+                d = backend_updates
     d.mkdir(parents=True, exist_ok=True)
     return d
 

@@ -1485,6 +1485,16 @@ cmd_deploy() {
 
     build_slot "${target}" || return 1
 
+    # Sync mobile updates seed from backend/updates into uploads volume if present
+    if [[ -d "${SCRIPT_DIR}/backend/updates/bundles" ]] && run_privileged docker volume inspect "${UPLOADS_VOLUME}" >/dev/null 2>&1; then
+        info "Syncing mobile updates into Docker volume '${UPLOADS_VOLUME}'..."
+        run_privileged docker run --rm \
+            -v "${SCRIPT_DIR}/backend/updates:/src:ro" \
+            -v "${UPLOADS_VOLUME}:/data" \
+            "${HELPER_IMAGE}" \
+            sh -c "mkdir -p /data/updates && cp -a /src/. /data/updates/" 2>/dev/null || true
+    fi
+
     if ! start_slot "${target}"; then
         error "The ${target} slot did not become healthy. Nothing was switched."
         echo
