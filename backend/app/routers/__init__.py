@@ -1,1 +1,1 @@
-from . import assignments, attachments, auth, messages, uploads, users, ws
+from . import assignments, attachments, auth, messages, updates, uploads, users, ws

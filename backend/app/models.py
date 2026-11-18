@@ -521,3 +521,51 @@ class DeadlineNotification(Base):
     )
     threshold_hours = Column(Integer, nullable=False)
     sent_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AppUpdate(Base):
+    """Over-The-Air (OTA) update bundle and APK binary release record.
+
+    Queried on mobile application startup to deliver JavaScript OTA bundles
+    or require mandatory native APK upgrades.
+    """
+
+    __tablename__ = "app_updates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    platform = Column(
+        String(20),
+        nullable=False,
+        default="android",
+        server_default=text("'android'"),
+        index=True,
+    )
+    runtime_version = Column(String(50), nullable=False, index=True)
+    bundle_id = Column(String(100), nullable=False, unique=True, index=True)
+    bundle_url = Column(String(500), nullable=False)
+    bundle_hash = Column(String(100), nullable=False)
+    bundle_size = Column(Integer, nullable=False, default=0)
+    is_active = Column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+        index=True,
+    )
+    mandatory = Column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    min_apk_version = Column(String(50), nullable=True)
+    apk_url = Column(String(500), nullable=True)
+    apk_size = Column(Integer, nullable=True)
+    apk_hash = Column(String(100), nullable=True)
+    release_notes = Column(Text, nullable=False, default="", server_default=text("''"))
+    assets_json = Column(Text, nullable=False, default="[]", server_default=text("'[]'"))
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+

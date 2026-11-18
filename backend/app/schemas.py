@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 
 class UserBase(BaseModel):
@@ -406,3 +406,35 @@ class SchoolScheduleOut(BaseModel):
 
 class SchoolScheduleUpdate(BaseModel):
     periods: list[SchoolPeriodIn] = Field(..., min_length=4, max_length=4)
+
+
+# ------------------------------------------------------------------
+#  بروزرسانی اپلیکیشن موبایل (OTA & APK Updates)
+# ------------------------------------------------------------------
+class AssetInfo(BaseModel):
+    key: str
+    url: str
+    hash: str
+    size: int
+
+    model_config = {"from_attributes": True}
+
+
+class UpdateCheckResponse(BaseModel):
+    updateType: Literal["none", "ota", "apk"] = "none"
+    version: str
+    bundleId: Optional[str] = None
+    bundleUrl: Optional[str] = None
+    bundleHash: Optional[str] = None
+    bundleSize: Optional[int] = None
+    assets: list[AssetInfo] = Field(default_factory=list)
+    mandatory: bool = False
+    minApkVersion: Optional[str] = None
+    apkUrl: Optional[str] = None
+    apkSize: Optional[int] = None
+    apkHash: Optional[str] = None
+    releaseNotes: Optional[str] = ""
+    createdAt: Optional[datetime | str] = None
+
+    model_config = {"from_attributes": True}
+

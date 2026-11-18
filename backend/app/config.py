@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     MAX_UPLOAD_MB: int = 25
 
     # ------------------------------------------------------------------
+    #  Mobile OTA & APK Update Delivery (R4, R5)
+    # ------------------------------------------------------------------
+    UPDATES_DIR: str = "uploads/updates"
+    KEEP_BUNDLES_COUNT: int = 3
+    MIN_APK_VERSION: str = "1.0.0"
+
+    # ------------------------------------------------------------------
     #  Anti-cheat / streak configuration
     # ------------------------------------------------------------------
     # A freshly created assignment cannot be marked done before this delay, so

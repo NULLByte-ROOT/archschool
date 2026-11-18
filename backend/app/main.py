@@ -22,6 +22,7 @@ from .routers import (
     schedule,
     server_stats,
     stats,
+    updates,
     uploads,
     users,
     ws,
@@ -352,7 +353,13 @@ app.add_middleware(
         "Origin",
         "X-Requested-With",
     ],
-    expose_headers=["Content-Disposition"],
+    expose_headers=[
+        "Content-Disposition",
+        "Content-Range",
+        "Accept-Ranges",
+        "Content-Length",
+        "ETag",
+    ],
     max_age=86400,
 )
 
@@ -365,6 +372,8 @@ app.include_router(stats.router, prefix="/api/stats", tags=["stats"])
 app.include_router(server_stats.router, prefix="/api/server-stats", tags=["server-stats"])
 app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
 app.include_router(attachments.router, prefix="/api/attachments", tags=["attachments"])
+app.include_router(updates.router, prefix="/api/v1/updates", tags=["updates"])
+app.include_router(updates.router, prefix="/api/updates", tags=["updates"], include_in_schema=False)
 app.include_router(ws.router, tags=["ws"])
 
 

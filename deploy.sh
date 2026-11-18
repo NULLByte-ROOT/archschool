@@ -85,6 +85,13 @@ EDGE_MODE=1
 PROBE_MODE="local"
 PROBE_PORT="${SLOT_BLUE_PORT}"
 
+# Mobile self-hosted update delivery
+RELEASE_NOTES=""
+APK_FILE=""
+IS_MANDATORY=0
+RUNTIME_VERSION=""
+MOBILE_DIR=""
+
 cd "${SCRIPT_DIR}"
 
 RED='\033[0;31m'
@@ -2361,6 +2368,90 @@ Environment:
 EOF
 }
 
+# ----------------------------------------------------------- mobile update ---
+
+cmd_publish_mobile() {
+    check_sudo
+    local mobile_dir="${MOBILE_DIR:-${SCRIPT_DIR}/../archschool-mobile}"
+    local runtime_v="${RUNTIME_VERSION:-}"
+    local notes="${RELEASE_NOTES:-}"
+    local is_mandatory="${IS_MANDATORY:-0}"
+    local apk_file="${APK_FILE:-}"
+    local min_apk="${MIN_APK_VERSION:-}"
+    local keep_cnt="${KEEP_BUNDLES_COUNT:-2}"
+    local temp_build_dir=""
+
+    echo
+    printf "${BOLD}=== ArchSchool Mobile Update Publisher (Self-Hosted) ===${NC}\n"
+
+    if [[ ! -d "${mobile_dir}" ]]; then
+        error "Mobile repository directory not found at: ${mobile_dir}"
+        return 1
+    fi
+
+    if [[ -z "${notes}" && ${ASSUME_YES} -eq 0 ]]; then
+        read -r -p "Enter release notes for this update: " notes || true
+    fi
+
+    temp_build_dir="$(mktemp -d 2>/dev/null || mktemp -d -t 'archschool_ota_XXXXXX')"
+    info "Temporary build workspace: ${temp_build_dir}"
+
+    info "Exporting React Native / Expo assets and Android bundle..."
+    local export_ok=0
+    (
+        cd "${mobile_dir}"
+        export EXPO_NO_TELEMETRY=true
+        if command -v npx >/dev/null 2>&1; then
+            npx expo export --platform android --output-dir "${temp_build_dir}" && exit 0
+        elif [[ -f "node_modules/.bin/expo" ]]; then
+            ./node_modules/.bin/expo export --platform android --output-dir "${temp_build_dir}" && exit 0
+        fi
+        exit 1
+    ) && export_ok=1
+
+    if [[ ${export_ok} -ne 1 || ! -d "${temp_build_dir}/assets" ]]; then
+        error "Expo export failed. Check mobile project dependencies."
+        rm -rf "${temp_build_dir}"
+        return 1
+    fi
+
+    info "Publishing update to storage and database..."
+    local python_bin="python3"
+    if [[ -x "${SCRIPT_DIR}/backend/.venv/bin/python3" ]]; then
+        python_bin="${SCRIPT_DIR}/backend/.venv/bin/python3"
+    elif [[ -x "${SCRIPT_DIR}/backend/.venv/Scripts/python.exe" ]]; then
+        python_bin="${SCRIPT_DIR}/backend/.venv/Scripts/python.exe"
+    fi
+
+    local publish_args=(
+        "${SCRIPT_DIR}/backend/scripts/publish_update.py"
+        "--dist-dir" "${temp_build_dir}"
+        "--keep-count" "${keep_cnt}"
+    )
+
+    [[ -n "${runtime_v}" ]] && publish_args+=("--runtime-version" "${runtime_v}")
+    [[ -n "${notes}" ]] && publish_args+=("--release-notes" "${notes}")
+    [[ "${is_mandatory}" -eq 1 ]] && publish_args+=("--mandatory")
+    [[ -n "${apk_file}" ]] && publish_args+=("--apk-file" "${apk_file}")
+    [[ -n "${min_apk}" ]] && publish_args+=("--min-apk-version" "${min_apk}")
+
+    "${python_bin}" "${publish_args[@]}"
+
+    local updates_local="${SCRIPT_DIR}/backend/uploads/updates"
+    if [[ -d "${updates_local}" ]] && run_privileged docker volume inspect "${UPLOADS_VOLUME}" >/dev/null 2>&1; then
+        info "Syncing updates into Docker volume '${UPLOADS_VOLUME}'..."
+        run_privileged docker run --rm \
+            -v "${updates_local}:/src:ro" \
+            -v "${UPLOADS_VOLUME}:/data" \
+            "${HELPER_IMAGE}" \
+            sh -c "mkdir -p /data/updates && cp -a /src/. /data/updates/" 2>/dev/null || true
+    fi
+
+    rm -rf "${temp_build_dir}"
+    info "Temporary build artifacts cleaned up."
+    success "Mobile update published successfully!"
+}
+
 show_menu() {
     local active
     clear 2>/dev/null || true
@@ -2394,6 +2485,7 @@ EOF
     echo " 13) Fix host Nginx (upstream + WebSocket headers)"
     echo " 14) Set Owner Credentials (Username & Access Code)"
     echo " 15) Deploy to DEV/STAGING (dev.archschool.vidxsepehr.ir)"
+    echo " 16) Publish Mobile Update (OTA Bundle & APK to self-hosted server)"
     echo "  0) Exit"
     echo
 }
@@ -2403,7 +2495,7 @@ interactive_menu() {
     check_sudo
     while true; do
         show_menu
-        if ! read -r -p "Select an option [0-15]: " choice; then
+        if ! read -r -p "Select an option [0-16]: " choice; then
             echo
             exit 0
         fi
@@ -2432,6 +2524,7 @@ interactive_menu() {
             13) cmd_fix_nginx || warn "Could not repair the host Nginx configuration." ;;
             14) set_owner_credentials || warn "Owner credentials were not changed." ;;
             15) cmd_deploy_dev || warn "Dev deployment failed. Check the output above." ;;
+            16) cmd_publish_mobile || warn "Publishing mobile update failed. Check output above." ;;
             0) printf "${GREEN}Bye.${NC}\n"; exit 0 ;;
             *) warn "Invalid option: ${choice}" ;;
         esac
@@ -2453,8 +2546,15 @@ parse_args() {
             --timeout=*)  HEALTH_TIMEOUT="${1#*=}" ;;
             --backup)     BACKUP_BEFORE_DEPLOY=1 ;;
             --out=*)      BACKUP_OUT_DIR="${1#*=}" ;;
+            --notes=*)    RELEASE_NOTES="${1#*=}" ;;
+            --apk=*)      APK_FILE="${1#*=}" ;;
+            --mandatory)  IS_MANDATORY=1 ;;
+            --runtime-version=*) RUNTIME_VERSION="${1#*=}" ;;
+            --keep-count=*) KEEP_BUNDLES_COUNT="${1#*=}" ;;
             -h|--help)    usage; exit 0 ;;
             deploy|update)   COMMAND="deploy" ;;
+            deploy-dev|dev)  COMMAND="deploy-dev" ;;
+            publish-mobile|publish-update|ota) COMMAND="publish-mobile" ;;
             rollback)        COMMAND="rollback" ;;
             cleanup|prune)   COMMAND="cleanup" ;;
             status)          COMMAND="status" ;;
@@ -2493,6 +2593,7 @@ main() {
     case "${COMMAND}" in
         deploy)   cmd_deploy ;;
         deploy-dev|dev) cmd_deploy_dev ;;
+        publish-mobile) cmd_publish_mobile ;;
         rollback) cmd_rollback ;;
         cleanup)  cmd_cleanup ;;
         status)   cmd_status ;;
