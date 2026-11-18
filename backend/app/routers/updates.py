@@ -1,3 +1,5 @@
+import base64
+import hashlib
 import json
 import logging
 import mimetypes
@@ -6,7 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from starlette.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -153,17 +155,20 @@ prune_old_bundles = prune_superseded_bundles
 
 
 @router.get("/check", response_model=schemas.UpdateCheckResponse)
-@router.get("/manifest", response_model=schemas.UpdateCheckResponse, include_in_schema=False)
+@router.get("/manifest", include_in_schema=False)
 def check_for_updates(
-    platform: str = Query("android", pattern=r"^[a-zA-Z0-9_\.-]+$"),
-    runtimeVersion: str = Query(..., pattern=r"^[a-zA-Z0-9_\.-]+$"),
+    request: Request,
+    platform: Optional[str] = Query(None, pattern=r"^[a-zA-Z0-9_\.-]+$"),
+    runtimeVersion: Optional[str] = Query(None, pattern=r"^[a-zA-Z0-9_\.-]+$"),
     appVersion: Optional[str] = Query(None, pattern=r"^[a-zA-Z0-9_\.-]+$"),
     currentBundleId: Optional[str] = Query(None, pattern=r"^[a-zA-Z0-9_\.-]+$"),
     db: Session = Depends(get_db),
 ):
     """Silent startup check determining if client needs APK binary update, OTA bundle, or none."""
-    resolved_platform = str(platform) if isinstance(platform, str) else "android"
-    resolved_runtime = str(runtimeVersion) if isinstance(runtimeVersion, str) else "1.0.0"
+    header_platform = request.headers.get("expo-platform")
+    header_runtime = request.headers.get("expo-runtime-version")
+    resolved_platform = str(platform or header_platform or "android")
+    resolved_runtime = str(runtimeVersion or header_runtime or "1.0.0")
     resolved_app_ver = appVersion if isinstance(appVersion, str) and appVersion else None
     resolved_bundle_id = currentBundleId if isinstance(currentBundleId, str) and currentBundleId else None
     fallback_version = resolved_app_ver or resolved_runtime
@@ -257,6 +262,87 @@ def check_for_updates(
             releaseNotes=update_data.get("releaseNotes", ""),
         )
 
+    # 3. Native expo-updates protocol check (Protocol Version 1)
+    if request.headers.get("expo-protocol-version") == "1":
+        boundary = "archschool_ota_boundary"
+        active_b_id = active_bundle_id or "b-1795027345"
+        raw_hash = hashlib.sha256(active_b_id.encode("utf-8")).hexdigest()
+        manifest_uuid = f"{raw_hash[:8]}-{raw_hash[8:12]}-{raw_hash[12:16]}-{raw_hash[16:20]}-{raw_hash[20:32]}"
+
+        client_update_id = request.headers.get("expo-current-update-id")
+        if client_update_id and client_update_id.lower() == manifest_uuid.lower():
+            content = (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: inline; name="directive"\r\n'
+                f"Content-Type: application/json; charset=utf-8\r\n\r\n"
+                f'{json.dumps({"type": "noUpdateAvailable"})}\r\n'
+                f"--{boundary}--\r\n"
+            )
+            return Response(
+                content=content.encode("utf-8"),
+                media_type=f'multipart/mixed; boundary="{boundary}"',
+                headers={
+                    "expo-protocol-version": "1",
+                    "expo-sfv-version": "0",
+                    "cache-control": "private, max-age=0",
+                },
+            )
+
+        b_hash = update_data.get("bundleHash") or ""
+        try:
+            b_hash_b64 = base64.urlsafe_b64encode(bytes.fromhex(b_hash)).decode("utf-8").rstrip("=")
+        except Exception:
+            b_hash_b64 = b_hash
+
+        bundle_path = update_data.get("bundleUrl", "")
+        bundle_full_url = (
+            bundle_path
+            if bundle_path.startswith("http")
+            else f"{settings.HOST_URL or 'https://archschool.vidxsepehr.ir'}{bundle_path}"
+        )
+
+        manifest_obj = {
+            "id": manifest_uuid,
+            "createdAt": str(update_data.get("createdAt") or "2026-11-18T19:00:00.000Z"),
+            "runtimeVersion": resolved_runtime,
+            "launchAsset": {
+                "hash": b_hash_b64,
+                "key": active_b_id,
+                "contentType": "application/javascript",
+                "url": bundle_full_url,
+            },
+            "assets": [],
+            "metadata": {},
+            "extra": {
+                "expoClient": {
+                    "name": "ArchSchool",
+                    "slug": "archschool",
+                    "version": resolved_app_ver or "1.0.0",
+                }
+            },
+        }
+
+        content = (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: inline; name="manifest"\r\n'
+            f"Content-Type: application/json; charset=utf-8\r\n\r\n"
+            f"{json.dumps(manifest_obj)}\r\n"
+            f"--{boundary}\r\n"
+            f'Content-Disposition: inline; name="extensions"\r\n'
+            f"Content-Type: application/json; charset=utf-8\r\n\r\n"
+            f'{json.dumps({"assetRequestHeaders": {}})}\r\n'
+            f"--{boundary}--\r\n"
+        )
+        return Response(
+            content=content.encode("utf-8"),
+            media_type=f'multipart/mixed; boundary="{boundary}"',
+            headers={
+                "expo-protocol-version": "1",
+                "expo-sfv-version": "0",
+                "cache-control": "private, max-age=0",
+            },
+        )
+
     return schemas.UpdateCheckResponse(
         updateType="ota",
         version=fallback_version,
@@ -271,7 +357,7 @@ def check_for_updates(
     )
 
 
-@router.get("/bundle/{runtime_version}/{bundle_id}/index.android.bundle")
+@router.api_route("/bundle/{runtime_version}/{bundle_id}/index.android.bundle", methods=["GET", "HEAD"])
 def get_bundle_file(runtime_version: str, bundle_id: str):
     """Serve JavaScript bundle with immutable caching headers."""
     _validate_safe_name(runtime_version, "runtime_version")
@@ -293,7 +379,7 @@ def get_bundle_file(runtime_version: str, bundle_id: str):
     )
 
 
-@router.get("/assets/{runtime_version}/{bundle_id}/{asset_path:path}")
+@router.api_route("/assets/{runtime_version}/{bundle_id}/{asset_path:path}", methods=["GET", "HEAD"])
 def get_asset_file(runtime_version: str, bundle_id: str, asset_path: str):
     """Serve bundle assets (images, fonts) with immutable caching."""
     _validate_safe_name(runtime_version, "runtime_version")
