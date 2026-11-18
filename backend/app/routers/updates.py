@@ -260,11 +260,24 @@ def check_for_updates(
 
     # 1. Native APK check
     min_apk = update_data.get("minApkVersion")
+    latest_apk = update_data.get("latestApkVersion")
     if min_apk and resolved_app_ver and _parse_version(resolved_app_ver) < _parse_version(min_apk):
         return schemas.UpdateCheckResponse(
             updateType="apk",
             version=min_apk,
             mandatory=True,
+            minApkVersion=min_apk,
+            apkUrl=update_data.get("apkUrl"),
+            apkSize=update_data.get("apkSize"),
+            apkHash=update_data.get("apkHash"),
+            releaseNotes=update_data.get("releaseNotes", ""),
+            createdAt=update_data.get("createdAt"),
+        )
+    if latest_apk and resolved_app_ver and _parse_version(resolved_app_ver) < _parse_version(latest_apk):
+        return schemas.UpdateCheckResponse(
+            updateType="apk",
+            version=latest_apk,
+            mandatory=False,
             minApkVersion=min_apk,
             apkUrl=update_data.get("apkUrl"),
             apkSize=update_data.get("apkSize"),
@@ -317,11 +330,14 @@ def check_for_updates(
         a_full_url = a_url if a_url.startswith("http") else f"{host_url}{a_url}"
         ext = ext_map.get(a_key) or Path(a_key).suffix
         mtype, _ = mimetypes.guess_type(f"file{ext}" if ext else a_key)
+        # Strip path prefixes like "assets/" to prevent Android isSafeFilename check failure
+        clean_key = Path(a_key).name
+        file_ext = ext if ext else ""
         manifest_assets.append({
             "hash": a_hash_b64,
-            "key": a_key,
+            "key": clean_key,
             "contentType": mtype or "application/octet-stream",
-            "fileExtension": ext if ext else None,
+            "fileExtension": file_ext,
             "url": a_full_url,
         })
 
@@ -341,6 +357,7 @@ def check_for_updates(
             "hash": b_hash_b64,
             "key": active_b_id,
             "contentType": "application/javascript",
+            "fileExtension": ".bundle",
             "url": bundle_full_url,
         },
         "assets": manifest_assets,
@@ -491,7 +508,11 @@ def download_apk(apk_name: str = "app-release.apk"):
     apk_file = _safe_resolve(apk_dir, apk_name)
 
     if not apk_file.is_file():
-        raise HTTPException(status_code=404, detail="APK binary not found")
+        backend_apk = Path(__file__).resolve().parent.parent.parent / "updates" / "apk" / apk_name
+        if backend_apk.is_file():
+            apk_file = backend_apk
+        else:
+            raise HTTPException(status_code=404, detail="APK binary not found")
 
     return FileResponse(
         apk_file,

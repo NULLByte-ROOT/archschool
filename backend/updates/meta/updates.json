@@ -382,13 +382,14 @@
         }
       ],
       "mandatory": false,
-      "minApkVersion": null,
-      "apkUrl": null,
-      "apkSize": null,
-      "apkHash": null,
+      "minApkVersion": "1.0.0",
+      "apkUrl": "/api/v1/updates/apk/app-release.apk",
+      "apkSize": 39531589,
+      "apkHash": "96466b2bea3a1b1e3fdb09d5f5d6a637c59c2944aee3428457ec5cbcc5d665e9",
       "releaseNotes": "بازطراحی کارت وضعیت کلاس با برنامه روز بعد و حذف زنگ‌های امروز",
       "isActive": true,
-      "createdAt": "2026-11-18T20:10:28.820Z"
+      "createdAt": "2026-11-18T20:10:28.820Z",
+      "latestApkVersion": "1.0.0"
     },
     {
       "platform": "android",
