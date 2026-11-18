@@ -201,6 +201,7 @@ def update_json_manifest(updates_dir: Path, update_data: Dict[str, Any]) -> None
 
     # Deactivate older records with same platform and runtimeVersion
     updates_list = current_data.get("updates", [])
+    prev_active = next((u for u in updates_list if u.get("isActive") and u.get("apkUrl")), None)
     for u in updates_list:
         if (
             u.get("platform") == update_data["platform"]
@@ -217,10 +218,11 @@ def update_json_manifest(updates_dir: Path, update_data: Dict[str, Any]) -> None
         "bundleSize": update_data.get("bundle_size"),
         "assets": update_data.get("assets", []),
         "mandatory": update_data.get("mandatory", False),
-        "minApkVersion": update_data.get("min_apk_version"),
-        "apkUrl": update_data.get("apk_url"),
-        "apkSize": update_data.get("apk_size"),
-        "apkHash": update_data.get("apk_hash"),
+        "minApkVersion": update_data.get("min_apk_version") or (prev_active.get("minApkVersion") if prev_active else "1.0.0"),
+        "latestApkVersion": update_data.get("latest_apk_version") or (prev_active.get("latestApkVersion") if prev_active else "1.0.0"),
+        "apkUrl": update_data.get("apk_url") or (prev_active.get("apkUrl") if prev_active else "/api/v1/updates/apk/app-release.apk"),
+        "apkSize": update_data.get("apk_size") or (prev_active.get("apkSize") if prev_active else 39531589),
+        "apkHash": update_data.get("apk_hash") or (prev_active.get("apkHash") if prev_active else "96466b2bea3a1b1e3fdb09d5f5d6a637c59c2944aee3428457ec5cbcc5d665e9"),
         "releaseNotes": update_data.get("release_notes", ""),
         "isActive": True,
         "createdAt": datetime.now(timezone.utc).isoformat(),
@@ -288,6 +290,12 @@ def main():
         bundle_hash = sha256_file(bundle_dest)
         bundle_size = bundle_dest.stat().st_size
         logger.info("Copied bundle to %s (size: %d bytes, hash: %s)", bundle_dest, bundle_size, bundle_hash[:12])
+
+        # Copy metadata.json if present
+        source_meta = dist_path / "metadata.json"
+        if source_meta.exists():
+            shutil.copy2(source_meta, target_bundle_dir / "metadata.json")
+            logger.info("Copied metadata.json to %s", target_bundle_dir / "metadata.json")
 
         assets = collect_assets(dist_path, target_assets_dir, runtime_v, bundle_id)
         logger.info("Collected %d associated assets.", len(assets))
