@@ -12,7 +12,7 @@ from ..analytics import build_leaderboard
 logger = logging.getLogger("archschool.gemini")
 
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-FALLBACK_MODELS = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-3.5-flash"]
+FALLBACK_MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
 
 SYSTEM_INSTRUCTION = """
 تو دستیار هوشمند، رفیق و همکلاسی پرانرژی بچه‌های مدرسه در سامانه ArchSchool هستی! 🚀
@@ -316,11 +316,23 @@ async def ask_gemini_agent(
                     break
                 logger.warning("Gemini model %s returned %s: %s", m, resp.status_code, resp.text[:120])
 
+                # If failed (e.g. 403 or 400 with complex tools), try simple conversation payload
+                simple_payload = {
+                    "contents": contents,
+                    "generationConfig": {"temperature": 0.7, "maxOutputTokens": 800},
+                }
+                resp_simple = await client.post(target_url, json=simple_payload)
+                if resp_simple.status_code == 200:
+                    resp = resp_simple
+                    used_model = m
+                    break
+
             if not resp or resp.status_code != 200:
                 code = resp.status_code if resp else "timeout"
-                snippet = resp.text[:120] if resp else "timeout"
-                logger.error("Gemini failed across all models. Last status: %s, snippet: %s", code, snippet)
-                return f"⚠️ متاسفانه در ارتباط با هوش مصنوعی خطایی رخ داد: {code}"
+                snippet = resp.text[:200] if resp else "عدم دریافت پاسخ"
+                key_preview = f"{clean_key[:6]}...{clean_key[-4:]} (طول: {len(clean_key)})" if clean_key else "خالی"
+                logger.error("Gemini failed across all models. Last status: %s, snippet: %s, key: %s", code, snippet, key_preview)
+                return f"⚠️ خطای هوش مصنوعی ({code}):\n{snippet}\n🔑 کلید فعال: {key_preview}"
 
             res_data = resp.json()
             candidates = res_data.get("candidates", [])

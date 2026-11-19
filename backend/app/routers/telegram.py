@@ -1,4 +1,5 @@
 import logging
+import os
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -36,6 +37,8 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
 
     token = telegram_bot.get_bot_setting(db, "telegram_bot_token")
     gemini_key = telegram_bot.get_bot_setting(db, "gemini_api_key")
+    if not gemini_key:
+        gemini_key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
     enabled = telegram_bot.get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
 
     if not token or not enabled:
@@ -124,6 +127,9 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
 
     # --- 3. Process prompt with Gemini Flash Agent ---
     if not gemini_key:
+        gemini_key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+
+    if not gemini_key:
         await telegram_bot.send_telegram_message(
             token, chat_id, "⚠️ کلید هوش مصنوعی در سرور مدرسه هنوز تنظیم نشده است.", reply_to_message_id=msg_id
         )
@@ -201,6 +207,8 @@ async def test_telegram(
     token = telegram_bot.get_bot_setting(db, "telegram_bot_token")
     group_id = telegram_bot.get_bot_setting(db, "telegram_group_id")
     gemini_key = telegram_bot.get_bot_setting(db, "gemini_api_key")
+    if not gemini_key:
+        gemini_key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
 
     if not token:
         raise HTTPException(status_code=400, detail="توکن ربات تلگرام تنظیم نشده است.")
