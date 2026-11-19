@@ -128,3 +128,28 @@ def test_format_telegram_html():
     assert "&lt;" in formatted and "&gt;" in formatted
     # No stray asterisks
     assert "*" not in formatted
+
+
+def test_school_knowledge(db_session):
+    from app.services import school_knowledge
+
+    # 1. Subject resolution
+    math_subj = school_knowledge.resolve_subject("ریاضی")
+    assert math_subj is not None
+    assert math_subj["id"] == "math"
+    assert math_subj["teacher"] == "یوسفی"
+
+    web_subj = school_knowledge.resolve_subject("طراحی وب")
+    assert web_subj is not None
+    assert web_subj["teacher"] == "محمدی‌فر"
+
+    # 2. Schedule lookup
+    sat_schedule = school_knowledge.WEEKLY_SCHEDULE["sat"]
+    assert sat_schedule["day_fa"] == "شنبه"
+    assert len(sat_schedule["periods"]) == 4
+
+    # 3. Tool execution with day filter
+    res = ai_agent.execute_tool("get_school_schedule", {"day": "شنبه"}, db_session, None)
+    assert res["success"] is True
+    assert res["day"] == "شنبه"
+    assert len(res["periods"]) == 4

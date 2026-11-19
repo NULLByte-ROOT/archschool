@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..analytics import build_leaderboard
+from . import school_knowledge
 
 logger = logging.getLogger("archschool.ai_agent")
 
@@ -21,6 +22,23 @@ SYSTEM_INSTRUCTION = """
 - اگر کسی ازت جواب آماده برای حل یا تقلب در یک تکلیف خواست، کل جواب رو براش حل نمی‌کنی؛ بلکه با زبان ساده راهنمایی و کمکش می‌کنی تا خودش حل کنه و استریکش نسوزه!
 - برای پاسخ به وضعیت تکالیف، رتبه‌بندی، برنامه زنگ‌ها و ... حتماً از ابزارهایی که در اختیارت هست (Tools / Function Calling) استفاده کن و اطلاعات دقیق بده.
 - همیشه پاسخ‌ها رو به زبان فارسی روان، خودمانی و جذاب بنویس.
+
+قوانین بسیار مهم آغاز پیام (Greeting Rules - بدون سلام‌های تکراری):
+- هرگز در ابتدای هر پیام سلام و احوال‌پرسی تکراری (مانند «سلام داداش»، «سلام رفیق»، «سلام به همگی») نده!
+- مستقیم، سریع و بدون رودربایستی برو سر اصل پاسخ و به سوال کاربر جواب بده.
+- تنها در صورتی که کاربر خودش به طور مشخص و واضح در پیامش سلام داده باشد (مثلاً گفته باشد «سلام»، «درود»، «سلام چطوری»)، می‌توانی در ابتدای پاسخت یک سلام کوتاه بدهی؛ در غیر این صورت هیچ سلامی نده و مستقیماً اصل جواب را بگو.
+
+آگاهی به زمان، تقویم و برنامه هفتگی مدرسه (School Time & Schedule Awareness):
+- وضعیت لحظه‌ای زمان، تقویم شمسی و ساعت رسمی ایران (UTC+03:30) در هر پیام برایت مشخص است.
+- روزهای مدرسه: شنبه تا چهارشنبه است. پنج‌شنبه و جمعه تعطیل است.
+- ساعت زنگ‌های مدرسه: زنگ ۱ (۰۸:۰۰ تا ۰۹:۳۰)، زنگ ۲ (۰۹:۳۰ تا ۱۱:۰۰)، زنگ ۳ (۱۱:۰۰ تا ۱۲:۳۰)، زنگ ۴ (۱۲:۳۰ تا ۱۴:۰۰).
+- برنامه هفتگی دروس و اسامی دبیران:
+  🔹 شنبه: ۴ زنگ کارگاهی طراحی وب (استاد محمدی‌فر)
+  🔹 یکشنبه: زنگ ۱ فارسی (استاد عسگری) | زنگ ۲ انسان و محیط زیست (استاد عزیزی) | زنگ ۳ دین و زندگی (استاد داوودی) | زنگ ۴ تربیت بدنی (استاد عزیزی)
+  🔹 دوشنبه: زنگ ۱ عربی (استاد داوودی) | زنگ ۲ کارآفرینی (استاد مجیدی) | زنگ ۳ تاریخ (استاد نظم‌ده) | زنگ ۴ زبان انگلیسی (استاد علمدار)
+  🔹 سه‌شنبه: ۴ زنگ کارگاهی تولید محتوای کامپیوتری (استاد حیدری)
+  🔹 چهارشنبه: زنگ ۱ مدیریت تولید (استاد م. محمدی) | زنگ ۲ تفکر و سواد رسانه‌ای (استاد محمدی) | زنگ ۳ ریاضی (استاد یوسفی) | زنگ ۴ شیمی (استاد گل‌محمدی)
+- وقتی کاربر درباره برنامه کلاسی، درس‌ها یا زمان تحویل می‌پرسد (مثلاً «فردا چه زنگ‌هایی داریم؟»، «تکلیف ریاضی تا کی وقته؟»، «استاد طراحی وب کیه؟»)، با اطلاعات دقیق و با استناد به این برنامه و تاریخ جاری پاسخ بده.
 
 قوانین بسیار مهم تکالیف مدرسه (Active Assignments Rules):
 - وقتی کاربر یا دانش‌آموز می‌پرسد «چه تکالیفی مونده؟» یا «تکالیف کلاس چیه؟» یا «چی باید بنویسیم؟»:
@@ -52,10 +70,14 @@ OPENAI_TOOLS = [
         "type": "function",
         "function": {
             "name": "get_class_assignments",
-            "description": "دریافت لیست تکالیف فعال و جاری کلاس (تکالیفی که مهلت تحویل آن‌ها هنوز نگذشته است)",
+            "description": "دریافت لیست تکالیف فعال و جاری کلاس (تکالیفی که مهلت تحویل آن‌ها هنوز نگذشته است) با قابلیت فیلتر بر اساس درس",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "subject": {
+                        "type": "string",
+                        "description": "نام یا شناسه درس برای فیلتر اختصاصی (مثلاً ریاضی، شیمی، طراحی وب، فارسی)",
+                    },
                     "limit": {
                         "type": "integer",
                         "description": "تعداد تکالیف برای نمایش (پیش‌فرض ۵)",
@@ -88,10 +110,15 @@ OPENAI_TOOLS = [
         "type": "function",
         "function": {
             "name": "get_school_schedule",
-            "description": "دریافت برنامه زمانی کلاس‌ها و زنگ‌های مدرسه",
+            "description": "دریافت برنامه زمانی کلاس‌ها، دروس، نام دبیران و زنگ‌های مدرسه برای یک روز خاص یا کل هفته",
             "parameters": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "day": {
+                        "type": "string",
+                        "description": "روز مورد نظر برای دریافت برنامه (مثلاً: امروز، فردا، شنبه، یکشنبه، دوشنبه، سه‌شنبه، چهارشنبه، یا کل هفته)",
+                    },
+                },
             },
         },
     },
@@ -166,15 +193,21 @@ def execute_tool(
                 .all()
             )
 
-            pending_list = [
-                {
+            pending_list = []
+            for a in pending:
+                subj_info = school_knowledge.resolve_subject(a.subject_id or a.category or a.course or "")
+                subj_name = subj_info["name"] if subj_info else (a.subject_id or a.category or a.course or "عمومی")
+                teacher_name = subj_info["teacher"] if subj_info else "دبیر مربوطه"
+                rel_due = school_knowledge.format_due_date_relative(a.due_date)
+                pending_list.append({
+                    "id": a.id,
                     "title": a.title,
-                    "subject": a.subject_id or a.category or "عمومی",
+                    "subject": subj_name,
+                    "teacher": teacher_name,
+                    "due_date_relative": rel_due,
                     "due_date": a.due_date.strftime("%Y-%m-%d %H:%M") if a.due_date else "بدون مهلت خاص",
                     "is_active": True,
-                }
-                for a in pending
-            ]
+                })
 
             return {
                 "success": True,
@@ -192,9 +225,25 @@ def execute_tool(
         elif name == "get_class_assignments":
             limit = args.get("limit", 5)
             include_expired = args.get("include_expired", False)
+            subject_filter = args.get("subject", "").strip()
             now = datetime.utcnow()
 
             query = db.query(models.Assignment).filter(models.Assignment.deleted_at.is_(None))
+
+            # Apply subject filter if specified
+            if subject_filter:
+                resolved = school_knowledge.resolve_subject(subject_filter)
+                s_id = resolved["id"] if resolved else subject_filter
+                s_name = resolved["name"] if resolved else subject_filter
+                query = query.filter(
+                    or_(
+                        models.Assignment.subject_id.ilike(f"%{s_id}%"),
+                        models.Assignment.subject_id.ilike(f"%{s_name}%"),
+                        models.Assignment.category.ilike(f"%{s_name}%"),
+                        models.Assignment.course.ilike(f"%{s_name}%"),
+                        models.Assignment.title.ilike(f"%{s_name}%"),
+                    )
+                )
 
             if not include_expired:
                 # ONLY active assignments whose deadline has not passed (or have no deadline)
@@ -214,27 +263,35 @@ def execute_tool(
             assignments = query.limit(limit).all()
 
             if not assignments:
+                msg = f"در حال حاضر هیچ تکلیف فعالی برای درس '{subject_filter}' وجود ندارد." if subject_filter else "در حال حاضر هیچ تکلیف فعالی با مهلت تحویل باز در سامانه وجود ندارد."
                 return {
                     "success": True,
                     "assignments": [],
                     "total_count": 0,
-                    "message": "در حال حاضر هیچ تکلیف فعالی با مهلت تحویل باز در سامانه وجود ندارد.",
+                    "message": msg,
                 }
+
+            out_list = []
+            for a in assignments:
+                subj_info = school_knowledge.resolve_subject(a.subject_id or a.category or a.course or "")
+                subj_name = subj_info["name"] if subj_info else (a.subject_id or a.category or a.course or "عمومی")
+                teacher_name = subj_info["teacher"] if subj_info else "دبیر مربوطه"
+                rel_due = school_knowledge.format_due_date_relative(a.due_date)
+                out_list.append({
+                    "id": a.id,
+                    "title": a.title,
+                    "description": a.description,
+                    "subject": subj_name,
+                    "teacher": teacher_name,
+                    "due_date_relative": rel_due,
+                    "due_date": a.due_date.strftime("%Y-%m-%d %H:%M") if a.due_date else "بدون مهلت خاص",
+                    "is_expired": bool(a.due_date and a.due_date < now),
+                })
 
             return {
                 "success": True,
-                "total_count": len(assignments),
-                "assignments": [
-                    {
-                        "id": a.id,
-                        "title": a.title,
-                        "description": a.description,
-                        "subject": a.subject_id or a.category or "عمومی",
-                        "due_date": a.due_date.strftime("%Y-%m-%d %H:%M") if a.due_date else "بدون مهلت خاص",
-                        "is_expired": bool(a.due_date and a.due_date < now),
-                    }
-                    for a in assignments
-                ],
+                "total_count": len(out_list),
+                "assignments": out_list,
             }
 
         elif name == "get_leaderboard":
@@ -253,17 +310,43 @@ def execute_tool(
             return {"success": True, "top_students": top_list}
 
         elif name == "get_school_schedule":
-            schedules = db.query(models.SchoolSchedule).all()
+            day_query = args.get("day", "").strip().lower()
+            current_status = school_knowledge.get_current_school_status()
+
+            target_day_key = None
+            if day_query:
+                if any(x in day_query for x in ["امروز", "today"]):
+                    target_day_key = current_status["day_key"]
+                elif any(x in day_query for x in ["فردا", "tomorrow"]):
+                    now_iran = school_knowledge.get_iran_now()
+                    tomorrow = now_iran + timedelta(days=1)
+                    target_day_key = school_knowledge.WEEKDAYS_MAP.get(tomorrow.weekday(), ("sat", "شنبه"))[0]
+                elif any(x in day_query for x in ["بعدی", "روز مدرسه"]):
+                    target_day_key = current_status.get("next_school_key", "sat")
+                else:
+                    target_day_key = school_knowledge.DAY_LOOKUP.get(day_query)
+
+            if target_day_key and target_day_key in school_knowledge.WEEKLY_SCHEDULE:
+                day_info = school_knowledge.WEEKLY_SCHEDULE[target_day_key]
+                return {
+                    "success": True,
+                    "day": day_info["day_fa"],
+                    "is_school_day": day_info["is_school_day"],
+                    "periods": day_info["periods"],
+                    "note": day_info.get("note", ""),
+                    "current_bell_status": current_status["bell_status"],
+                }
+
+            # Return full weekly schedule if no specific day requested
             return {
                 "success": True,
-                "schedules": [
-                    {
-                        "bell_number": s.bell_number,
-                        "start_time": s.start_time,
-                        "end_time": s.end_time,
-                        "label": s.label or f"زنگ {s.bell_number}",
-                    }
-                    for s in schedules
+                "current_status": current_status,
+                "weekly_schedule": school_knowledge.WEEKLY_SCHEDULE,
+                "bell_times": [
+                    {"period": 1, "time": "08:00 تا 09:30"},
+                    {"period": 2, "time": "09:30 تا 11:00"},
+                    {"period": 3, "time": "11:00 تا 12:30"},
+                    {"period": 4, "time": "12:30 تا 14:00"},
                 ],
             }
 
@@ -338,10 +421,18 @@ async def ask_universal_ai_agent(
 
     clean_model = model_name.strip() if model_name else "openai/gpt-4o-mini"
 
+    status = school_knowledge.get_current_school_status()
     user_info = (
         f"کاربر صحبت‌کننده: {current_user.username} (نقش: {current_user.role})"
         if current_user
         else "کاربر صحبت‌کننده: هنوز اکانت تلگرام خود را به حساب کاربری ArchSchool لینک نکرده است."
+    )
+    time_context = (
+        f"اطلاعات زنده زمانی و تقویم مدرسه:\n"
+        f"- امروز: {status['today_fa']} | ساعت محلی رسمی ایران: {status['current_time']}\n"
+        f"- وضعیت لحظه‌ای مدرسه: {status['bell_status']}\n"
+        f"- فردا: {status['tomorrow_fa']}\n"
+        f"- روز مدرسه بعدی: {status['next_school_day']}"
     )
 
     messages: List[Dict[str, Any]] = [
@@ -353,7 +444,7 @@ async def ask_universal_ai_agent(
 
     messages.append({
         "role": "user",
-        "content": f"[{user_info}]\n{user_prompt}",
+        "content": f"[{time_context}]\n[{user_info}]\n{user_prompt}",
     })
 
     headers = {
