@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -24,6 +24,12 @@ SYSTEM_INSTRUCTION = """
 - برای پاسخ به وضعیت تکالیف، رتبه‌بندی، برنامه زنگ‌ها و ... حتماً از ابزارهایی که در اختیارت هست (Function Calling) استفاده کن و اطلاعات دقیق بده.
 - همیشه پاسخ‌ها رو به زبان فارسی روان، خودمانی و جذاب بنویس.
 
+قوانین بسیار مهم تکالیف مدرسه (Active Assignments Rules):
+- وقتی کاربر یا دانش‌آموز می‌پرسد «چه تکالیفی مونده؟» یا «تکالیف کلاس چیه؟» یا «چی باید بنویسیم؟»:
+  همیشه فقط و فقط تکالیف فعال، باز و جاری (که هنوز مهلت تحویل آن‌ها نگذشته است) را اعلام کن.
+  هرگز تکالیف قدیمی، سال گذشته یا گذشته که مهلت آن‌ها تمام شده است را به عنوان تکلیف باقی‌مانده و جاری به کاربر نگو!
+  اگر هیچ تکلیف فعالی نمانده بود، با انرژی و خوشحالی به او بگو که «ایول! در حال حاضر هیچ تکلیف بازی نمونده و همه‌چیز رو تحویل دادی یا تکلیف جدیدی ثبت نشده! استریکت پرچمش بالاست 🔥».
+
 قوانین بسیار مهم فرمت‌بندی متن برای تلگرام (Telegram Formatting Rules):
 - پاسخ‌های تو مستقیماً در تلگرام با حالت HTML نمایش داده می‌شوند.
 - به هیچ عنوان و تحت هیچ شرایطی از ستاره (مانند **متن** یا *متن* یا ***) برای بولد یا ایتالیک کردن استفاده نکن؛ چون در تلگرام ستاره‌ها بدون استایل و زشت چاپ می‌شوند!
@@ -35,7 +41,7 @@ SYSTEM_INSTRUCTION = """
 TOOL_DEFINITIONS = [
     {
         "name": "get_my_status",
-        "description": "دریافت آمار شخصی، استریک، رتبه در لیدربورد و تکالیف باقی‌مانده کاربر صحبت‌کننده",
+        "description": "دریافت آمار شخصی کاربر، استریک، رتبه در لیدربورد و لیست تکالیف فعال و باقی‌مانده‌ای که هنوز انجام نداده است",
         "parameters": {
             "type": "OBJECT",
             "properties": {},
@@ -43,14 +49,18 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "get_class_assignments",
-        "description": "دریافت لیست تکالیف جاری و فعال کلاس به همراه موعد تحویل (ددلاین)",
+        "description": "دریافت لیست تکالیف فعال و جاری کلاس (تکالیفی که مهلت تحویل آن‌ها هنوز نگذشته است)",
         "parameters": {
             "type": "OBJECT",
             "properties": {
                 "limit": {
                     "type": "INTEGER",
                     "description": "تعداد تکالیف (پیش‌فرض ۵)",
-                }
+                },
+                "include_expired": {
+                    "type": "BOOLEAN",
+                    "description": "آیا تکالیف قدیمی و منقضی‌شده قبلی هم آورده شوند؟ پیش‌فرض false است.",
+                },
             },
         },
     },
@@ -118,8 +128,9 @@ def execute_tool(
 
             entries, _ = build_leaderboard(db)
             user_entry = next((e for e in entries if e["user"].id == current_user.id), None)
+            now = datetime.utcnow()
 
-            # Find uncompleted assignments
+            # Find uncompleted assignments that are currently ACTIVE (deadline not expired or no deadline)
             completed_ids = (
                 select(models.AssignmentCompletion.assignment_id)
                 .filter(models.AssignmentCompletion.user_id == current_user.id)
@@ -129,8 +140,15 @@ def execute_tool(
                 .filter(
                     models.Assignment.deleted_at.is_(None),
                     ~models.Assignment.id.in_(completed_ids),
+                    or_(
+                        models.Assignment.due_date.is_(None),
+                        models.Assignment.due_date >= now,
+                    ),
                 )
-                .order_by(models.Assignment.due_date.asc())
+                .order_by(
+                    models.Assignment.due_date.asc().nulls_last(),
+                    models.Assignment.created_at.desc(),
+                )
                 .limit(5)
                 .all()
             )
@@ -139,7 +157,8 @@ def execute_tool(
                 {
                     "title": a.title,
                     "subject": a.subject_id or a.category or "عمومی",
-                    "due_date": a.due_date.isoformat() if a.due_date else "نامشخص",
+                    "due_date": a.due_date.strftime("%Y-%m-%d %H:%M") if a.due_date else "بدون مهلت خاص",
+                    "is_active": True,
                 }
                 for a in pending
             ]
@@ -154,26 +173,52 @@ def execute_tool(
                 "completion_percentage": round(user_entry.get("completion_percentage", 0), 1) if user_entry else 0,
                 "pending_assignments": pending_list,
                 "pending_count": len(pending_list),
+                "has_pending": len(pending_list) > 0,
             }
 
         elif name == "get_class_assignments":
             limit = args.get("limit", 5)
-            assignments = (
-                db.query(models.Assignment)
-                .filter(models.Assignment.deleted_at.is_(None))
-                .order_by(models.Assignment.due_date.asc())
-                .limit(limit)
-                .all()
-            )
+            include_expired = args.get("include_expired", False)
+            now = datetime.utcnow()
+
+            query = db.query(models.Assignment).filter(models.Assignment.deleted_at.is_(None))
+
+            if not include_expired:
+                # ONLY active assignments whose deadline has not passed (or have no deadline)
+                query = query.filter(
+                    or_(
+                        models.Assignment.due_date.is_(None),
+                        models.Assignment.due_date >= now,
+                    )
+                )
+                query = query.order_by(
+                    models.Assignment.due_date.asc().nulls_last(),
+                    models.Assignment.created_at.desc(),
+                )
+            else:
+                query = query.order_by(models.Assignment.created_at.desc())
+
+            assignments = query.limit(limit).all()
+
+            if not assignments:
+                return {
+                    "success": True,
+                    "assignments": [],
+                    "total_count": 0,
+                    "message": "در حال حاضر هیچ تکلیف فعالی با مهلت تحویل باز در سامانه وجود ندارد.",
+                }
+
             return {
                 "success": True,
+                "total_count": len(assignments),
                 "assignments": [
                     {
                         "id": a.id,
                         "title": a.title,
                         "description": a.description,
                         "subject": a.subject_id or a.category or "عمومی",
-                        "due_date": a.due_date.isoformat() if a.due_date else "نامشخص",
+                        "due_date": a.due_date.strftime("%Y-%m-%d %H:%M") if a.due_date else "بدون مهلت خاص",
+                        "is_expired": bool(a.due_date and a.due_date < now),
                     }
                     for a in assignments
                 ],

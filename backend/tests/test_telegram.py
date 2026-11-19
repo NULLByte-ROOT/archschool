@@ -88,15 +88,28 @@ def test_universal_ai_tools_execution(db_session):
     )
     assert res_admin["success"] is True
 
-    # 3. get_class_assignments
+    # 3. get_class_assignments (active only)
     assignments = ai_agent.execute_tool("get_class_assignments", {}, db_session, student)
     assert assignments["success"] is True
     assert len(assignments["assignments"]) >= 1
+
+    # 3b. Add an expired assignment and verify it is filtered out
+    ai_agent.execute_tool(
+        "add_assignment",
+        {"title": "تکلیف منقضی شده پارسال", "due_date": "2025-01-01", "subject": "تاریخ"},
+        db_session,
+        admin,
+    )
+    active_assignments = ai_agent.execute_tool("get_class_assignments", {}, db_session, student)
+    titles = [a["title"] for a in active_assignments["assignments"]]
+    assert "تکلیف منقضی شده پارسال" not in titles
 
     # 4. get_my_status
     status = ai_agent.execute_tool("get_my_status", {}, db_session, student)
     assert status["success"] is True
     assert status["username"] == "student_user"
+    pending_titles = [p["title"] for p in status["pending_assignments"]]
+    assert "تکلیف منقضی شده پارسال" not in pending_titles
 
 
 def test_format_telegram_html():
