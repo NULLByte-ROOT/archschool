@@ -182,6 +182,24 @@ class LoginResponse(BaseModel):
     user: UserOut
 
 
+class AttachmentOut(BaseModel):
+    id: int
+    assignment_id: int
+    user_id: int
+    user_username: Optional[str] = None
+    uploader: Optional[PublicUserOut] = None
+    file_url: str
+    file_name: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AttachmentCreateIn(BaseModel):
+    file_url: str
+    file_name: str
+
+
 class AssignmentBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: str = ""
@@ -194,7 +212,7 @@ class AssignmentBase(BaseModel):
 
 
 class AssignmentCreate(AssignmentBase):
-    pass
+    attachment_urls: list[AttachmentCreateIn] = []
 
 
 class AssignmentUpdate(BaseModel):
@@ -220,6 +238,7 @@ class AssignmentOut(AssignmentBase):
     creator_username: Optional[str] = None
     completed_by_users: list[CompletedByUser] = []
     is_completed_by_me: bool = False
+    attachments: list[AttachmentOut] = []
     created_at: datetime
     updated_at: datetime
 
@@ -308,19 +327,6 @@ class UnreadRoom(BaseModel):
 class UnreadSummary(BaseModel):
     rooms: list[UnreadRoom] = []
     total: int = 0
-
-
-class AttachmentOut(BaseModel):
-    id: int
-    assignment_id: int
-    user_id: int
-    user_username: Optional[str] = None
-    uploader: Optional[PublicUserOut] = None
-    file_url: str
-    file_name: str
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
 class UploadOut(BaseModel):

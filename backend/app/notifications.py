@@ -306,6 +306,7 @@ def collect_deadline_jobs() -> list[dict[str, Any]]:
                         "assignment_id": assignment.id,
                         "room": f"assignment:{assignment.id}",
                         "threshold_hours": threshold,
+                        "remaining_hours": remaining_hours,
                     },
                 }
             )
@@ -330,6 +331,19 @@ async def deadline_watcher(interval_minutes: int) -> None:
                     job["data"],
                     channel_id="deadlines",
                 )
+                # Broadcast approaching deadline to the Telegram group
+                try:
+                    from .services import telegram_bot
+                    from .database import SessionLocal
+                    asgn_id = job["data"].get("assignment_id")
+                    rem_h = job["data"].get("remaining_hours", 2.0)
+                    with SessionLocal() as s:
+                        asgn = s.query(models.Assignment).filter(models.Assignment.id == asgn_id).first()
+                        if asgn:
+                            await telegram_bot.broadcast_deadline_announcement(s, asgn, rem_h)
+                except Exception as tg_err:
+                    logger.debug("Telegram deadline broadcast skipped: %s", tg_err)
+
             if jobs:
                 logger.info("Sent %d deadline reminder(s)", len(jobs))
         except asyncio.CancelledError:

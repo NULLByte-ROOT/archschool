@@ -36,6 +36,10 @@ def _serialize(
     assignment: models.Assignment, current: models.User
 ) -> schemas.AssignmentOut:
     completer_ids = {c.user_id for c in assignment.completions}
+    serialized_attachments = [
+        schemas.AttachmentOut.model_validate(att)
+        for att in (assignment.attachments or [])
+    ]
     return schemas.AssignmentOut(
         id=assignment.id,
         title=assignment.title,
@@ -57,6 +61,7 @@ def _serialize(
             for completion in assignment.completions
         ],
         is_completed_by_me=current.id in completer_ids,
+        attachments=serialized_attachments,
         created_at=assignment.created_at,
         updated_at=assignment.updated_at,
     )
@@ -74,6 +79,7 @@ def _base_query(db: Session):
         .filter(models.Assignment.deleted_at.is_(None))
         .options(
             selectinload(models.Assignment.creator),
+            selectinload(models.Assignment.attachments),
             selectinload(models.Assignment.completions).selectinload(
                 models.AssignmentCompletion.user
             ),
@@ -383,6 +389,7 @@ def create_assignment(
     _require_staff(current)
     payload = data.model_dump()
     completed = bool(payload.pop("completed", False))
+    attachment_urls = payload.pop("attachment_urls", [])
     obj = models.Assignment(
         **payload,
         owner_id=current.id,
@@ -391,6 +398,16 @@ def create_assignment(
     )
     db.add(obj)
     db.flush()
+    if attachment_urls:
+        for att_data in attachment_urls:
+            db.add(
+                models.Attachment(
+                    assignment_id=obj.id,
+                    user_id=current.id,
+                    file_url=att_data["file_url"],
+                    file_name=att_data["file_name"],
+                )
+            )
     if completed:
         # Staff may create an assignment that is already done; the creation
         # delay intentionally does not apply to this initial state.
@@ -400,7 +417,8 @@ def create_assignment(
                 assignment_id=obj.id,
             )
         )
-        _record_daily_activity(db, current.id, datetime.utcnow(), +1)
+    # Creator reward: adding an assignment counts towards daily activity
+    _record_daily_activity(db, current.id, datetime.utcnow(), +1)
     db.commit()
     created = _get_or_404(db, obj.id)
     result = _serialize(created, current)

@@ -28,6 +28,24 @@ SYSTEM_INSTRUCTION = """
 - مستقیم، سریع و بدون رودربایستی برو سر اصل پاسخ و به سوال کاربر جواب بده.
 - تنها در صورتی که کاربر خودش به طور مشخص و واضح در پیامش سلام داده باشد (مثلاً گفته باشد «سلام»، «درود»، «سلام چطوری»)، می‌توانی در ابتدای پاسخت یک سلام کوتاه بدهی؛ در غیر این صورت هیچ سلامی نده و مستقیماً اصل جواب را بگو.
 
+قوانین ویزارد تعاملی ثبت تکلیف (Interactive Assignment Creation Wizard):
+- اگر ادمین یا مالک مدرسه گفت «می‌خواهم تکلیف اضافه کنم» یا خواست تکلیفی ثبت کند، همه چیز را یک‌جا نپرس! بلکه به صورت مرحله‌به‌مرحله و گام‌به‌گام مصاحبه کن و در هر مرحله یک سوال بپرس:
+  ۱. در گام اول موضوع و نوع را بپرس: تکلیف (نوشتنی، پروژه عملی، تحقیق) یا امتحان (پرسش کتبی، پرسش شفاهی، پودمانی، نوبت اول/دوم)؟
+  ۲. در گام دوم درس را بپرس و فهرست دروس (طراحی وب، ریاضی، شیمی، فارسی، تولید محتوا، و...) را ارائه بده تا یکی را انتخاب کند.
+  ۳. در گام سوم عنوان و توضیحات تکلیف را بپرس.
+  ۴. در گام چهارم تاریخ و ساعت ددلاین را بپرس (می‌توانی بر اساس برنامه هفتگی پیشنهاد بدهی، مثلاً «شنبه ساعت ۰۸:۰۰»).
+  ۵. پس از تایید همه موارد توسط ادمین، ابزار add_assignment را فراخوانی کن تا تکلیف در سیستم ثبت شود و به ادمین تبریک بگو (به سازنده تکلیف هم امتیاز استریک تعلق می‌گیرد).
+
+قوانین امتیازگیری و لیدربورد (Scoring System):
+- اگر دانش‌آموزی درباره امتیازها پرسید، دقیق توضیح بده:
+  🔹 درصد موفقیت در لیدربورد بر اساس نسبت تکالیف انجام‌شده به کل تکالیف فعال محاسبه می‌شود.
+  🔹 استریک (Streak): هر روزی که حداقل یک تکلیف انجام شود یا یک تکلیف توسط ادمین ساخته شود، زنجیره استریک یک روز افزایش می‌یابد.
+  🔹 بونوس آپلود فایل: هر فایل یا تصویری که به عنوان پیوست ارسال شود، ۵٪ امتیاز امتیازی اضافه دارد!
+  🔹 ساخت تکلیف جدید توسط ادمین هم باعث افزایش و حفظ استریک روزانه می‌شود.
+
+معرفی ملایم و هوشمندانه اپلیکیشن موبایل (Mobile App Promotion):
+- هر جا که کاربر اطلاعات تکمیلی، نمودارهای پیشرفته، فایل‌ها یا جزییات کامل‌تری می‌خواست، در انتهای پاسخت با لحنی دوستانه و غیرتکراری او را به اپلیکیشن موبایل ارجاع بده (مثلاً: «برای دانلود فایل‌ها و دیدن نمودار رتبه‌بندیت، حتماً یه سر به اپلیکیشن موبایل بزن 📱»). این کار را در تمام پیام‌ها اسپم نکن، فقط در جاهایی که واقعاً نیاز است.
+
 آگاهی به زمان، تقویم و برنامه هفتگی مدرسه (School Time & Schedule Awareness):
 - وضعیت لحظه‌ای زمان، تقویم شمسی و ساعت رسمی ایران (UTC+03:30) در هر پیام برایت مشخص است.
 - روزهای مدرسه: شنبه تا چهارشنبه است. پنج‌شنبه و جمعه تعطیل است.
@@ -148,6 +166,37 @@ OPENAI_TOOLS = [
                     },
                 },
                 "required": ["title", "due_date"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "toggle_assignment_completion",
+            "description": "علامت‌زدن یا برداشتن علامت انجام تکالیف (تیک زدن انجام دادم یا برگرداندن تیک) برای کاربر فعلی",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["complete", "uncomplete"],
+                        "description": "عملیات مورد نظر: complete (تیک زدن به عنوان انجام‌شده) یا uncomplete (برداشتن تیک)",
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["single", "day", "all"],
+                        "description": "دامنه تیک زدن: single (یک تکلیف خاص با نام/شناسه)، day (تمام تکالیف یک روز خاص مثل شنبه)، all (تمام تکالیف باقیمانده)",
+                    },
+                    "assignment_query": {
+                        "type": "string",
+                        "description": "نام یا شناسه تکلیف برای حالت single (مثلاً ریاضی، تمرین صفحه ۲۰، طراحی وب)",
+                    },
+                    "target_day": {
+                        "type": "string",
+                        "description": "نام روز برای حالت scope='day' (مثلاً: شنبه، یکشنبه، دوشنبه، سه‌شنبه، چهارشنبه، امروز، فردا)",
+                    },
+                },
+                "required": ["scope"],
             },
         },
     },
@@ -372,23 +421,194 @@ def execute_tool(
                 except Exception:
                     due_dt = datetime.now(timezone.utc)
 
+            subj_info = school_knowledge.resolve_subject(subject)
+            s_id = subj_info["id"] if subj_info else subject
+            s_name = subj_info["name"] if subj_info else subject
+
             new_assignment = models.Assignment(
                 title=title,
                 description=description,
                 due_date=due_dt,
-                subject_id=subject,
-                category=subject,
+                subject_id=s_id,
+                category=s_name,
+                course=s_name,
                 owner_id=current_user.id,
                 creator_id=current_user.id,
             )
             db.add(new_assignment)
+            # Creator reward: adding an assignment counts towards daily activity
+            from ..routers.assignments import _record_daily_activity
+            _record_daily_activity(db, current_user.id, datetime.utcnow(), +1)
             db.commit()
             db.refresh(new_assignment)
 
             return {
                 "success": True,
-                "message": f"تکلیف '{title}' با موفقیت توسط {current_user.username} در سامانه ثبت شد!",
+                "message": f"تکلیف '{title}' با موفقیت توسط {current_user.username} در سامانه ثبت شد و امتیاز فعالیت به شما تعلق گرفت!",
                 "assignment_id": new_assignment.id,
+            }
+
+        elif name == "toggle_assignment_completion":
+            if not current_user:
+                return {
+                    "success": False,
+                    "message": "برای تیک زدن تکالیف، ابتدا باید اکانت تلگرام خود را به حساب ArchSchool متصل کنید. کد اتصال اختصاصی خود را از اپلیکیشن بگیرید و بفرستید.",
+                }
+
+            action = args.get("action", "complete")
+            scope = args.get("scope", "single")
+            assignment_query = args.get("assignment_query", "").strip()
+            target_day = args.get("target_day", "").strip()
+            now = datetime.utcnow()
+
+            target_assignments = []
+            if scope == "single":
+                q = db.query(models.Assignment).filter(models.Assignment.deleted_at.is_(None))
+                if assignment_query.isdigit():
+                    target_assignments = q.filter(models.Assignment.id == int(assignment_query)).all()
+                if not target_assignments and assignment_query:
+                    target_assignments = q.filter(
+                        or_(
+                            models.Assignment.title.ilike(f"%{assignment_query}%"),
+                            models.Assignment.subject_id.ilike(f"%{assignment_query}%"),
+                            models.Assignment.category.ilike(f"%{assignment_query}%"),
+                            models.Assignment.course.ilike(f"%{assignment_query}%"),
+                        )
+                    ).all()
+                if not target_assignments:
+                    return {
+                        "success": False,
+                        "error": f"تکلیفی با مشخصات '{assignment_query}' پیدا نشد. لطفاً نام دقیق‌تر یا شماره آن را بگو.",
+                    }
+                target_assignments = target_assignments[:1]
+
+            elif scope == "day":
+                resolved_key = None
+                if target_day:
+                    current_status = school_knowledge.get_current_school_status()
+                    if "امروز" in target_day:
+                        resolved_key = current_status["day_key"]
+                    elif "فردا" in target_day:
+                        now_iran = school_knowledge.get_iran_now()
+                        tomorrow = now_iran + timedelta(days=1)
+                        resolved_key = school_knowledge.WEEKDAYS_MAP.get(tomorrow.weekday(), ("sat", "شنبه"))[0]
+                    else:
+                        resolved_key = school_knowledge.DAY_LOOKUP.get(target_day)
+
+                all_live = db.query(models.Assignment).filter(
+                    models.Assignment.deleted_at.is_(None),
+                    or_(
+                        models.Assignment.due_date.is_(None),
+                        models.Assignment.due_date >= now - timedelta(days=2),
+                    )
+                ).all()
+
+                for a in all_live:
+                    if resolved_key and a.due_date:
+                        due_iran = a.due_date + timedelta(hours=3.5)
+                        a_key = school_knowledge.WEEKDAYS_MAP.get(due_iran.weekday(), ("", ""))[0]
+                        if a_key == resolved_key:
+                            target_assignments.append(a)
+                    elif resolved_key and not a.due_date:
+                        day_sched = school_knowledge.WEEKLY_SCHEDULE.get(resolved_key, {})
+                        day_subjs = [p["subject_id"] for p in day_sched.get("periods", [])]
+                        if a.subject_id in day_subjs or a.course in day_subjs:
+                            target_assignments.append(a)
+
+                if not target_assignments:
+                    day_name = school_knowledge.WEEKLY_SCHEDULE.get(resolved_key, {}).get("day_fa", target_day)
+                    return {
+                        "success": False,
+                        "error": f"هیچ تکلیف فعالی برای روز {day_name} پیدا نشد.",
+                    }
+
+            elif scope == "all":
+                completed_ids = (
+                    select(models.AssignmentCompletion.assignment_id)
+                    .filter(models.AssignmentCompletion.user_id == current_user.id)
+                )
+                if action == "complete":
+                    target_assignments = (
+                        db.query(models.Assignment)
+                        .filter(
+                            models.Assignment.deleted_at.is_(None),
+                            ~models.Assignment.id.in_(completed_ids),
+                            or_(
+                                models.Assignment.due_date.is_(None),
+                                models.Assignment.due_date >= now,
+                            ),
+                        )
+                        .all()
+                    )
+                else:
+                    target_assignments = (
+                        db.query(models.Assignment)
+                        .filter(
+                            models.Assignment.deleted_at.is_(None),
+                            models.Assignment.id.in_(completed_ids),
+                        )
+                        .all()
+                    )
+
+            if not target_assignments:
+                return {
+                    "success": True,
+                    "message": "هیچ تکلیفی برای تغییر وضعیت وجود نداشت.",
+                    "modified_count": 0,
+                }
+
+            from ..routers.assignments import _record_daily_activity
+            modified_titles = []
+            for a in target_assignments:
+                existing = (
+                    db.query(models.AssignmentCompletion)
+                    .filter(
+                        models.AssignmentCompletion.user_id == current_user.id,
+                        models.AssignmentCompletion.assignment_id == a.id,
+                    )
+                    .first()
+                )
+                if action == "complete":
+                    if not existing:
+                        db.add(
+                            models.AssignmentCompletion(
+                                user_id=current_user.id,
+                                assignment_id=a.id,
+                                completed_at=now,
+                            )
+                        )
+                        _record_daily_activity(db, current_user.id, now, +1)
+                        modified_titles.append(a.title)
+                else:
+                    if existing:
+                        db.delete(existing)
+                        _record_daily_activity(db, current_user.id, now, -1)
+                        modified_titles.append(a.title)
+
+            db.commit()
+
+            entries, _ = build_leaderboard(db)
+            user_entry = next((e for e in entries if e["user"].id == current_user.id), None)
+
+            # Trigger Top 1 check in background
+            try:
+                import asyncio
+                from . import telegram_bot
+                loop = asyncio.get_running_loop()
+                loop.create_task(telegram_bot.check_and_broadcast_top1(db))
+            except Exception:
+                pass
+
+            act_fa = "انجام شد و تیک خورد" if action == "complete" else "تیک آن برداشته شد"
+            return {
+                "success": True,
+                "action": action,
+                "modified_count": len(modified_titles),
+                "modified_titles": modified_titles,
+                "message": f"تعداد {len(modified_titles)} تکلیف با موفقیت {act_fa}!",
+                "new_completion_percentage": round(user_entry.get("completion_percentage", 0), 1) if user_entry else 0,
+                "current_streak": user_entry.get("current_streak", 0) if user_entry else 0,
+                "new_rank": user_entry.get("rank") if user_entry else "نامشخص",
             }
 
         return {"success": False, "error": f"ابزار ناشناخته: {name}"}

@@ -277,3 +277,46 @@ async def check_and_broadcast_top1(db: Session) -> Optional[str]:
     except Exception as exc:
         logger.error("Failed to check and broadcast top 1: %s", exc)
     return None
+
+
+async def broadcast_deadline_announcement(
+    db: Session,
+    assignment: models.Assignment,
+    hours_left: float,
+) -> bool:
+    """Send approaching deadline warning to the Telegram group."""
+    token = get_bot_setting(db, "telegram_bot_token")
+    group_id = get_bot_setting(db, "telegram_group_id")
+    enabled = get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
+
+    if not token or not group_id or not enabled:
+        return False
+
+    import math
+    from . import school_knowledge
+
+    subj_info = school_knowledge.resolve_subject(assignment.subject_id or assignment.course or "")
+    teacher = f" (استاد {subj_info['teacher']})" if subj_info else ""
+    subj_name = subj_info["name"] if subj_info else (assignment.subject_id or "عمومی")
+
+    if hours_left < 1:
+        minutes = max(1, math.ceil(hours_left * 60))
+        time_text = f"کمتر از <b>{minutes} دقیقه</b>"
+        urgency = "🚨 <b>فوری: ددلاین در یک‌قدمی پایان!</b> ⏰🔥"
+    elif hours_left <= 2:
+        time_text = f"فقط <b>{math.ceil(hours_left)} ساعت</b>"
+        urgency = "⚠️ <b>هشدار ددلاین: فقط چند ساعت مانده!</b> ⚡"
+    else:
+        time_text = f"حدود <b>{math.ceil(hours_left)} ساعت</b> (فردا)"
+        urgency = "📢 <b>یادآوری موعد تحویل تکلیف</b> 📚"
+
+    text = (
+        f"{urgency}\n\n"
+        f"🔹 <b>تکلیف:</b> {assignment.title}\n"
+        f"🔹 <b>درس:</b> {subj_name}{teacher}\n"
+        f"🔹 <b>فرصت باقیمانده:</b> {time_text}\n\n"
+        f"بچه‌ها حواستون باشه استریک‌هاتون نسوزه! تکالیفتون رو به موقع انجام بدید و تیک بزنید 💪\n"
+        f"<i>(برای مشاهده جزئیات و دانلود فایل‌ها، اپلیکیشن ArchSchool رو باز کنید 📱)</i>"
+    )
+
+    return await send_telegram_message(token, group_id, text)
