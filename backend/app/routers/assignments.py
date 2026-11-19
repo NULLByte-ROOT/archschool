@@ -2,7 +2,7 @@ import math
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -436,9 +436,25 @@ def update_assignment(
     return _serialize(_get_or_404(db, assignment_id), current)
 
 
+def _bg_check_top1() -> None:
+    try:
+        from ..database import SessionLocal
+        from ..services import telegram_bot
+        import asyncio
+        with SessionLocal() as s:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(telegram_bot.check_and_broadcast_top1(s))
+            except RuntimeError:
+                asyncio.run(telegram_bot.check_and_broadcast_top1(s))
+    except Exception:
+        pass
+
+
 @router.patch("/{assignment_id}/toggle", response_model=schemas.AssignmentOut)
 def toggle_assignment(
     assignment_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
@@ -446,6 +462,7 @@ def toggle_assignment(
     obj = _get_or_404(db, assignment_id)
     _toggle_completion(db, obj, current)
     db.commit()
+    background_tasks.add_task(_bg_check_top1)
     return _serialize(_get_or_404(db, assignment_id), current)
 
 

@@ -1,4 +1,5 @@
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     Date,
@@ -55,6 +56,9 @@ class User(Base):
         index=True,
     )
     is_active = Column(Boolean, default=True)
+    telegram_id = Column(BigInteger, unique=True, nullable=True, index=True)
+    telegram_username = Column(String(100), nullable=True)
+    telegram_link_token = Column(String(64), unique=True, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     assignments = relationship(
@@ -568,4 +572,17 @@ class AppUpdate(Base):
     updated_at = Column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
+
+
+class BotSetting(Base):
+    """Key-value dynamic configuration for Telegram bot and AI integrations."""
+
+    __tablename__ = "bot_settings"
+
+    key = Column(String(100), primary_key=True, index=True)
+    value = Column(Text, nullable=False, default="", server_default=text("''"))
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
 

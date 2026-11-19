@@ -22,6 +22,7 @@ from .routers import (
     schedule,
     server_stats,
     stats,
+    telegram,
     updates,
     uploads,
     users,
@@ -90,6 +91,9 @@ def _ensure_columns() -> None:
             "avatar_url": "VARCHAR(500)",
             "bio": "TEXT NOT NULL DEFAULT ''",
             "last_seen": "TIMESTAMP",
+            "telegram_id": "BIGINT",
+            "telegram_username": "VARCHAR(100)",
+            "telegram_link_token": "VARCHAR(64)",
         },
         "assignments": {
             "category": "VARCHAR(20) DEFAULT ''",
@@ -474,6 +478,8 @@ app.include_router(uploads.router, prefix="/api/uploads", tags=["uploads"])
 app.include_router(attachments.router, prefix="/api/attachments", tags=["attachments"])
 app.include_router(updates.router, prefix="/api/v1/updates", tags=["updates"])
 app.include_router(updates.router, prefix="/api/updates", tags=["updates"], include_in_schema=False)
+app.include_router(telegram.router, prefix="/api/v1", tags=["telegram"])
+app.include_router(telegram.router, prefix="/api", tags=["telegram"], include_in_schema=False)
 app.include_router(ws.router, tags=["ws"])
 
 
