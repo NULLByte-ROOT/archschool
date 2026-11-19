@@ -388,14 +388,21 @@ def _sync_manifest_updates() -> None:
                     db.commit()
                     logger.info("Auto-synced new mobile update bundle %s into database", b_id)
                 else:
-                    if item.get("isActive", True) and not existing.is_active:
+                    existing.min_apk_version = item.get("minApkVersion")
+                    existing.apk_url = item.get("apkUrl")
+                    existing.apk_size = item.get("apkSize")
+                    existing.apk_hash = item.get("apkHash")
+                    existing.mandatory = item.get("mandatory", False)
+                    existing.release_notes = item.get("releaseNotes", "")
+                    if item.get("isActive", True):
                         db.query(models.AppUpdate).filter(
                             models.AppUpdate.platform == platform,
                             models.AppUpdate.runtime_version == runtime_ver,
+                            models.AppUpdate.id != existing.id,
                         ).update({"is_active": False})
                         existing.is_active = True
-                        db.commit()
-                        logger.info("Activated mobile update bundle %s in database", b_id)
+                    db.commit()
+                    logger.info("Updated mobile update bundle %s metadata in database", b_id)
     except Exception as exc:
         logger.warning("Failed to auto-sync mobile updates: %s", exc)
 
