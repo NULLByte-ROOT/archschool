@@ -34,13 +34,17 @@ def get_all_bot_settings(db: Session) -> Dict[str, Any]:
     """Retrieve all bot-related settings as a dictionary."""
     rows = db.query(models.BotSetting).all()
     data = {r.key: r.value for r in rows}
+    api_key = data.get("ai_api_key") or data.get("gemini_api_key", "")
     return {
         "bot_token": data.get("telegram_bot_token", ""),
         "group_id": data.get("telegram_group_id", ""),
-        "gemini_api_key": data.get("gemini_api_key", ""),
+        "ai_provider": data.get("ai_provider", "openrouter"),
+        "ai_api_key": api_key,
+        "ai_base_url": data.get("ai_base_url", "https://openrouter.ai/api/v1"),
+        "ai_model": data.get("ai_model", "openai/gpt-4o-mini"),
         "bot_enabled": data.get("telegram_bot_enabled", "true").lower() in ("true", "1", "yes"),
         "has_token": bool(data.get("telegram_bot_token")),
-        "has_gemini": bool(data.get("gemini_api_key")),
+        "has_ai": bool(api_key),
     }
 
 
@@ -117,10 +121,6 @@ async def send_telegram_message(
             if resp.status_code == 200:
                 return True
             logger.warning("Telegram sendMessage error: %s %s", resp.status_code, resp.text)
-            if parse_mode and "can't parse entities" in resp.text:
-                payload.pop("parse_mode", None)
-                retry_resp = await client.post(url, json=payload)
-                return retry_resp.status_code == 200
     except Exception as exc:
         logger.error("Failed to send Telegram message: %s", exc)
     return False

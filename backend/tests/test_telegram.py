@@ -1,6 +1,6 @@
 import pytest
 from app import models
-from app.services import gemini_agent, telegram_bot
+from app.services import ai_agent, telegram_bot
 
 
 def test_telegram_link_token_lifecycle(db_session):
@@ -37,18 +37,24 @@ def test_telegram_link_token_lifecycle(db_session):
 
 def test_bot_settings(db_session):
     telegram_bot.set_bot_setting(db_session, "telegram_bot_token", "123456:ABC-DEF")
-    telegram_bot.set_bot_setting(db_session, "gemini_api_key", "AIzaSyTestKey")
+    telegram_bot.set_bot_setting(db_session, "ai_api_key", "sk-or-v1-TestKey")
+    telegram_bot.set_bot_setting(db_session, "ai_provider", "openrouter")
+    telegram_bot.set_bot_setting(db_session, "ai_base_url", "https://openrouter.ai/api/v1")
+    telegram_bot.set_bot_setting(db_session, "ai_model", "x-ai/grok-2")
     telegram_bot.set_bot_setting(db_session, "telegram_group_id", "-100123456789")
 
     settings = telegram_bot.get_all_bot_settings(db_session)
     assert settings["bot_token"] == "123456:ABC-DEF"
-    assert settings["gemini_api_key"] == "AIzaSyTestKey"
+    assert settings["ai_api_key"] == "sk-or-v1-TestKey"
+    assert settings["ai_provider"] == "openrouter"
+    assert settings["ai_base_url"] == "https://openrouter.ai/api/v1"
+    assert settings["ai_model"] == "x-ai/grok-2"
     assert settings["group_id"] == "-100123456789"
     assert settings["has_token"] is True
-    assert settings["has_gemini"] is True
+    assert settings["has_ai"] is True
 
 
-def test_gemini_tools_execution(db_session):
+def test_universal_ai_tools_execution(db_session):
     admin = models.User(
         username="admin_user",
         code="ADMIN01",
@@ -64,7 +70,7 @@ def test_gemini_tools_execution(db_session):
     db_session.commit()
 
     # 1. Student cannot add assignment
-    res = gemini_agent.execute_tool(
+    res = ai_agent.execute_tool(
         "add_assignment",
         {"title": "تمرین تستی", "due_date": "2026-12-01"},
         db_session,
@@ -74,7 +80,7 @@ def test_gemini_tools_execution(db_session):
     assert "عدم دسترسی" in res["error"]
 
     # 2. Admin can add assignment
-    res_admin = gemini_agent.execute_tool(
+    res_admin = ai_agent.execute_tool(
         "add_assignment",
         {"title": "تمرین مجاز ادمین", "due_date": "2026-12-01", "subject": "هندسه"},
         db_session,
@@ -83,17 +89,11 @@ def test_gemini_tools_execution(db_session):
     assert res_admin["success"] is True
 
     # 3. get_class_assignments
-    assignments = gemini_agent.execute_tool("get_class_assignments", {}, db_session, student)
+    assignments = ai_agent.execute_tool("get_class_assignments", {}, db_session, student)
     assert assignments["success"] is True
     assert len(assignments["assignments"]) >= 1
 
     # 4. get_my_status
-    status = gemini_agent.execute_tool("get_my_status", {}, db_session, student)
+    status = ai_agent.execute_tool("get_my_status", {}, db_session, student)
     assert status["success"] is True
     assert status["username"] == "student_user"
-
-
-@pytest.mark.asyncio
-async def test_ask_gemini_agent_no_key(db_session):
-    reply = await gemini_agent.ask_gemini_agent("سلام", "", db_session)
-    assert "⚠️" in reply

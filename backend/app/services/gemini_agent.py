@@ -1,8 +1,5 @@
-import asyncio
 import json
 import logging
-import urllib.error
-import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import httpx
@@ -14,8 +11,7 @@ from ..analytics import build_leaderboard
 
 logger = logging.getLogger("archschool.gemini")
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-FALLBACK_MODELS = ["gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-flash-latest"]
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
 SYSTEM_INSTRUCTION = """
 تو دستیار هوشمند، رفیق و همکلاسی پرانرژی بچه‌های مدرسه در سامانه ArchSchool هستی! 🚀
@@ -253,88 +249,17 @@ def execute_tool(
         return {"success": False, "error": str(exc)}
 
 
-async def _post_to_gemini(url: str, payload: Dict[str, Any], api_key: str) -> tuple[int, str]:
-    """Execute Gemini API call with 3-tier fallback: Httpx IPv4 -> Urllib -> Curl CLI."""
-    headers = {
-        "Content-Type": "application/json",
-        "x-goog-api-key": api_key,
-        "User-Agent": "Mozilla/5.0",
-    }
-    body_json = json.dumps(payload, ensure_ascii=False)
-
-    # Tier 1: Httpx with forced IPv4 (local_address="0.0.0.0" bypasses datacenter IPv6 blocks)
-    try:
-        transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
-        async with httpx.AsyncClient(timeout=20.0, headers=headers, transport=transport) as client:
-            resp = await client.post(url, content=body_json.encode("utf-8"))
-            if resp.status_code == 200:
-                return resp.status_code, resp.text
-            logger.warning("Httpx IPv4 to %s returned %s: %s", url, resp.status_code, resp.text[:100])
-    except Exception as exc:
-        logger.warning("Httpx IPv4 request failed: %s", exc)
-
-    # Tier 2: urllib.request (uses standard CPython OpenSSL, completely different TLS/header signature)
-    def _urllib_sync() -> tuple[int, str]:
-        req = urllib.request.Request(
-            url,
-            data=body_json.encode("utf-8"),
-            headers=headers,
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                return r.status, r.read().decode("utf-8")
-        except urllib.error.HTTPError as he:
-            return he.code, he.read().decode("utf-8")
-        except Exception as e:
-            return 0, str(e)
-
-    try:
-        status, text = await asyncio.to_thread(_urllib_sync)
-        if status == 200:
-            return status, text
-        logger.warning("Urllib to %s returned %s: %s", url, status, text[:100])
-    except Exception as exc:
-        logger.warning("Urllib request failed: %s", exc)
-        status, text = 0, str(exc)
-
-    # Tier 3: curl CLI directly (100% matches manual curl that succeeded on host!)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "curl",
-            "-s",
-            url,
-            "-H", "Content-Type: application/json",
-            "-H", f"x-goog-api-key: {api_key}",
-            "-H", "User-Agent: Mozilla/5.0",
-            "-d", body_json,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=20.0)
-        curl_text = stdout.decode("utf-8")
-        if "candidates" in curl_text:
-            return 200, curl_text
-        if curl_text:
-            return proc.returncode or 500, curl_text
-    except Exception as exc:
-        logger.warning("Curl CLI fallback failed: %s", exc)
-
-    return status, text
-
-
 async def ask_gemini_agent(
     user_prompt: str,
     api_key: str,
     db: Session,
     current_user: Optional[models.User] = None,
     conversation_history: Optional[List[Dict[str, Any]]] = None,
-    model_name: str = "gemini-3.5-flash-lite",
+    model_name: str = "gemini-2.0-flash",
 ) -> str:
     """Send user prompt to Gemini Flash with function calling support."""
     if not api_key:
         return "⚠️ کلید API هوش مصنوعی جمینای در پنل مدیریت مدرسه هنوز تنظیم نشده است."
-
-    clean_key = api_key.strip().strip("'\"")
 
     user_info = (
         f"کاربر سوال‌کننده: {current_user.username} (نقش: {current_user.role})"
@@ -350,6 +275,8 @@ async def ask_gemini_agent(
         "role": "user",
         "parts": [{"text": f"[{user_info}]\n{user_prompt}"}],
     })
+
+    url = GEMINI_API_URL.format(model=model_name, key=api_key)
 
     payload: Dict[str, Any] = {
         "system_instruction": {
@@ -367,114 +294,73 @@ async def ask_gemini_agent(
         },
     }
 
-    models_to_try = [model_name] + [m for m in FALLBACK_MODELS if m != model_name]
-
     try:
-        resp_status = 0
-        resp_text = ""
-        used_model = model_name
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            resp = await client.post(url, json=payload)
+            if resp.status_code != 200:
+                logger.warning("Gemini API error %s: %s, falling back to gemini-1.5-flash", resp.status_code, resp.text)
+                # Fallback to gemini-1.5-flash
+                fallback_url = GEMINI_API_URL.format(model="gemini-1.5-flash", key=api_key)
+                resp = await client.post(fallback_url, json=payload)
+                if resp.status_code != 200:
+                    return f"⚠️ متاسفانه در ارتباط با هوش مصنوعی خطایی رخ داد: {resp.status_code}"
 
-        for m in models_to_try:
-            target_url = GEMINI_API_URL.format(model=m)
-            status, text = await _post_to_gemini(target_url, payload, clean_key)
-            if status == 200:
-                resp_status = status
-                resp_text = text
-                used_model = m
-                break
-            logger.warning("Gemini model %s returned %s: %s", m, status, text[:120])
+            res_data = resp.json()
+            candidates = res_data.get("candidates", [])
+            if not candidates:
+                return "پاسخی از هوش مصنوعی دریافت نشد."
 
-            # If failed (e.g. 403 or 400 with complex tools), try simple conversation payload
-            simple_payload = {
-                "contents": contents,
-                "generationConfig": {"temperature": 0.7, "maxOutputTokens": 800},
-            }
-            status_s, text_s = await _post_to_gemini(target_url, simple_payload, clean_key)
-            if status_s == 200:
-                resp_status = status_s
-                resp_text = text_s
-                used_model = m
-                break
-            resp_status = status_s
-            resp_text = text_s
+            first_candidate = candidates[0]
+            parts = first_candidate.get("content", {}).get("parts", [])
 
-        if resp_status != 200:
-            snippet = resp_text[:200] if resp_text else "عدم دریافت پاسخ"
-            key_preview = f"{clean_key[:6]}...{clean_key[-4:]} (طول: {len(clean_key)})" if clean_key else "خالی"
-            logger.error("Gemini failed across all models. Last status: %s, snippet: %s, key: %s", resp_status, snippet, key_preview)
-            return f"⚠️ خطای هوش مصنوعی ({resp_status}):\n{snippet}\n🔑 کلید فعال: {key_preview}"
+            # Check for Function Call
+            function_call = None
+            for p in parts:
+                if "functionCall" in p:
+                    function_call = p["functionCall"]
+                    break
 
-        res_data = json.loads(resp_text)
-        candidates = res_data.get("candidates", [])
-        if not candidates:
-            return "پاسخی از هوش مصنوعی دریافت نشد."
+            if function_call:
+                tool_name = function_call.get("name")
+                tool_args = function_call.get("args", {})
+                logger.info("Gemini invoking tool: %s with args: %s", tool_name, tool_args)
 
-        first_candidate = candidates[0]
-        parts = first_candidate.get("content", {}).get("parts", [])
+                tool_result = execute_tool(tool_name, tool_args, db, current_user)
 
-        # Check for Function Call
-        function_call = None
-        for p in parts:
-            if "functionCall" in p:
-                function_call = p["functionCall"]
-                break
-
-        if function_call:
-            tool_name = function_call.get("name")
-            tool_args = function_call.get("args", {})
-            logger.info("Gemini invoking tool: %s with args: %s", tool_name, tool_args)
-
-            tool_result = execute_tool(tool_name, tool_args, db, current_user)
-
-            # Append model's exact parts (including thoughtSignature)
-            contents.append({
-                "role": "model",
-                "parts": parts,
-            })
-            # Append tool response with role 'user' (v1beta requirement)
-            contents.append({
-                "role": "user",
-                "parts": [
-                    {
-                        "functionResponse": {
-                            "name": tool_name,
-                            "response": {"output": tool_result},
+                # Append model's function call message
+                contents.append({
+                    "role": "model",
+                    "parts": [{"functionCall": function_call}],
+                })
+                # Append tool response
+                contents.append({
+                    "role": "function",
+                    "parts": [
+                        {
+                            "functionResponse": {
+                                "name": tool_name,
+                                "response": {"output": tool_result},
+                            }
                         }
-                    }
-                ],
-            })
+                    ],
+                })
 
-            # Call Gemini again to format final friendly message
-            second_payload = {
-                "system_instruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
-                "contents": contents,
-                "generationConfig": {"temperature": 0.7, "maxOutputTokens": 800},
-            }
-            turn2_url = GEMINI_API_URL.format(model=used_model)
-            t2_status, t2_text = await _post_to_gemini(turn2_url, second_payload, clean_key)
-            if t2_status == 200:
-                second_data = json.loads(t2_text)
-                second_parts = second_data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                final_text = "".join(p.get("text", "") for p in second_parts if "text" in p)
-                return final_text or "انجام شد!"
-            else:
-                logger.warning("Gemini turn 2 failed: %s %s. Formatting tool result directly.", t2_status, t2_text[:100])
-                if isinstance(tool_result, dict):
-                    if tool_result.get("error"):
-                        return f"⚠️ {tool_result['error']}"
-                    if "assignments" in tool_result:
-                        items = [f"• {a['title']} (موعد: {a.get('due_date') or 'نامشخص'})" for a in tool_result["assignments"]]
-                        return "📚 <b>تکالیف فعال کلاس:</b>\n" + ("\n".join(items) if items else "در حال حاضر تکلیفی ثبت نشده است.")
-                    if "leaderboard" in tool_result:
-                        items = [f"{i+1}. <b>{u['username']}</b> (استریک {u.get('streak', 0)} روزه - موفقیت {u.get('percentage', 0)}%)" for i, u in enumerate(tool_result["leaderboard"])]
-                        return "🏆 <b>جدول رتبه‌بندی برتر کلاس:</b>\n\n" + "\n".join(items)
-                    if "username" in tool_result:
-                        return f"👤 <b>وضعیت شخصی شما ({tool_result['username']}):</b>\nاستریک جاری: 🔥 {tool_result.get('streak', 0)} روز\nرتبه در کلاس: 🏅 رتبه {tool_result.get('rank', '-')}\nتکالیف باقی‌مانده: {tool_result.get('pending_assignments', 0)}"
-                return f"✅ انجام شد: {json.dumps(tool_result, ensure_ascii=False)}"
+                # Call Gemini again to format final friendly message
+                second_payload = {
+                    "system_instruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
+                    "contents": contents,
+                    "generationConfig": {"temperature": 0.7, "maxOutputTokens": 800},
+                }
+                second_resp = await client.post(url, json=second_payload)
+                if second_resp.status_code == 200:
+                    second_data = second_resp.json()
+                    second_parts = second_data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                    final_text = "".join(p.get("text", "") for p in second_parts)
+                    return final_text or "انجام شد!"
 
-        # Normal text response
-        text_response = "".join(p.get("text", "") for p in parts if "text" in p)
-        return text_response or "متوجه پیامت نشدم، لطفاً دوباره بگو!"
+            # Normal text response
+            text_response = "".join(p.get("text", "") for p in parts if "text" in p)
+            return text_response or "متوجه پیامت نشدم، لطفاً دوباره بگو!"
 
     except Exception as exc:
         logger.error("Gemini agent exception: %s", exc)

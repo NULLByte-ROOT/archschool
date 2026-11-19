@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -9,7 +8,7 @@ from .. import models
 from ..config import settings
 from ..database import get_db
 from ..dependencies import get_current_admin, get_current_user
-from ..services import gemini_agent, telegram_bot
+from ..services import ai_agent, telegram_bot
 
 logger = logging.getLogger("archschool.telegram_router")
 
@@ -19,6 +18,10 @@ router = APIRouter(prefix="/telegram", tags=["telegram"])
 class BotSettingsUpdate(BaseModel):
     bot_token: Optional[str] = None
     group_id: Optional[str] = None
+    ai_provider: Optional[str] = None
+    ai_api_key: Optional[str] = None
+    ai_base_url: Optional[str] = None
+    ai_model: Optional[str] = None
     gemini_api_key: Optional[str] = None
     bot_enabled: Optional[bool] = None
 
@@ -36,9 +39,9 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         return Response(status_code=400)
 
     token = telegram_bot.get_bot_setting(db, "telegram_bot_token")
-    gemini_key = telegram_bot.get_bot_setting(db, "gemini_api_key")
-    if not gemini_key:
-        gemini_key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+    ai_key = telegram_bot.get_bot_setting(db, "ai_api_key") or telegram_bot.get_bot_setting(db, "gemini_api_key")
+    base_url = telegram_bot.get_bot_setting(db, "ai_base_url", "https://openrouter.ai/api/v1")
+    model_name = telegram_bot.get_bot_setting(db, "ai_model", "openai/gpt-4o-mini")
     enabled = telegram_bot.get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
 
     if not token or not enabled:
@@ -125,20 +128,19 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         if bot_user:
             text = text.replace(f"@{bot_user}", "").strip()
 
-    # --- 3. Process prompt with Gemini Flash Agent ---
-    if not gemini_key:
-        gemini_key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
-
-    if not gemini_key:
+    # --- 3. Process prompt with Universal AI Agent (OpenRouter, Grok, OpenAI, DeepSeek, etc.) ---
+    if not ai_key:
         await telegram_bot.send_telegram_message(
             token, chat_id, "⚠️ کلید هوش مصنوعی در سرور مدرسه هنوز تنظیم نشده است.", reply_to_message_id=msg_id
         )
         return {"ok": True}
 
-    ai_reply = await gemini_agent.ask_gemini_agent(
+    ai_reply = await ai_agent.ask_universal_ai_agent(
         user_prompt=text,
-        api_key=gemini_key,
+        api_key=ai_key,
         db=db,
+        base_url=base_url,
+        model_name=model_name,
         current_user=user,
     )
 
@@ -186,8 +188,19 @@ async def update_settings(
     if payload.group_id is not None:
         telegram_bot.set_bot_setting(db, "telegram_group_id", payload.group_id.strip())
 
-    if payload.gemini_api_key is not None:
-        telegram_bot.set_bot_setting(db, "gemini_api_key", payload.gemini_api_key.strip().strip("'\""))
+    if payload.ai_provider is not None:
+        telegram_bot.set_bot_setting(db, "ai_provider", payload.ai_provider.strip())
+
+    if payload.ai_api_key is not None:
+        telegram_bot.set_bot_setting(db, "ai_api_key", payload.ai_api_key.strip())
+    elif payload.gemini_api_key is not None:
+        telegram_bot.set_bot_setting(db, "ai_api_key", payload.gemini_api_key.strip())
+
+    if payload.ai_base_url is not None:
+        telegram_bot.set_bot_setting(db, "ai_base_url", payload.ai_base_url.strip())
+
+    if payload.ai_model is not None:
+        telegram_bot.set_bot_setting(db, "ai_model", payload.ai_model.strip())
 
     if payload.bot_enabled is not None:
         telegram_bot.set_bot_setting(
@@ -203,12 +216,12 @@ async def test_telegram(
     db: Session = Depends(get_db),
     admin: models.User = Depends(get_current_admin),
 ):
-    """Send a test message to the configured group and verify bot & Gemini API."""
+    """Send a test message to the configured group and verify bot & AI API."""
     token = telegram_bot.get_bot_setting(db, "telegram_bot_token")
     group_id = telegram_bot.get_bot_setting(db, "telegram_group_id")
-    gemini_key = telegram_bot.get_bot_setting(db, "gemini_api_key")
-    if not gemini_key:
-        gemini_key = getattr(settings, "GEMINI_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+    ai_key = telegram_bot.get_bot_setting(db, "ai_api_key") or telegram_bot.get_bot_setting(db, "gemini_api_key")
+    base_url = telegram_bot.get_bot_setting(db, "ai_base_url", "https://openrouter.ai/api/v1")
+    model_name = telegram_bot.get_bot_setting(db, "ai_model", "openai/gpt-4o-mini")
 
     if not token:
         raise HTTPException(status_code=400, detail="توکن ربات تلگرام تنظیم نشده است.")
@@ -218,16 +231,18 @@ async def test_telegram(
     if not identity:
         raise HTTPException(status_code=400, detail="توکن تلگرام نامعتبر است یا ارتباط برقرار نشد.")
 
-    # 2. Test Gemini API Key if present
-    gemini_status = "تنظیم نشده"
-    if gemini_key:
-        test_ai = await gemini_agent.ask_gemini_agent(
+    # 2. Test AI API Key if present
+    ai_status = "تنظیم نشده"
+    if ai_key:
+        test_ai = await ai_agent.ask_universal_ai_agent(
             user_prompt="یک پیام کوتاه تستی و سلام بگو",
-            api_key=gemini_key,
+            api_key=ai_key,
             db=db,
+            base_url=base_url,
+            model_name=model_name,
             current_user=admin,
         )
-        gemini_status = "متصل و فعال" if not test_ai.startswith("⚠️") else f"خطا: {test_ai}"
+        ai_status = "متصل و فعال" if not test_ai.startswith("⚠️") else f"خطا: {test_ai}"
 
     # 3. Test sending message to group if group_id is present
     group_sent = False
@@ -235,7 +250,7 @@ async def test_telegram(
         test_msg = payload.message or (
             f"🤖 <b>تست اتصال ربات تلگرام ArchSchool</b> ✨\n\n"
             f"ربات <b>@{identity.get('username')}</b> با موفقیت به سرور متصل شد!\n"
-            f"وضعیت هوش مصنوعی جمینای: <b>{gemini_status}</b>\n"
+            f"ارائه‌دهنده هوش مصنوعی: <code>{model_name}</code> ({ai_status})\n"
             f"ارسال شده توسط ادمین: <b>{admin.username}</b>"
         )
         group_sent = await telegram_bot.send_telegram_message(token, group_id, test_msg)
@@ -244,7 +259,7 @@ async def test_telegram(
         "ok": True,
         "bot_username": identity.get("username"),
         "bot_first_name": identity.get("first_name"),
-        "gemini_status": gemini_status,
+        "ai_status": ai_status,
         "group_message_sent": group_sent,
     }
 
