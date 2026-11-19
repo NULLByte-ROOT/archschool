@@ -1,4 +1,5 @@
 import asyncio
+from datetime import datetime, timedelta, timezone
 import logging
 import re
 import secrets
@@ -94,6 +95,91 @@ def link_telegram_user(
     user.telegram_link_token = None
     db.commit()
     return user
+
+
+def save_chat_history(
+    db: Session,
+    chat_id: int,
+    role: str,
+    content: str,
+    user_id: Optional[int] = None,
+) -> None:
+    """Save a chat message to history and prune old messages beyond the limit."""
+    try:
+        msg = models.TelegramChatHistory(
+            chat_id=chat_id,
+            user_id=user_id,
+            role=role,
+            content=content,
+            created_at=datetime.utcnow(),
+        )
+        db.add(msg)
+        db.commit()
+
+        # Prune older messages if exceeding 25 per chat
+        count = (
+            db.query(models.TelegramChatHistory)
+            .filter(models.TelegramChatHistory.chat_id == chat_id)
+            .count()
+        )
+        if count > 25:
+            oldest_ids = (
+                db.query(models.TelegramChatHistory.id)
+                .filter(models.TelegramChatHistory.chat_id == chat_id)
+                .order_by(models.TelegramChatHistory.created_at.asc())
+                .limit(count - 25)
+                .all()
+            )
+            to_delete = [r[0] for r in oldest_ids]
+            if to_delete:
+                db.query(models.TelegramChatHistory).filter(
+                    models.TelegramChatHistory.id.in_(to_delete)
+                ).delete(synchronize_session=False)
+                db.commit()
+    except Exception as exc:
+        logger.warning("Failed to save telegram chat history: %s", exc)
+
+
+def get_chat_history(
+    db: Session,
+    chat_id: int,
+    limit: int = 12,
+) -> List[Dict[str, str]]:
+    """Retrieve recent conversation history formatted for OpenAI/OpenRouter messages list."""
+    try:
+        rows = (
+            db.query(models.TelegramChatHistory)
+            .filter(models.TelegramChatHistory.chat_id == chat_id)
+            .order_by(models.TelegramChatHistory.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        rows.reverse()
+        return [{"role": r.role, "content": r.content} for r in rows]
+    except Exception as exc:
+        logger.warning("Failed to get telegram chat history: %s", exc)
+        return []
+
+
+def is_recent_conversation(
+    db: Session,
+    chat_id: int,
+    max_idle_minutes: int = 120,
+) -> bool:
+    """Check if the last message in this chat was sent within max_idle_minutes."""
+    try:
+        last_msg = (
+            db.query(models.TelegramChatHistory)
+            .filter(models.TelegramChatHistory.chat_id == chat_id)
+            .order_by(models.TelegramChatHistory.created_at.desc())
+            .first()
+        )
+        if not last_msg:
+            return False
+        diff = (datetime.utcnow() - last_msg.created_at).total_seconds() / 60.0
+        return diff <= max_idle_minutes
+    except Exception:
+        return False
 
 
 def format_telegram_html(text: str) -> str:

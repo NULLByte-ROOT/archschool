@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 import httpx
 from sqlalchemy import select, or_
@@ -23,13 +23,18 @@ SYSTEM_INSTRUCTION = """
 - برای پاسخ به وضعیت تکالیف، رتبه‌بندی، برنامه زنگ‌ها و ... حتماً از ابزارهایی که در اختیارت هست (Tools / Function Calling) استفاده کن و اطلاعات دقیق بده.
 - همیشه پاسخ‌ها رو به زبان فارسی روان، خودمانی و جذاب بنویس.
 
-قوانین بسیار مهم آغاز پیام (Greeting Rules - بدون سلام‌های تکراری):
-- هرگز در ابتدای هر پیام سلام و احوال‌پرسی تکراری (مانند «سلام داداش»، «سلام رفیق»، «سلام به همگی») نده!
-- مستقیم، سریع و بدون رودربایستی برو سر اصل پاسخ و به سوال کاربر جواب بده.
-- تنها در صورتی که کاربر خودش به طور مشخص و واضح در پیامش سلام داده باشد (مثلاً گفته باشد «سلام»، «درود»، «سلام چطوری»)، می‌توانی در ابتدای پاسخت یک سلام کوتاه بدهی؛ در غیر این صورت هیچ سلامی نده و مستقیماً اصل جواب را بگو.
+قوانین هوشمندانه آغاز پیام و سلام (Smart Greeting Rules):
+- در ابتدای یک مکالمه جدید (مانند اولین پیام، پس از مدتی سکوت، یا اگر کاربر خودش سلام داده است)، حتماً یک سلام صمیمی، گرم، خودمانی و پرانرژی با نام کاربر بده (مثلاً: «سلام علی جان! 🦁»، «درود رفیق! 🔥»).
+- اما در جریان یک گفتگوی فعال و پیام‌های متوالی و پشت‌سرهم (مانند پاسخ به سوالات، گام‌های ثبت تعاملی تکلیف، یا تیک زدن‌ها)، هر بار سلام را تکرار نکن! مستقیماً صحبت را با لحنی صمیمی ادامه بده تا پیام‌ها کش‌دار و تکراری نشوند.
+
+قوانین حیاتی تیک زدن و ثبت انجام تکالیف (Task Completion Rules):
+- تیک زدن، انجام دادن و ثبت تکالیف در تمامی ۷ روز هفته و در ۲۴ ساعت شبانه‌روز (حتی پنج‌شنبه‌ها، جمعه‌ها، روزهای تعطیل و ساعات غیرمدرسه) کاملاً آزاد و مجاز است؛ چون دانش‌آموزان در منزل تکالیف خود را انجام داده و ثبت می‌کنند.
+- هرگز و تحت هیچ شرایطی به کاربر نگو «امروز تعطیله»، «الان ساعت کلاسی نیست» یا «چون تعطیله نمی‌تونی تیک بزنی»!
+- هر زمان کاربر گفت تکلیفی را انجام داده یا خواست تیک بزند یا بردارد (مثلاً «تکلیف ریاضی رو تیک بزن»، «تکالیف شنبه رو تیک بزن»، «یک تکلیفی رو تیک بزنم»، «تکلیفم رو انجام دادم»)، بلافاصله و بدون هیچ بهانه‌ای ابزار toggle_assignment_completion را فراخوانی کن.
+- اگر کاربر نام درس را دقیق نگفت (مثلاً گفت «یک تکلیفی رو تیک بزنم» یا «تکلیفم رو تیک بزن»)، ابزار به صورت هوشمند نزدیک‌ترین تکلیف باقی‌مانده و فعال او را پیدا کرده و تیک می‌زند؛ پس همیشه ابزار را اجرا کن و بهانه نیاور!
 
 قوانین ویزارد تعاملی ثبت تکلیف (Interactive Assignment Creation Wizard):
-- اگر ادمین یا مالک مدرسه گفت «می‌خواهم تکلیف اضافه کنم» یا خواست تکلیفی ثبت کند، همه چیز را یک‌جا نپرس! بلکه به صورت مرحله‌به‌مرحله و گام‌به‌گام مصاحبه کن و در هر مرحله یک سوال بپرس:
+- اگر ادمین یا مالک مدرسه گفت «می‌خواهم تکلیف اضافه کنم» یا خواست تکلیفی ثبت کند، به صورت مرحله‌به‌مرحله و گام‌به‌گام مصاحبه کن و در هر مرحله یک سوال بپرس (حافظه چت وجود دارد و پاسخ‌های قبلی در دسترس است):
   ۱. در گام اول موضوع و نوع را بپرس: تکلیف (نوشتنی، پروژه عملی، تحقیق) یا امتحان (پرسش کتبی، پرسش شفاهی، پودمانی، نوبت اول/دوم)؟
   ۲. در گام دوم درس را بپرس و فهرست دروس (طراحی وب، ریاضی، شیمی، فارسی، تولید محتوا، و...) را ارائه بده تا یکی را انتخاب کند.
   ۳. در گام سوم عنوان و توضیحات تکلیف را بپرس.
@@ -464,22 +469,64 @@ def execute_tool(
             target_assignments = []
             if scope == "single":
                 q = db.query(models.Assignment).filter(models.Assignment.deleted_at.is_(None))
+                clean_query = assignment_query.strip()
+                for stop_word in ["یک", "یه", "یکی", "تکلیف", "تکالیف", "تکلیفم", "تکلیفمو", "رو", "را"]:
+                    clean_query = clean_query.replace(stop_word, "").strip()
+
                 if assignment_query.isdigit():
                     target_assignments = q.filter(models.Assignment.id == int(assignment_query)).all()
-                if not target_assignments and assignment_query:
+                elif clean_query:
+                    subj = school_knowledge.resolve_subject(clean_query)
+                    s_id = subj["id"] if subj else clean_query
+                    s_name = subj["name"] if subj else clean_query
                     target_assignments = q.filter(
                         or_(
-                            models.Assignment.title.ilike(f"%{assignment_query}%"),
-                            models.Assignment.subject_id.ilike(f"%{assignment_query}%"),
-                            models.Assignment.category.ilike(f"%{assignment_query}%"),
-                            models.Assignment.course.ilike(f"%{assignment_query}%"),
+                            models.Assignment.title.ilike(f"%{clean_query}%"),
+                            models.Assignment.subject_id.ilike(f"%{s_id}%"),
+                            models.Assignment.subject_id.ilike(f"%{s_name}%"),
+                            models.Assignment.category.ilike(f"%{s_name}%"),
+                            models.Assignment.course.ilike(f"%{s_name}%"),
                         )
                     ).all()
+
                 if not target_assignments:
-                    return {
-                        "success": False,
-                        "error": f"تکلیفی با مشخصات '{assignment_query}' پیدا نشد. لطفاً نام دقیق‌تر یا شماره آن را بگو.",
-                    }
+                    # Smart fallback: pick the nearest active pending assignment for this student
+                    completed_ids = (
+                        select(models.AssignmentCompletion.assignment_id)
+                        .filter(models.AssignmentCompletion.user_id == current_user.id)
+                    )
+                    if action == "complete":
+                        fallback_cand = (
+                            db.query(models.Assignment)
+                            .filter(
+                                models.Assignment.deleted_at.is_(None),
+                                ~models.Assignment.id.in_(completed_ids),
+                                or_(
+                                    models.Assignment.due_date.is_(None),
+                                    models.Assignment.due_date >= now - timedelta(days=1),
+                                ),
+                            )
+                            .order_by(models.Assignment.due_date.asc().nulls_last())
+                            .first()
+                        )
+                    else:
+                        fallback_cand = (
+                            db.query(models.Assignment)
+                            .filter(
+                                models.Assignment.deleted_at.is_(None),
+                                models.Assignment.id.in_(completed_ids),
+                            )
+                            .order_by(models.Assignment.updated_at.desc())
+                            .first()
+                        )
+
+                    if fallback_cand:
+                        target_assignments = [fallback_cand]
+                    else:
+                        return {
+                            "success": False,
+                            "error": "تکلیف فعال و باقی‌مانده‌ای برای تیک زدن پیدا نشد. همه‌چیز رو انجام دادی! ایول 🔥",
+                        }
                 target_assignments = target_assignments[:1]
 
             elif scope == "day":
@@ -515,11 +562,27 @@ def execute_tool(
                         if a.subject_id in day_subjs or a.course in day_subjs:
                             target_assignments.append(a)
 
+                # If no assignments found for today (e.g. today is Thursday/Friday), check next school day
+                if not target_assignments and ("امروز" in target_day or resolved_key in ("thu", "fri")):
+                    current_status = school_knowledge.get_current_school_status()
+                    next_key = current_status.get("next_school_key", "sat")
+                    for a in all_live:
+                        if a.due_date:
+                            due_iran = a.due_date + timedelta(hours=3.5)
+                            a_key = school_knowledge.WEEKDAYS_MAP.get(due_iran.weekday(), ("", ""))[0]
+                            if a_key == next_key:
+                                target_assignments.append(a)
+                        else:
+                            day_sched = school_knowledge.WEEKLY_SCHEDULE.get(next_key, {})
+                            day_subjs = [p["subject_id"] for p in day_sched.get("periods", [])]
+                            if a.subject_id in day_subjs or a.course in day_subjs:
+                                target_assignments.append(a)
+
                 if not target_assignments:
                     day_name = school_knowledge.WEEKLY_SCHEDULE.get(resolved_key, {}).get("day_fa", target_day)
                     return {
                         "success": False,
-                        "error": f"هیچ تکلیف فعالی برای روز {day_name} پیدا نشد.",
+                        "error": f"هیچ تکلیف فعالی برای روز {day_name} در سیستم پیدا نشد.",
                     }
 
             elif scope == "all":
@@ -625,6 +688,7 @@ async def ask_universal_ai_agent(
     model_name: str = "openai/gpt-4o-mini",
     current_user: Optional[models.User] = None,
     conversation_history: Optional[List[Dict[str, Any]]] = None,
+    is_recent: bool = False,
 ) -> str:
     """Universal OpenAI-compatible chat completions caller with Tools / Function Calling.
 
@@ -654,6 +718,11 @@ async def ask_universal_ai_agent(
         f"- فردا: {status['tomorrow_fa']}\n"
         f"- روز مدرسه بعدی: {status['next_school_day']}"
     )
+    session_hint = (
+        "وضعیت مکالمه: گفتگوی فعال در جریان است. سلام تکراری نده و مستقیماً و صمیمی صحبت را ادامه بده."
+        if is_recent
+        else "وضعیت مکالمه: شروع مکالمه جدید است. یک سلام گرم، خودمانی و پرانرژی با نام کاربر بده."
+    )
 
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_INSTRUCTION},
@@ -664,7 +733,7 @@ async def ask_universal_ai_agent(
 
     messages.append({
         "role": "user",
-        "content": f"[{time_context}]\n[{user_info}]\n{user_prompt}",
+        "content": f"[{time_context}]\n[{user_info}]\n[{session_hint}]\n{user_prompt}",
     })
 
     headers = {

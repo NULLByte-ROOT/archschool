@@ -586,3 +586,17 @@ class BotSetting(Base):
     )
 
 
+class TelegramChatHistory(Base):
+    """Conversation history for Telegram bot sessions and multi-turn AI memory."""
+
+    __tablename__ = "telegram_chat_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chat_id = Column(BigInteger, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    role = Column(String(20), nullable=False)  # "user" or "assistant"
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+

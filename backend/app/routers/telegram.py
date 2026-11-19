@@ -135,6 +135,10 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         )
         return {"ok": True}
 
+    # Fetch recent conversation memory for this chat
+    history = telegram_bot.get_chat_history(db, chat_id, limit=10)
+    is_recent = telegram_bot.is_recent_conversation(db, chat_id, max_idle_minutes=120)
+
     ai_reply = await ai_agent.ask_universal_ai_agent(
         user_prompt=text,
         api_key=ai_key,
@@ -142,7 +146,13 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         base_url=base_url,
         model_name=model_name,
         current_user=user,
+        conversation_history=history,
+        is_recent=is_recent,
     )
+
+    # Persist user prompt and assistant response to chat history for multi-turn sessions
+    telegram_bot.save_chat_history(db, chat_id, role="user", content=text, user_id=user.id if user else None)
+    telegram_bot.save_chat_history(db, chat_id, role="assistant", content=ai_reply, user_id=user.id if user else None)
 
     await telegram_bot.send_telegram_message(
         token, chat_id, ai_reply, parse_mode="HTML", reply_to_message_id=msg_id

@@ -153,3 +153,78 @@ def test_school_knowledge(db_session):
     assert res["success"] is True
     assert res["day"] == "شنبه"
     assert len(res["periods"]) == 4
+
+
+def test_telegram_chat_history_memory(db_session):
+    chat_id = 99887766
+
+    # 1. Initially empty
+    assert telegram_bot.is_recent_conversation(db_session, chat_id) is False
+    assert telegram_bot.get_chat_history(db_session, chat_id) == []
+
+    # 2. Save user message and bot response
+    telegram_bot.save_chat_history(db_session, chat_id, role="user", content="سلام")
+    telegram_bot.save_chat_history(db_session, chat_id, role="assistant", content="درود! چطور می‌تونم کمکت کنم؟")
+
+    # 3. Check memory
+    assert telegram_bot.is_recent_conversation(db_session, chat_id, max_idle_minutes=10) is True
+    history = telegram_bot.get_chat_history(db_session, chat_id, limit=5)
+    assert len(history) == 2
+    assert history[0]["role"] == "user"
+    assert history[0]["content"] == "سلام"
+    assert history[1]["role"] == "assistant"
+
+
+def test_toggle_assignment_completion_smart_fallback(db_session):
+    student = models.User(username="learner", code="LEARN1", role=models.ROLE_MEMBER)
+    admin = models.User(username="teacher", code="TEACH1", is_admin=True, role=models.ROLE_ADMIN)
+    db_session.add_all([student, admin])
+    db_session.commit()
+
+    # Create active assignment
+    a1 = models.Assignment(
+        title="تمرین شیمی فصل ۲",
+        subject_id="chemistry",
+        category="شیمی",
+        course="شیمی",
+        owner_id=admin.id,
+        creator_id=admin.id,
+    )
+    db_session.add(a1)
+    db_session.commit()
+
+    # 1. Student says "تکلیف شیمی رو تیک بزنم" -> stop words stripped, matches chemistry
+    res = ai_agent.execute_tool(
+        "toggle_assignment_completion",
+        {"action": "complete", "scope": "single", "assignment_query": "تکلیف شیمی رو تیک بزنم"},
+        db_session,
+        student,
+    )
+    assert res["success"] is True
+    assert "تمرین شیمی فصل ۲" in res["modified_titles"]
+
+    # 2. Check it is completed in database
+    comp = db_session.query(models.AssignmentCompletion).filter_by(user_id=student.id, assignment_id=a1.id).first()
+    assert comp is not None
+
+    # 3. Untick it
+    res_un = ai_agent.execute_tool(
+        "toggle_assignment_completion",
+        {"action": "uncomplete", "scope": "single", "assignment_query": "تکلیف شیمی"},
+        db_session,
+        student,
+    )
+    assert res_un["success"] is True
+    assert "تمرین شیمی فصل ۲" in res_un["modified_titles"]
+    comp_after = db_session.query(models.AssignmentCompletion).filter_by(user_id=student.id, assignment_id=a1.id).first()
+    assert comp_after is None
+
+    # 4. Generic query without subject -> smart fallback finds active assignment
+    res_generic = ai_agent.execute_tool(
+        "toggle_assignment_completion",
+        {"action": "complete", "scope": "single", "assignment_query": "یک تکلیفی رو تیک بزنم"},
+        db_session,
+        student,
+    )
+    assert res_generic["success"] is True
+    assert len(res_generic["modified_titles"]) == 1

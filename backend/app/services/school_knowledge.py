@@ -256,14 +256,14 @@ def get_current_school_status(now: Optional[datetime] = None) -> Dict[str, Any]:
 
     # Check school bell for today if school day
     is_school_day = WEEKLY_SCHEDULE.get(day_key, {}).get("is_school_day", False)
-    bell_status = "مدرسه امروز تعطیل است"
+    bell_status = "خارج از روزهای مدرسه حضوری (ثبت و تحویل تکالیف در منزل ۲۴ ساعته فعال است)"
     current_period = None
 
     if is_school_day:
         minutes = now.hour * 60 + now.minute
         # 08:00 (480) to 14:00 (840)
         if minutes < 480:
-            bell_status = "قبل از شروع کلاس‌ها (کلاس‌ها ساعت ۰۸:۰۰ شروع می‌شوند)"
+            bell_status = "قبل از شروع کلاس‌های حضوری (کلاس‌ها ساعت ۰۸:۰۰ شروع می‌شوند)"
         elif 480 <= minutes < 570:
             bell_status = "زنگ اول (۰۸:۰۰ تا ۰۹:۳۰)"
             current_period = 1
@@ -277,7 +277,7 @@ def get_current_school_status(now: Optional[datetime] = None) -> Dict[str, Any]:
             bell_status = "زنگ چهارم (۱۲:۳۰ تا ۱۴:۰۰)"
             current_period = 4
         else:
-            bell_status = "کلاس‌های امروز به پایان رسیده است"
+            bell_status = "کلاس‌های حضوری امروز به پایان رسیده است (ثبت و تحویل تکالیف در منزل فعال است)"
 
     return {
         "current_time": time_str,
