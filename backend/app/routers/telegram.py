@@ -181,7 +181,7 @@ async def update_settings(
         telegram_bot.set_bot_setting(db, "telegram_group_id", payload.group_id.strip())
 
     if payload.gemini_api_key is not None:
-        telegram_bot.set_bot_setting(db, "gemini_api_key", payload.gemini_api_key.strip())
+        telegram_bot.set_bot_setting(db, "gemini_api_key", payload.gemini_api_key.strip().strip("'\""))
 
     if payload.bot_enabled is not None:
         telegram_bot.set_bot_setting(

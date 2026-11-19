@@ -262,7 +262,7 @@ async def ask_gemini_agent(
     if not api_key:
         return "⚠️ کلید API هوش مصنوعی جمینای در پنل مدیریت مدرسه هنوز تنظیم نشده است."
 
-    clean_key = api_key.strip()
+    clean_key = api_key.strip().strip("'\"")
 
     user_info = (
         f"کاربر سوال‌کننده: {current_user.username} (نقش: {current_user.role})"
@@ -318,6 +318,8 @@ async def ask_gemini_agent(
 
             if not resp or resp.status_code != 200:
                 code = resp.status_code if resp else "timeout"
+                snippet = resp.text[:120] if resp else "timeout"
+                logger.error("Gemini failed across all models. Last status: %s, snippet: %s", code, snippet)
                 return f"⚠️ متاسفانه در ارتباط با هوش مصنوعی خطایی رخ داد: {code}"
 
             res_data = resp.json()

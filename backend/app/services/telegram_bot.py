@@ -117,6 +117,10 @@ async def send_telegram_message(
             if resp.status_code == 200:
                 return True
             logger.warning("Telegram sendMessage error: %s %s", resp.status_code, resp.text)
+            if parse_mode and "can't parse entities" in resp.text:
+                payload.pop("parse_mode", None)
+                retry_resp = await client.post(url, json=payload)
+                return retry_resp.status_code == 200
     except Exception as exc:
         logger.error("Failed to send Telegram message: %s", exc)
     return False
