@@ -220,7 +220,7 @@ def update_json_manifest(updates_dir: Path, update_data: Dict[str, Any]) -> None
         "mandatory": update_data.get("mandatory", False),
         "minApkVersion": update_data.get("min_apk_version") or (prev_active.get("minApkVersion") if prev_active else "1.0.0"),
         "latestApkVersion": update_data.get("latest_apk_version") or (prev_active.get("latestApkVersion") if prev_active else "1.0.0"),
-        "apkUrl": update_data.get("apk_url") or (prev_active.get("apkUrl") if prev_active else "/api/v1/updates/apk/app-release.apk"),
+        "apkUrl": update_data.get("apk_url") or (prev_active.get("apkUrl") if prev_active else "/api/v1/updates/apk/ArchSchool.apk"),
         "apkSize": update_data.get("apk_size") or (prev_active.get("apkSize") if prev_active else 39531589),
         "apkHash": update_data.get("apk_hash") or (prev_active.get("apkHash") if prev_active else "96466b2bea3a1b1e3fdb09d5f5d6a637c59c2944aee3428457ec5cbcc5d665e9"),
         "releaseNotes": update_data.get("release_notes", ""),
@@ -324,12 +324,12 @@ def main():
 
         target_apk_dir = updates_dir / "apk"
         target_apk_dir.mkdir(parents=True, exist_ok=True)
-        target_apk = target_apk_dir / "app-release.apk"
+        target_apk = target_apk_dir / "ArchSchool.apk"
         shutil.copy2(apk_source, target_apk)
 
         apk_hash = sha256_file(target_apk)
         apk_size = target_apk.stat().st_size
-        apk_url = "/api/v1/updates/apk/app-release.apk"
+        apk_url = "/api/v1/updates/apk/ArchSchool.apk"
         logger.info("Published APK to %s (size: %d bytes, hash: %s)", target_apk, apk_size, apk_hash[:12])
 
     # Check if anything was updated

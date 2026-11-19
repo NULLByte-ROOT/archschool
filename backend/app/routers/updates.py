@@ -224,7 +224,7 @@ def check_for_updates(
             "bundleSize": record.bundle_size,
             "mandatory": record.mandatory,
             "minApkVersion": record.min_apk_version or settings.MIN_APK_VERSION,
-            "apkUrl": record.apk_url or "/api/v1/updates/apk/app-release.apk",
+            "apkUrl": record.apk_url or "/api/v1/updates/apk/ArchSchool.apk",
             "apkSize": record.apk_size,
             "apkHash": record.apk_hash,
             "releaseNotes": record.release_notes,
@@ -242,7 +242,7 @@ def check_for_updates(
                 "bundleSize": fallback.get("bundleSize"),
                 "mandatory": fallback.get("mandatory", False),
                 "minApkVersion": fallback.get("minApkVersion", settings.MIN_APK_VERSION),
-                "apkUrl": fallback.get("apkUrl", "/api/v1/updates/apk/app-release.apk"),
+                "apkUrl": fallback.get("apkUrl", "/api/v1/updates/apk/ArchSchool.apk"),
                 "apkSize": fallback.get("apkSize"),
                 "apkHash": fallback.get("apkHash"),
                 "releaseNotes": fallback.get("releaseNotes", ""),
@@ -498,7 +498,7 @@ def get_asset_file(runtime_version: str, bundle_id: str, asset_path: str):
 
 
 @router.api_route("/apk/{apk_name}", methods=["GET", "HEAD"])
-def download_apk(apk_name: str = "app-release.apk"):
+def download_apk(apk_name: str = "ArchSchool.apk"):
     """Resumable APK binary streaming with HTTP 206 byte ranges and HEAD support."""
     _validate_safe_name(apk_name, "apk_name")
     if not apk_name.endswith(".apk"):
@@ -512,12 +512,24 @@ def download_apk(apk_name: str = "app-release.apk"):
         if backend_apk.is_file():
             apk_file = backend_apk
         else:
-            raise HTTPException(status_code=404, detail="APK binary not found")
+            # Fallback if requested ArchSchool.apk but only app-release.apk exists (or vice-versa)
+            alt_name = "app-release.apk" if apk_name != "app-release.apk" else "ArchSchool.apk"
+            alt_file = _safe_resolve(apk_dir, alt_name)
+            if alt_file.is_file():
+                apk_file = alt_file
+            else:
+                alt_backend = Path(__file__).resolve().parent.parent.parent / "updates" / "apk" / alt_name
+                if alt_backend.is_file():
+                    apk_file = alt_backend
+                else:
+                    raise HTTPException(status_code=404, detail="APK binary not found")
+
+    download_filename = "ArchSchool.apk" if apk_name in ("ArchSchool.apk", "app-release.apk") else apk_name
 
     return FileResponse(
         apk_file,
         media_type="application/vnd.android.package-archive",
-        filename=apk_name,
+        filename=download_filename,
         content_disposition_type="attachment",
         headers={
             "X-Accel-Buffering": "no",
