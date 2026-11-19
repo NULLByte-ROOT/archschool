@@ -1,7 +1,9 @@
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -45,6 +47,36 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     enabled = telegram_bot.get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
 
     if not token or not enabled:
+        return {"ok": True}
+
+    # --- 0. Handle Inline Button Callback Queries (Wizard & Task Toggles) ---
+    callback_query = update.get("callback_query")
+    if callback_query:
+        cb_id = callback_query.get("id")
+        cb_data = callback_query.get("data", "")
+        cb_from = callback_query.get("from", {})
+        cb_from_id = cb_from.get("id")
+        cb_msg = callback_query.get("message", {})
+        cb_chat = cb_msg.get("chat", {})
+        cb_chat_id = cb_chat.get("id")
+        cb_msg_id = cb_msg.get("message_id")
+
+        cb_user = db.query(models.User).filter(models.User.telegram_id == cb_from_id).first() if cb_from_id else None
+
+        from app.services import telegram_task_wizard
+        if cb_data.startswith("wiz:"):
+            await telegram_task_wizard.handle_wizard_callback(
+                db, cb_user, cb_data, cb_chat_id, cb_msg_id, cb_id, token
+            )
+            return {"ok": True}
+
+        if cb_data.startswith("task_toggle:"):
+            await telegram_task_wizard.handle_toggle_callback(
+                db, cb_user, cb_data, cb_chat_id, cb_msg_id, cb_id, token
+            )
+            return {"ok": True}
+
+        await telegram_bot.answer_callback_query(token, cb_id)
         return {"ok": True}
 
     message = update.get("message") or update.get("edited_message")
@@ -128,7 +160,59 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
         if bot_user:
             text = text.replace(f"@{bot_user}", "").strip()
 
-    # --- 3. Process prompt with Universal AI Agent (OpenRouter, Grok, OpenAI, DeepSeek, etc.) ---
+    # --- 3. Interactive Button-Based Assignment Creation Interceptor ---
+    is_add_cmd = any(k in text for k in (
+        "تکلیف اضافه", "افزودن تکلیف", "ثبت تکلیف", "تکلیف جدید",
+        "/new_assignment", "/add_assignment", "میخوام تکلیف بسازم", "میخوام تکلیف اضافه کنم"
+    ))
+    if is_add_cmd:
+        from app.services import telegram_task_wizard
+        await telegram_task_wizard.start_add_task_wizard(token, chat_id, user, reply_to_message_id=msg_id)
+        return {"ok": True}
+
+    # --- 4. Direct Task Completion Interceptor (100% immune to LLM hallucination) ---
+    is_toggle_cmd = any(k in text for k in (
+        "تیک بزن", "تیک زدن", "تیک بردار", "تیکش رو بردار", "تیکش بردار",
+        "تیکمو بزن", "تیکش کن", "تیک بزنم", "انجام شد", "انجام دادم", "حل کردم", "تیک بخوره"
+    ))
+    if is_toggle_cmd:
+        action = "uncomplete" if any(w in text for w in ("بردار", "حذف", "برداشتن", "نکردم")) else "complete"
+        scope = "all" if any(w in text for w in ("همه", "تمام", "همشون", "همه‌شون")) else (
+            "day" if any(d in text for d in ("شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "امروز", "فردا")) else "single"
+        )
+        target_day = ""
+        if scope == "day":
+            for d in ("شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "امروز", "فردا"):
+                if d in text:
+                    target_day = d
+                    break
+
+        res = ai_agent.execute_tool(
+            "toggle_assignment_completion",
+            {"action": action, "scope": scope, "assignment_query": text, "target_day": target_day},
+            db,
+            user,
+        )
+
+        if res.get("success"):
+            titles = "، ".join(res.get("modified_titles", []))
+            pct = res.get("new_completion_percentage", 0)
+            streak = res.get("current_streak", 0)
+            act_text = "انجام شد و تیک خورد" if action == "complete" else "تیک آن برداشته شد"
+            reply_text = (
+                f"🎉 <b>تکلیف {titles} با موفقیت {act_text}!</b> 🔥⚡\n\n"
+                f"📊 درصد کل تکالیف انجام‌شده شما: <b>{pct}٪</b>\n"
+                f"🔥 استریک جاری شما: <b>{streak} روز</b>\n\n"
+                f"<i>برای جزئیات بیشتر و مشاهده نمودارها به اپلیکیشن ArchSchool مراجعه کنید.</i>"
+            )
+        else:
+            err = res.get("error") or res.get("message") or "تکلیفی برای تیک زدن پیدا نشد."
+            reply_text = f"⚠️ {err}"
+
+        await telegram_bot.send_telegram_message(token, chat_id, reply_text, reply_to_message_id=msg_id)
+        return {"ok": True}
+
+    # --- 5. Process general prompt with Universal AI Agent ---
     if not ai_key:
         await telegram_bot.send_telegram_message(
             token, chat_id, "⚠️ کلید هوش مصنوعی در سرور مدرسه هنوز تنظیم نشده است.", reply_to_message_id=msg_id
@@ -154,8 +238,40 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     telegram_bot.save_chat_history(db, chat_id, role="user", content=text, user_id=user.id if user else None)
     telegram_bot.save_chat_history(db, chat_id, role="assistant", content=ai_reply, user_id=user.id if user else None)
 
+    # Attach interactive action buttons if relevant
+    reply_markup = None
+    if any(k in text for k in ("تکلیف", "تکالیف", "درس", "مشق")):
+        buttons = []
+        if user:
+            completed_ids = select(models.AssignmentCompletion.assignment_id).filter(
+                models.AssignmentCompletion.user_id == user.id
+            )
+            pending = (
+                db.query(models.Assignment)
+                .filter(
+                    models.Assignment.deleted_at.is_(None),
+                    ~models.Assignment.id.in_(completed_ids),
+                    or_(
+                        models.Assignment.due_date.is_(None),
+                        models.Assignment.due_date >= datetime.utcnow() - timedelta(days=1),
+                    ),
+                )
+                .order_by(models.Assignment.due_date.asc().nulls_last())
+                .limit(3)
+                .all()
+            )
+            for p in pending:
+                short_title = p.title[:24]
+                buttons.append([{"text": f"✅ تیک زدن: {short_title}", "callback_data": f"task_toggle:{p.id}"}])
+
+        if user and (user.is_admin or user.role in ("admin", "owner")):
+            buttons.append([{"text": "➕ افزودن تکلیف جدید با دکمه", "callback_data": "wiz:s1"}])
+
+        if buttons:
+            reply_markup = {"inline_keyboard": buttons}
+
     await telegram_bot.send_telegram_message(
-        token, chat_id, ai_reply, parse_mode="HTML", reply_to_message_id=msg_id
+        token, chat_id, ai_reply, parse_mode="HTML", reply_to_message_id=msg_id, reply_markup=reply_markup
     )
     return {"ok": True}
 

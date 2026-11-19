@@ -228,3 +228,51 @@ def test_toggle_assignment_completion_smart_fallback(db_session):
     )
     assert res_generic["success"] is True
     assert len(res_generic["modified_titles"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_interactive_task_wizard_and_callbacks(db_session, monkeypatch):
+    from app.services import telegram_task_wizard
+
+    admin = models.User(username="headmaster", code="HEAD01", is_admin=True, role=models.ROLE_OWNER)
+    db_session.add(admin)
+    db_session.commit()
+
+    # Stub telegram HTTP methods so no actual requests are sent to api.telegram.org
+    async def async_stub(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr(telegram_bot, "edit_telegram_message", async_stub)
+    monkeypatch.setattr(telegram_bot, "answer_callback_query", async_stub)
+
+    # 1. Test build steps
+    kb1 = telegram_task_wizard.build_step1_keyboard()
+    assert "inline_keyboard" in kb1
+    assert any("تکلیف نوشتنی" in btn["text"] for row in kb1["inline_keyboard"] for btn in row)
+
+    kb2 = telegram_task_wizard.build_step2_keyboard("written")
+    assert any("طراحی وب" in btn["text"] for row in kb2["inline_keyboard"] for btn in row)
+
+    text3, kb3 = telegram_task_wizard.build_step3_keyboard("written", "math")
+    assert "تکلیف نوشتنی ریاضی" in text3
+    assert any("پیشنهادی درس" in btn["text"] for row in kb3["inline_keyboard"] for btn in row)
+
+    # 2. Test saving via callback
+    res = await telegram_task_wizard.handle_wizard_callback(
+        db=db_session,
+        user=admin,
+        data="wiz:save:written:math:none",
+        chat_id=12345,
+        message_id=6789,
+        query_id="q1",
+        token="fake_token",
+    )
+    assert res is True
+
+    # 3. Verify created in database with auto-title
+    created = db_session.query(models.Assignment).filter_by(title="تکلیف نوشتنی ریاضی").first()
+    assert created is not None
+    assert created.course == "ریاضی"
+    assert created.subject_id == "math"
+    assert created.subtype == "written"
+    assert created.creator_id == admin.id

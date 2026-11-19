@@ -236,6 +236,7 @@ async def send_telegram_message(
     text: str,
     parse_mode: str = "HTML",
     reply_to_message_id: Optional[int] = None,
+    reply_markup: Optional[Dict[str, Any]] = None,
 ) -> bool:
     """Send a message via Telegram Bot HTTP API with automatic HTML sanitization and fallback."""
     if not token or not chat_id:
@@ -252,6 +253,8 @@ async def send_telegram_message(
     }
     if reply_to_message_id:
         payload["reply_to_message_id"] = reply_to_message_id
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -272,6 +275,71 @@ async def send_telegram_message(
                     return True
     except Exception as exc:
         logger.error("Failed to send Telegram message: %s", exc)
+    return False
+
+
+async def edit_telegram_message(
+    token: str,
+    chat_id: str | int,
+    message_id: int,
+    text: str,
+    reply_markup: Optional[Dict[str, Any]] = None,
+    parse_mode: str = "HTML",
+) -> bool:
+    """Edit an existing Telegram message (for step-by-step button wizards)."""
+    if not token or not chat_id or not message_id:
+        return False
+
+    formatted_text = format_telegram_html(text) if parse_mode == "HTML" else text
+    url = f"{TELEGRAM_API_BASE.format(token=token)}/editMessageText"
+    payload: Dict[str, Any] = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": formatted_text,
+        "parse_mode": parse_mode,
+    }
+    if reply_markup is not None:
+        payload["reply_markup"] = reply_markup
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json=payload)
+            if resp.status_code == 200:
+                return True
+            logger.warning("Telegram editMessageText error: %s %s", resp.status_code, resp.text)
+            if parse_mode:
+                plain_payload = dict(payload)
+                plain_payload.pop("parse_mode", None)
+                plain_payload["text"] = re.sub(r'<[^>]+>', '', formatted_text)
+                fallback_resp = await client.post(url, json=plain_payload)
+                return fallback_resp.status_code == 200
+    except Exception as exc:
+        logger.error("Failed to edit Telegram message: %s", exc)
+    return False
+
+
+async def answer_callback_query(
+    token: str,
+    callback_query_id: str,
+    text: Optional[str] = None,
+    show_alert: bool = False,
+) -> bool:
+    """Acknowledge a Telegram inline button tap."""
+    if not token or not callback_query_id:
+        return False
+
+    url = f"{TELEGRAM_API_BASE.format(token=token)}/answerCallbackQuery"
+    payload: Dict[str, Any] = {"callback_query_id": callback_query_id}
+    if text:
+        payload["text"] = text
+        payload["show_alert"] = show_alert
+
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(url, json=payload)
+            return resp.status_code == 200
+    except Exception as exc:
+        logger.error("Failed to answer callback query: %s", exc)
     return False
 
 

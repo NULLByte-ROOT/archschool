@@ -712,11 +712,10 @@ async def ask_universal_ai_agent(
         else "کاربر صحبت‌کننده: هنوز اکانت تلگرام خود را به حساب کاربری ArchSchool لینک نکرده است."
     )
     time_context = (
-        f"اطلاعات زنده زمانی و تقویم مدرسه:\n"
-        f"- امروز: {status['today_fa']} | ساعت محلی رسمی ایران: {status['current_time']}\n"
-        f"- وضعیت لحظه‌ای مدرسه: {status['bell_status']}\n"
+        f"اطلاعات زنده زمانی و تقویم:\n"
+        f"- امروز: {status['today_fa']} | ساعت رسمی ایران: {status['current_time']}\n"
         f"- فردا: {status['tomorrow_fa']}\n"
-        f"- روز مدرسه بعدی: {status['next_school_day']}"
+        f"- روز کلاسی بعدی: {status['next_school_day']}"
     )
     session_hint = (
         "وضعیت مکالمه: گفتگوی فعال در جریان است. سلام تکراری نده و مستقیماً و صمیمی صحبت را ادامه بده."
