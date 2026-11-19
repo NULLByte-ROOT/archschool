@@ -15,6 +15,10 @@ logger = logging.getLogger("archschool.telegram")
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
 
 PROVIDER_DEFAULTS = {
+    "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "model": "gemini-2.5-flash",
+    },
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
         "model": "openai/gpt-oss-120b",
@@ -43,6 +47,78 @@ def get_provider_defaults(provider: Optional[str]) -> tuple[str, str]:
     p_key = (provider or "openrouter").lower().strip()
     preset = PROVIDER_DEFAULTS.get(p_key, PROVIDER_DEFAULTS["openrouter"])
     return preset["base_url"], preset["model"]
+
+
+async def fetch_provider_models(api_key: str, base_url: str) -> List[Dict[str, str]]:
+    """Query the /models endpoint of an OpenAI-compatible provider and return cleaned models list."""
+    if not api_key:
+        return []
+    clean_base = (base_url or "https://openrouter.ai/api/v1").rstrip("/")
+    if clean_base.endswith("/chat/completions"):
+        clean_base = clean_base[:-len("/chat/completions")]
+
+    models_url = f"{clean_base}/models"
+    headers = {
+        "Authorization": f"Bearer {api_key.strip()}",
+        "Content-Type": "application/json",
+    }
+    if "openrouter.ai" in clean_base:
+        headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
+        headers["X-Title"] = "ArchSchool Assistant"
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(models_url, headers=headers)
+            if resp.status_code != 200:
+                logger.warning(
+                    "Failed to fetch models from %s (HTTP %s): %s",
+                    models_url,
+                    resp.status_code,
+                    resp.text[:100],
+                )
+                return []
+            data = resp.json()
+            raw_models = data.get("data", [])
+            model_items: List[Dict[str, str]] = []
+            excluded_keywords = [
+                "whisper", "tts", "embedding", "embed", "moderation",
+                "safeguard", "prompt-guard", "rerank", "dall-e", "audio",
+                "canopylabs", "orpheus"
+            ]
+            for item in raw_models:
+                m_id = item.get("id") if isinstance(item, dict) else str(item)
+                if not m_id:
+                    continue
+                lower_id = m_id.lower()
+                if any(k in lower_id for k in excluded_keywords):
+                    continue
+                model_items.append({"id": m_id, "name": m_id})
+
+            def sort_key(m: Dict[str, str]) -> int:
+                mid = m["id"].lower()
+                if "gemini-2.5-flash" in mid:
+                    return 0
+                if "gemini-2.0-flash" in mid or "gemini-1.5-flash" in mid:
+                    return 1
+                if "gemini" in mid:
+                    return 2
+                if "gpt-oss-120b" in mid:
+                    return 0
+                if "gpt-oss-20b" in mid or "qwen3.8" in mid:
+                    return 1
+                if "gpt-4o" in mid:
+                    return 0
+                if "grok" in mid:
+                    return 1
+                if "deepseek" in mid:
+                    return 1
+                return 10
+
+            model_items.sort(key=sort_key)
+            return model_items[:50]
+    except Exception as exc:
+        logger.warning("Exception fetching models from %s: %s", models_url, exc)
+        return []
 
 
 def get_bot_setting(db: Session, key: str, default: str = "") -> str:

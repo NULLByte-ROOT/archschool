@@ -58,6 +58,11 @@ def test_bot_settings(db_session):
     assert groq_base == "https://api.groq.com/openai/v1"
     assert groq_model == "openai/gpt-oss-120b"
 
+    # Test Gemini defaults
+    gemini_base, gemini_model = telegram_bot.get_provider_defaults("gemini")
+    assert gemini_base == "https://generativelanguage.googleapis.com/v1beta/openai/"
+    assert gemini_model == "gemini-2.5-flash"
+
 
 def test_universal_ai_tools_execution(db_session):
     admin = models.User(

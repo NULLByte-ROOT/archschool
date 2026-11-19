@@ -32,6 +32,12 @@ class BotTestRequest(BaseModel):
     message: Optional[str] = None
 
 
+class FetchModelsRequest(BaseModel):
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    provider: Optional[str] = None
+
+
 @router.post("/webhook", include_in_schema=False)
 async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     """Receives incoming updates from Telegram Webhook."""
@@ -392,6 +398,29 @@ async def test_telegram(
         "ai_status": ai_status,
         "group_message_sent": group_sent,
     }
+
+
+@router.post("/models")
+async def get_available_models(
+    payload: FetchModelsRequest,
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(get_current_admin),
+):
+    """Dynamically query available chat models from the given provider's /models endpoint."""
+    key = (
+        payload.api_key
+        or telegram_bot.get_bot_setting(db, "ai_api_key")
+        or telegram_bot.get_bot_setting(db, "gemini_api_key")
+    )
+    provider = payload.provider or telegram_bot.get_bot_setting(db, "ai_provider", "openrouter")
+    def_base, _ = telegram_bot.get_provider_defaults(provider)
+    base_url = payload.base_url or telegram_bot.get_bot_setting(db, "ai_base_url") or def_base
+
+    if not key or not key.strip():
+        return {"ok": False, "models": [], "error": "کلید API وارد نشده است."}
+
+    models_list = await telegram_bot.fetch_provider_models(key.strip(), base_url.strip())
+    return {"ok": True, "models": models_list}
 
 
 # --------------------------------------------------------------------------
