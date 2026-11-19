@@ -42,8 +42,10 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
 
     token = telegram_bot.get_bot_setting(db, "telegram_bot_token")
     ai_key = telegram_bot.get_bot_setting(db, "ai_api_key") or telegram_bot.get_bot_setting(db, "gemini_api_key")
-    base_url = telegram_bot.get_bot_setting(db, "ai_base_url", "https://openrouter.ai/api/v1")
-    model_name = telegram_bot.get_bot_setting(db, "ai_model", "openai/gpt-4o-mini")
+    provider = telegram_bot.get_bot_setting(db, "ai_provider", "openrouter")
+    def_base, def_model = telegram_bot.get_provider_defaults(provider)
+    base_url = telegram_bot.get_bot_setting(db, "ai_base_url") or def_base
+    model_name = telegram_bot.get_bot_setting(db, "ai_model") or def_model
     enabled = telegram_bot.get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
 
     if not token or not enabled:
@@ -346,8 +348,10 @@ async def test_telegram(
     token = telegram_bot.get_bot_setting(db, "telegram_bot_token")
     group_id = telegram_bot.get_bot_setting(db, "telegram_group_id")
     ai_key = telegram_bot.get_bot_setting(db, "ai_api_key") or telegram_bot.get_bot_setting(db, "gemini_api_key")
-    base_url = telegram_bot.get_bot_setting(db, "ai_base_url", "https://openrouter.ai/api/v1")
-    model_name = telegram_bot.get_bot_setting(db, "ai_model", "openai/gpt-4o-mini")
+    provider = telegram_bot.get_bot_setting(db, "ai_provider", "openrouter")
+    def_base, def_model = telegram_bot.get_provider_defaults(provider)
+    base_url = telegram_bot.get_bot_setting(db, "ai_base_url") or def_base
+    model_name = telegram_bot.get_bot_setting(db, "ai_model") or def_model
 
     if not token:
         raise HTTPException(status_code=400, detail="توکن ربات تلگرام تنظیم نشده است.")

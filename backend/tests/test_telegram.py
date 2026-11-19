@@ -53,6 +53,11 @@ def test_bot_settings(db_session):
     assert settings["has_token"] is True
     assert settings["has_ai"] is True
 
+    # Test Groq defaults
+    groq_base, groq_model = telegram_bot.get_provider_defaults("groq")
+    assert groq_base == "https://api.groq.com/openai/v1"
+    assert groq_model == "llama-3.3-70b-versatile"
+
 
 def test_universal_ai_tools_execution(db_session):
     admin = models.User(

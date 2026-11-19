@@ -738,9 +738,10 @@ async def ask_universal_ai_agent(
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://archschool.vidxsepehr.ir",
-        "X-Title": "ArchSchool Assistant",
     }
+    if "openrouter.ai" in endpoint_url:
+        headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
+        headers["X-Title"] = "ArchSchool Assistant"
 
     payload: Dict[str, Any] = {
         "model": clean_model,
@@ -769,8 +770,13 @@ async def ask_universal_ai_agent(
 
             # --- Tool Calling Branch ---
             if tool_calls:
-                # Add assistant message with tool_calls to history
-                messages.append(choice_message)
+                # Add assistant message with tool_calls to history (clean schema)
+                clean_assistant: Dict[str, Any] = {
+                    "role": "assistant",
+                    "content": choice_message.get("content"),
+                    "tool_calls": tool_calls,
+                }
+                messages.append(clean_assistant)
 
                 for tc in tool_calls:
                     call_id = tc.get("id") or "call_1"
@@ -788,7 +794,7 @@ async def ask_universal_ai_agent(
                     # Append tool result message
                     messages.append({
                         "role": "tool",
-                        "tool_call_id": call_id,
+                        "tool_call_id": str(call_id),
                         "content": json.dumps(tool_output, ensure_ascii=False),
                     })
 

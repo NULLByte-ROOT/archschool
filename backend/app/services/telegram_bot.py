@@ -14,6 +14,36 @@ logger = logging.getLogger("archschool.telegram")
 
 TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
 
+PROVIDER_DEFAULTS = {
+    "groq": {
+        "base_url": "https://api.groq.com/openai/v1",
+        "model": "llama-3.3-70b-versatile",
+    },
+    "openrouter": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "openai/gpt-4o-mini",
+    },
+    "xai": {
+        "base_url": "https://api.x.ai/v1",
+        "model": "grok-2",
+    },
+    "deepseek": {
+        "base_url": "https://api.deepseek.com/v1",
+        "model": "deepseek-chat",
+    },
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "model": "gpt-4o-mini",
+    },
+}
+
+
+def get_provider_defaults(provider: Optional[str]) -> tuple[str, str]:
+    """Return default (base_url, model) for a given provider."""
+    p_key = (provider or "openrouter").lower().strip()
+    preset = PROVIDER_DEFAULTS.get(p_key, PROVIDER_DEFAULTS["openrouter"])
+    return preset["base_url"], preset["model"]
+
 
 def get_bot_setting(db: Session, key: str, default: str = "") -> str:
     """Read a setting from bot_settings table."""
@@ -37,13 +67,15 @@ def get_all_bot_settings(db: Session) -> Dict[str, Any]:
     rows = db.query(models.BotSetting).all()
     data = {r.key: r.value for r in rows}
     api_key = data.get("ai_api_key") or data.get("gemini_api_key", "")
+    provider = data.get("ai_provider", "openrouter")
+    def_base, def_model = get_provider_defaults(provider)
     return {
         "bot_token": data.get("telegram_bot_token", ""),
         "group_id": data.get("telegram_group_id", ""),
-        "ai_provider": data.get("ai_provider", "openrouter"),
+        "ai_provider": provider,
         "ai_api_key": api_key,
-        "ai_base_url": data.get("ai_base_url", "https://openrouter.ai/api/v1"),
-        "ai_model": data.get("ai_model", "openai/gpt-4o-mini"),
+        "ai_base_url": data.get("ai_base_url") or def_base,
+        "ai_model": data.get("ai_model") or def_model,
         "bot_enabled": data.get("telegram_bot_enabled", "true").lower() in ("true", "1", "yes"),
         "has_token": bool(data.get("telegram_bot_token")),
         "has_ai": bool(api_key),
