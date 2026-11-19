@@ -91,3 +91,9 @@ def test_gemini_tools_execution(db_session):
     status = gemini_agent.execute_tool("get_my_status", {}, db_session, student)
     assert status["success"] is True
     assert status["username"] == "student_user"
+
+
+@pytest.mark.asyncio
+async def test_ask_gemini_agent_no_key(db_session):
+    reply = await gemini_agent.ask_gemini_agent("سلام", "", db_session)
+    assert "⚠️" in reply

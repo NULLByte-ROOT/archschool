@@ -11,7 +11,8 @@ from ..analytics import build_leaderboard
 
 logger = logging.getLogger("archschool.gemini")
 
-GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+FALLBACK_MODELS = ["gemini-flash-latest", "gemini-3.8-flash", "gemini-3.5-flash"]
 
 SYSTEM_INSTRUCTION = """
 تو دستیار هوشمند، رفیق و همکلاسی پرانرژی بچه‌های مدرسه در سامانه ArchSchool هستی! 🚀
@@ -255,7 +256,7 @@ async def ask_gemini_agent(
     db: Session,
     current_user: Optional[models.User] = None,
     conversation_history: Optional[List[Dict[str, Any]]] = None,
-    model_name: str = "gemini-2.0-flash",
+    model_name: str = "gemini-3.5-flash-lite",
 ) -> str:
     """Send user prompt to Gemini Flash with function calling support."""
     if not api_key:
@@ -276,7 +277,11 @@ async def ask_gemini_agent(
         "parts": [{"text": f"[{user_info}]\n{user_prompt}"}],
     })
 
-    url = GEMINI_API_URL.format(model=model_name, key=api_key)
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key,
+        "User-Agent": "Mozilla/5.0 (compatible; ArchSchoolBot/1.0)",
+    }
 
     payload: Dict[str, Any] = {
         "system_instruction": {
@@ -294,16 +299,24 @@ async def ask_gemini_agent(
         },
     }
 
+    models_to_try = [model_name] + [m for m in FALLBACK_MODELS if m != model_name]
+
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            resp = await client.post(url, json=payload)
-            if resp.status_code != 200:
-                logger.warning("Gemini API error %s: %s, falling back to gemini-1.5-flash", resp.status_code, resp.text)
-                # Fallback to gemini-1.5-flash
-                fallback_url = GEMINI_API_URL.format(model="gemini-1.5-flash", key=api_key)
-                resp = await client.post(fallback_url, json=payload)
-                if resp.status_code != 200:
-                    return f"⚠️ متاسفانه در ارتباط با هوش مصنوعی خطایی رخ داد: {resp.status_code}"
+        async with httpx.AsyncClient(timeout=25.0, headers=headers) as client:
+            resp = None
+            used_model = model_name
+
+            for m in models_to_try:
+                target_url = f"{GEMINI_API_URL.format(model=m)}?key={api_key}"
+                resp = await client.post(target_url, json=payload)
+                if resp.status_code == 200:
+                    used_model = m
+                    break
+                logger.warning("Gemini model %s returned %s: %s", m, resp.status_code, resp.text[:120])
+
+            if not resp or resp.status_code != 200:
+                code = resp.status_code if resp else "timeout"
+                return f"⚠️ متاسفانه در ارتباط با هوش مصنوعی خطایی رخ داد: {code}"
 
             res_data = resp.json()
             candidates = res_data.get("candidates", [])
@@ -327,14 +340,14 @@ async def ask_gemini_agent(
 
                 tool_result = execute_tool(tool_name, tool_args, db, current_user)
 
-                # Append model's function call message
+                # Append model's exact parts (including thoughtSignature)
                 contents.append({
                     "role": "model",
-                    "parts": [{"functionCall": function_call}],
+                    "parts": parts,
                 })
-                # Append tool response
+                # Append tool response with role 'user' (v1beta requirement)
                 contents.append({
-                    "role": "function",
+                    "role": "user",
                     "parts": [
                         {
                             "functionResponse": {
@@ -351,11 +364,12 @@ async def ask_gemini_agent(
                     "contents": contents,
                     "generationConfig": {"temperature": 0.7, "maxOutputTokens": 800},
                 }
-                second_resp = await client.post(url, json=second_payload)
+                turn2_url = f"{GEMINI_API_URL.format(model=used_model)}?key={api_key}"
+                second_resp = await client.post(turn2_url, json=second_payload)
                 if second_resp.status_code == 200:
                     second_data = second_resp.json()
                     second_parts = second_data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
-                    final_text = "".join(p.get("text", "") for p in second_parts)
+                    final_text = "".join(p.get("text", "") for p in second_parts if "text" in p)
                     return final_text or "انجام شد!"
 
             # Normal text response
