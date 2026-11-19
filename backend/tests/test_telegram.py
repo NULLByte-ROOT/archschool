@@ -97,3 +97,21 @@ def test_universal_ai_tools_execution(db_session):
     status = ai_agent.execute_tool("get_my_status", {}, db_session, student)
     assert status["success"] is True
     assert status["username"] == "student_user"
+
+
+def test_format_telegram_html():
+    # 1. Bold with double asterisks
+    raw = "**عنوان تکلیف:**\n* مورد اول\n- مورد دوم\n`کد 123`\nفرمول 3 < 5 و a > b"
+    formatted = telegram_bot.format_telegram_html(raw)
+
+    # Must convert **bold** to <b>bold</b>
+    assert "<b>عنوان تکلیف:</b>" in formatted
+    # Must convert * and - bullets to 🔹
+    assert "🔹 مورد اول" in formatted
+    assert "🔹 مورد دوم" in formatted
+    # Must convert `code` to <code>code</code>
+    assert "<code>کد 123</code>" in formatted
+    # Must escape raw < and > so Telegram HTML doesn't fail
+    assert "&lt;" in formatted and "&gt;" in formatted
+    # No stray asterisks
+    assert "*" not in formatted

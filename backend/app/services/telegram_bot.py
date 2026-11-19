@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import secrets
 from typing import Any, Dict, List, Optional
 import httpx
@@ -95,6 +96,54 @@ def link_telegram_user(
     return user
 
 
+def format_telegram_html(text: str) -> str:
+    """Format and sanitize AI output for Telegram HTML parse_mode.
+
+    1. Converts markdown headers (### Title) to <b>Title</b>.
+    2. Converts markdown bullets (* or -) to clean emoji bullets (🔹).
+    3. Converts bold markdown (**text** or ***text***) to <b>text</b>.
+    4. Converts inline code (`code`) to <code>code</code>.
+    5. Converts single asterisk italics (*text*) to <i>text</i>.
+    6. Strips any stray remaining asterisks so no ugly markdown shows up.
+    7. Escapes raw < and > while preserving valid Telegram tags (b, i, u, s, code, pre, a, blockquote).
+    """
+    if not text:
+        return ""
+
+    # Normalize linebreaks
+    text = text.replace("\r\n", "\n")
+
+    # 1. Convert headers like ### Title -> <b>Title</b>
+    text = re.sub(r'^(?:#{1,6})\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+
+    # 2. Convert bullet points: * Item or - Item -> 🔹 Item
+    text = re.sub(r'^\s*[\*\-]\s+(.+)$', r'🔹 \1', text, flags=re.MULTILINE)
+
+    # 3. Convert bold: **text** or ***text*** -> <b>text</b>
+    text = re.sub(r'\*{2,3}([^\*\n]+?)\*{2,3}', r'<b>\1</b>', text)
+
+    # 4. Convert inline code: `code` -> <code>code</code>
+    text = re.sub(r'`([^`\n]+)`', r'<code>\1</code>', text)
+
+    # 5. Convert italic: *text* (when not already matched) -> <i>text</i>
+    text = re.sub(r'(?<!\*)\*([^\*\n]+?)\*(?!\*)', r'<i>\1</i>', text)
+
+    # 6. Remove any remaining stray asterisks
+    text = re.sub(r'\*{1,}', '', text)
+
+    # 7. Protect and preserve valid Telegram HTML tags, escape other < and >
+    tag_regex = re.compile(
+        r'(</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|a|blockquote)(?:\s+href="[^"]*")?\s*>)',
+        re.IGNORECASE,
+    )
+    parts = tag_regex.split(text)
+    for i in range(0, len(parts), 2):
+        # Escape raw < and > in the text segments outside of tags
+        parts[i] = parts[i].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    return "".join(parts).strip()
+
+
 async def send_telegram_message(
     token: str,
     chat_id: str | int,
@@ -102,14 +151,17 @@ async def send_telegram_message(
     parse_mode: str = "HTML",
     reply_to_message_id: Optional[int] = None,
 ) -> bool:
-    """Send a message via Telegram Bot HTTP API."""
+    """Send a message via Telegram Bot HTTP API with automatic HTML sanitization and fallback."""
     if not token or not chat_id:
         return False
+
+    # Sanitize and convert markdown to valid Telegram HTML if in HTML mode
+    formatted_text = format_telegram_html(text) if parse_mode == "HTML" else text
 
     url = f"{TELEGRAM_API_BASE.format(token=token)}/sendMessage"
     payload: Dict[str, Any] = {
         "chat_id": chat_id,
-        "text": text,
+        "text": formatted_text,
         "parse_mode": parse_mode,
     }
     if reply_to_message_id:
@@ -121,6 +173,17 @@ async def send_telegram_message(
             if resp.status_code == 200:
                 return True
             logger.warning("Telegram sendMessage error: %s %s", resp.status_code, resp.text)
+
+            # Fallback: if Telegram rejected the HTML entities, send as clean plain text
+            if parse_mode:
+                plain_payload = dict(payload)
+                plain_payload.pop("parse_mode", None)
+                # Strip HTML tags for clean fallback
+                plain_payload["text"] = re.sub(r'<[^>]+>', '', formatted_text)
+                fallback_resp = await client.post(url, json=plain_payload)
+                if fallback_resp.status_code == 200:
+                    logger.info("Telegram message sent successfully using plain-text fallback")
+                    return True
     except Exception as exc:
         logger.error("Failed to send Telegram message: %s", exc)
     return False
