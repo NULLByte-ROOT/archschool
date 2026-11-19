@@ -262,6 +262,8 @@ async def ask_gemini_agent(
     if not api_key:
         return "⚠️ کلید API هوش مصنوعی جمینای در پنل مدیریت مدرسه هنوز تنظیم نشده است."
 
+    clean_key = api_key.strip()
+
     user_info = (
         f"کاربر سوال‌کننده: {current_user.username} (نقش: {current_user.role})"
         if current_user
@@ -279,8 +281,8 @@ async def ask_gemini_agent(
 
     headers = {
         "Content-Type": "application/json",
-        "x-goog-api-key": api_key,
-        "User-Agent": "Mozilla/5.0 (compatible; ArchSchoolBot/1.0)",
+        "x-goog-api-key": clean_key,
+        "User-Agent": "Mozilla/5.0",
     }
 
     payload: Dict[str, Any] = {
@@ -307,7 +309,7 @@ async def ask_gemini_agent(
             used_model = model_name
 
             for m in models_to_try:
-                target_url = f"{GEMINI_API_URL.format(model=m)}?key={api_key}"
+                target_url = GEMINI_API_URL.format(model=m)
                 resp = await client.post(target_url, json=payload)
                 if resp.status_code == 200:
                     used_model = m
@@ -364,7 +366,7 @@ async def ask_gemini_agent(
                     "contents": contents,
                     "generationConfig": {"temperature": 0.7, "maxOutputTokens": 800},
                 }
-                turn2_url = f"{GEMINI_API_URL.format(model=used_model)}?key={api_key}"
+                turn2_url = GEMINI_API_URL.format(model=used_model)
                 second_resp = await client.post(turn2_url, json=second_payload)
                 if second_resp.status_code == 200:
                     second_data = second_resp.json()
