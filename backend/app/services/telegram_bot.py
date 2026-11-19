@@ -17,7 +17,7 @@ TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
 PROVIDER_DEFAULTS = {
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
-        "model": "llama-3.3-70b-versatile",
+        "model": "openai/gpt-oss-120b",
     },
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
