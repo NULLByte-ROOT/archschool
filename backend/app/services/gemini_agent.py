@@ -387,6 +387,20 @@ async def ask_gemini_agent(
                     second_parts = second_data.get("candidates", [{}])[0].get("content", {}).get("parts", [])
                     final_text = "".join(p.get("text", "") for p in second_parts if "text" in p)
                     return final_text or "انجام شد!"
+                else:
+                    logger.warning("Gemini turn 2 failed: %s %s. Formatting tool result directly.", second_resp.status_code, second_resp.text[:100])
+                    if isinstance(tool_result, dict):
+                        if tool_result.get("error"):
+                            return f"⚠️ {tool_result['error']}"
+                        if "assignments" in tool_result:
+                            items = [f"• {a['title']} (موعد: {a.get('due_date') or 'نامشخص'})" for a in tool_result["assignments"]]
+                            return "📚 <b>تکالیف فعال کلاس:</b>\n" + ("\n".join(items) if items else "در حال حاضر تکلیفی ثبت نشده است.")
+                        if "leaderboard" in tool_result:
+                            items = [f"{i+1}. <b>{u['username']}</b> (استریک {u.get('streak', 0)} روزه - موفقیت {u.get('percentage', 0)}%)" for i, u in enumerate(tool_result["leaderboard"])]
+                            return "🏆 <b>جدول رتبه‌بندی برتر کلاس:</b>\n\n" + "\n".join(items)
+                        if "username" in tool_result:
+                            return f"👤 <b>وضعیت شخصی شما ({tool_result['username']}):</b>\nاستریک جاری: 🔥 {tool_result.get('streak', 0)} روز\nرتبه در کلاس: 🏅 رتبه {tool_result.get('rank', '-')}\nتکالیف باقی‌مانده: {tool_result.get('pending_assignments', 0)}"
+                    return f"✅ انجام شد: {json.dumps(tool_result, ensure_ascii=False)}"
 
             # Normal text response
             text_response = "".join(p.get("text", "") for p in parts if "text" in p)
