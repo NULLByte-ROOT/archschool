@@ -402,7 +402,7 @@ patch_nginx_ws() {
         }
         if (inloc) {
             n++; buf[n] = $0
-            if ($0 ~ /proxy_pass/) hasproxy = 1
+            if ($0 ~ /proxy_pass[ \t]+http:\/\/(archschool_app|127\.0\.0\.1|localhost)/) hasproxy = 1
             if (tolower($0) ~ /proxy_set_header[ \t]+upgrade[ \t]+"?\$http_upgrade/) hasup = 1
             if (tolower($0) ~ /proxy_set_header[ \t]+connection[ \t]+"?(upgrade|\$connection_upgrade)/) hasconn = 1
             if ($0 ~ /proxy_http_version/) hashttp = 1
