@@ -246,37 +246,20 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     telegram_bot.save_chat_history(db, chat_id, role="user", content=text, user_id=user.id if user else None)
     telegram_bot.save_chat_history(db, chat_id, role="assistant", content=ai_reply, user_id=user.id if user else None)
 
-    # Attach interactive action buttons if relevant
+    # Attach interactive action button ONLY when user asks to add/create a task (no buttons for ticking)
     reply_markup = None
-    if any(k in text for k in ("تکلیف", "تکالیف", "درس", "مشق")):
-        buttons = []
-        if user:
-            completed_ids = select(models.AssignmentCompletion.assignment_id).filter(
-                models.AssignmentCompletion.user_id == user.id
-            )
-            pending = (
-                db.query(models.Assignment)
-                .filter(
-                    models.Assignment.deleted_at.is_(None),
-                    ~models.Assignment.id.in_(completed_ids),
-                    or_(
-                        models.Assignment.due_date.is_(None),
-                        models.Assignment.due_date >= datetime.utcnow() - timedelta(days=1),
-                    ),
-                )
-                .order_by(models.Assignment.due_date.asc().nulls_last())
-                .limit(3)
-                .all()
-            )
-            for p in pending:
-                short_title = p.title[:24]
-                buttons.append([{"text": f"✅ تیک زدن: {short_title}", "callback_data": f"task_toggle:{p.id}"}])
-
-        if user and (user.is_admin or user.role in ("admin", "owner")):
-            buttons.append([{"text": "➕ افزودن تکلیف جدید با دکمه", "callback_data": "wiz:s1"}])
-
-        if buttons:
-            reply_markup = {"inline_keyboard": buttons}
+    add_task_keywords = (
+        "افزودن تکلیف", "اضافه کردن تکلیف", "ثبت تکلیف", "تکلیف جدید",
+        "تکلیف بزار", "تکلیف بذار", "تکلیف اضافه", "تکلیف ثبت", "ایجاد تکلیف",
+        "مشق اضافه", "مشق ثبت", "تکلیف بده"
+    )
+    if user and (user.is_admin or user.role in ("admin", "owner")):
+        if any(k in text for k in add_task_keywords):
+            reply_markup = {
+                "inline_keyboard": [
+                    [{"text": "➕ افزودن تکلیف جدید با دکمه", "callback_data": "wiz:s1"}]
+                ]
+            }
 
     await telegram_bot.send_telegram_message(
         token, chat_id, ai_reply, parse_mode="HTML", reply_to_message_id=msg_id, reply_markup=reply_markup

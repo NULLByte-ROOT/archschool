@@ -680,6 +680,19 @@ def execute_tool(
         return {"success": False, "error": str(exc)}
 
 
+def _format_friendly_ai_error(status_code: int, raw_text: str) -> str:
+    """Generate friendly Persian error messages without exposing technical codes or raw HTML/JSON."""
+    if status_code == 429:
+        return "⚠️ سرویس هوش مصنوعی در حال حاضر پرمصرف است یا به سقف مجاز درخواست در دقیقه رسیده است. لطفاً یک دقیقه بعد دوباره امتحان کنید."
+    elif status_code in (500, 502, 503, 504):
+        return "⚠️ سرور هوش مصنوعی به طور موقت تحت بار سنگین ترافیکی است یا در دسترس نیست. لطفاً یک دقیقه دیگر تلاش کنید."
+    elif status_code in (401, 403):
+        return "⚠️ کلید دسترسی هوش مصنوعی نامعتبر است یا دسترسی به این مدل محدود شده است. لطفاً تنظیمات کلید را در پنل مدرسه بررسی کنید."
+    elif status_code == 404:
+        return "⚠️ مدل هوش مصنوعی انتخاب‌شده در این سرویس یافت نشد یا تغییر کرده است. لطفاً در پنل مدیریت مدل دیگری را انتخاب کنید."
+    return "⚠️ ارتباط با سرویس هوش مصنوعی با اختلال موقت مواجه شد. لطفاً کمی بعد دوباره پیام دهید."
+
+
 async def ask_universal_ai_agent(
     user_prompt: str,
     api_key: str,
@@ -764,7 +777,7 @@ async def ask_universal_ai_agent(
             resp = await client.post(endpoint_url, json=payload, headers=headers)
             if resp.status_code != 200:
                 logger.error("AI provider error %s from %s: %s", resp.status_code, endpoint_url, resp.text)
-                return f"⚠️ خطای ارائه‌دهنده هوش مصنوعی ({resp.status_code}): {resp.text[:150]}"
+                return _format_friendly_ai_error(resp.status_code, resp.text)
 
             data = resp.json()
             choices = data.get("choices", [])
