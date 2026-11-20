@@ -40,6 +40,7 @@ def _serialize(
         schemas.AttachmentOut.model_validate(att)
         for att in (assignment.attachments or [])
     ]
+    is_reminder = bool(getattr(assignment, "is_reminder_only", False))
     return schemas.AssignmentOut(
         id=assignment.id,
         title=assignment.title,
@@ -49,18 +50,19 @@ def _serialize(
         subtype=assignment.subtype or "",
         subject_id=assignment.subject_id or "",
         due_date=assignment.due_date,
-        completed=current.id in completer_ids,
+        completed=False if is_reminder else (current.id in completer_ids),
+        is_reminder_only=is_reminder,
         owner_id=assignment.owner_id,
         creator_id=assignment.creator_id,
         creator_username=assignment.creator.username if assignment.creator else None,
-        completed_by_users=[
+        completed_by_users=[] if is_reminder else [
             schemas.CompletedByUser(
                 id=completion.user_id,
                 username=completion.user.username if completion.user else None,
             )
             for completion in assignment.completions
         ],
-        is_completed_by_me=current.id in completer_ids,
+        is_completed_by_me=False if is_reminder else (current.id in completer_ids),
         attachments=serialized_attachments,
         created_at=assignment.created_at,
         updated_at=assignment.updated_at,
@@ -227,6 +229,11 @@ def _toggle_completion(
     now: Optional[datetime] = None,
 ) -> None:
     """Toggle the current user's completion, enforcing the anti-cheat rules."""
+    if getattr(assignment, "is_reminder_only", False):
+        raise HTTPException(
+            status_code=400,
+            detail="این مورد فقط جهت یادآوری ثبت شده و امکان تیک زدن یا انجام آن وجود ندارد.",
+        )
     now = now or datetime.utcnow()
     existing = (
         db.query(models.AssignmentCompletion)

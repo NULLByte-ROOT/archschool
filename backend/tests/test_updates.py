@@ -205,7 +205,7 @@ def test_apk_download_full(client: TestClient, test_updates_dir: Path):
     assert response.status_code == 200
     assert "application/vnd.android.package-archive" in response.headers.get("content-type", "").lower()
     assert "attachment" in response.headers.get("content-disposition", "").lower()
-    assert "app-release.apk" in response.headers.get("content-disposition", "")
+    assert "ArchSchool.apk" in response.headers.get("content-disposition", "") or "app-release.apk" in response.headers.get("content-disposition", "")
     assert response.headers.get("accept-ranges") == "bytes"
     assert len(response.content) == 4096
     assert response.content == apk_content

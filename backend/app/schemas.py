@@ -209,6 +209,7 @@ class AssignmentBase(BaseModel):
     subject_id: str = ""
     due_date: Optional[datetime] = None
     completed: bool = False
+    is_reminder_only: bool = False
 
 
 class AssignmentCreate(AssignmentBase):
@@ -224,6 +225,7 @@ class AssignmentUpdate(BaseModel):
     subject_id: Optional[str] = None
     due_date: Optional[datetime] = None
     completed: Optional[bool] = None
+    is_reminder_only: Optional[bool] = None
 
 
 class CompletedByUser(BaseModel):

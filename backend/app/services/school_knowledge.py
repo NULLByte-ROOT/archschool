@@ -1,5 +1,13 @@
 from datetime import datetime, timedelta
+import json
+import logging
+import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger("archschool.school_knowledge")
+
+CONFIG_PATH = Path(os.environ.get("SCHOOL_CONFIG_PATH") or (Path(__file__).resolve().parent.parent / "school_config.json"))
 
 
 def gregorian_to_jalali(gy: int, gm: int, gd: int) -> Tuple[int, int, int]:
@@ -64,100 +72,6 @@ WEEKDAYS_MAP: Dict[int, Tuple[str, str]] = {
     4: ("fri", "جمعه"),
 }
 
-SUBJECT_DATA: List[Dict[str, str]] = [
-    {"id": "web-design", "name": "طراحی وب", "name_en": "Web Design", "teacher": "محمدی‌فر"},
-    {"id": "persian", "name": "فارسی", "name_en": "Persian", "teacher": "عسگری"},
-    {"id": "human-env", "name": "انسان و محیط زیست", "name_en": "Human & Environment", "teacher": "عزیزی"},
-    {"id": "religion", "name": "دین و زندگی", "name_en": "Religion", "teacher": "داوودی"},
-    {"id": "sports", "name": "تربیت بدنی", "name_en": "Sports", "teacher": "عزیزی"},
-    {"id": "arabic", "name": "عربی", "name_en": "Arabic", "teacher": "داوودی"},
-    {"id": "entrepreneurship", "name": "کارآفرینی", "name_en": "Entrepreneurship", "teacher": "مجیدی"},
-    {"id": "history", "name": "تاریخ", "name_en": "History", "teacher": "نظم‌ده"},
-    {"id": "english", "name": "زبان انگلیسی", "name_en": "English", "teacher": "علمدار"},
-    {"id": "content-creation", "name": "تولید محتوای کامپیوتری", "name_en": "Computer Content Creation", "teacher": "حیدری"},
-    {"id": "production-mgmt", "name": "مدیریت تولید", "name_en": "Production Management", "teacher": "م. محمدی"},
-    {"id": "media-literacy", "name": "تفکر و سواد رسانه‌ای", "name_en": "Thinking & Media Literacy", "teacher": "محمدی"},
-    {"id": "math", "name": "ریاضی", "name_en": "Math", "teacher": "یوسفی"},
-    {"id": "chemistry", "name": "شیمی", "name_en": "Chemistry", "teacher": "گل‌محمدی"},
-]
-
-SUBJECT_BY_ID = {s["id"]: s for s in SUBJECT_DATA}
-SUBJECT_BY_NAME = {s["name"]: s for s in SUBJECT_DATA}
-
-WEEKLY_SCHEDULE: Dict[str, Dict[str, Any]] = {
-    "sat": {
-        "day_id": "sat",
-        "day_fa": "شنبه",
-        "is_school_day": True,
-        "periods": [
-            {"period": 1, "subject": "طراحی وب", "subject_id": "web-design", "teacher": "محمدی‌فر", "time": "08:00 تا 09:30"},
-            {"period": 2, "subject": "طراحی وب", "subject_id": "web-design", "teacher": "محمدی‌فر", "time": "09:30 تا 11:00"},
-            {"period": 3, "subject": "طراحی وب", "subject_id": "web-design", "teacher": "محمدی‌فر", "time": "11:00 تا 12:30"},
-            {"period": 4, "subject": "طراحی وب", "subject_id": "web-design", "teacher": "محمدی‌فر", "time": "12:30 تا 14:00"},
-        ],
-        "note": "کارگاه عملی ۴ زنگ پیوسته طراحی وب",
-    },
-    "sun": {
-        "day_id": "sun",
-        "day_fa": "یکشنبه",
-        "is_school_day": True,
-        "periods": [
-            {"period": 1, "subject": "فارسی", "subject_id": "persian", "teacher": "عسگری", "time": "08:00 تا 09:30"},
-            {"period": 2, "subject": "انسان و محیط زیست", "subject_id": "human-env", "teacher": "عزیزی", "time": "09:30 تا 11:00"},
-            {"period": 3, "subject": "دین و زندگی", "subject_id": "religion", "teacher": "داوودی", "time": "11:00 تا 12:30"},
-            {"period": 4, "subject": "تربیت بدنی", "subject_id": "sports", "teacher": "عزیزی", "time": "12:30 تا 14:00"},
-        ],
-    },
-    "mon": {
-        "day_id": "mon",
-        "day_fa": "دوشنبه",
-        "is_school_day": True,
-        "periods": [
-            {"period": 1, "subject": "عربی", "subject_id": "arabic", "teacher": "داوودی", "time": "08:00 تا 09:30"},
-            {"period": 2, "subject": "کارآفرینی", "subject_id": "entrepreneurship", "teacher": "مجیدی", "time": "09:30 تا 11:00"},
-            {"period": 3, "subject": "تاریخ", "subject_id": "history", "teacher": "نظم‌ده", "time": "11:00 تا 12:30"},
-            {"period": 4, "subject": "زبان انگلیسی", "subject_id": "english", "teacher": "علمدار", "time": "12:30 تا 14:00"},
-        ],
-    },
-    "tue": {
-        "day_id": "tue",
-        "day_fa": "سه‌شنبه",
-        "is_school_day": True,
-        "periods": [
-            {"period": 1, "subject": "تولید محتوای کامپیوتری", "subject_id": "content-creation", "teacher": "حیدری", "time": "08:00 تا 09:30"},
-            {"period": 2, "subject": "تولید محتوای کامپیوتری", "subject_id": "content-creation", "teacher": "حیدری", "time": "09:30 تا 11:00"},
-            {"period": 3, "subject": "تولید محتوای کامپیوتری", "subject_id": "content-creation", "teacher": "حیدری", "time": "11:00 تا 12:30"},
-            {"period": 4, "subject": "تولید محتوای کامپیوتری", "subject_id": "content-creation", "teacher": "حیدری", "time": "12:30 تا 14:00"},
-        ],
-        "note": "کارگاه عملی ۴ زنگ پیوسته تولید محتوای کامپیوتری",
-    },
-    "wed": {
-        "day_id": "wed",
-        "day_fa": "چهارشنبه",
-        "is_school_day": True,
-        "periods": [
-            {"period": 1, "subject": "مدیریت تولید", "subject_id": "production-mgmt", "teacher": "م. محمدی", "time": "08:00 تا 09:30"},
-            {"period": 2, "subject": "تفکر و سواد رسانه‌ای", "subject_id": "media-literacy", "teacher": "محمدی", "time": "09:30 تا 11:00"},
-            {"period": 3, "subject": "ریاضی", "subject_id": "math", "teacher": "یوسفی", "time": "11:00 تا 12:30"},
-            {"period": 4, "subject": "شیمی", "subject_id": "chemistry", "teacher": "گل‌محمدی", "time": "12:30 تا 14:00"},
-        ],
-    },
-    "thu": {
-        "day_id": "thu",
-        "day_fa": "پنج‌شنبه",
-        "is_school_day": False,
-        "periods": [],
-        "note": "تعطیل",
-    },
-    "fri": {
-        "day_id": "fri",
-        "day_fa": "جمعه",
-        "is_school_day": False,
-        "periods": [],
-        "note": "تعطیل آخر هفته",
-    },
-}
-
 DAY_LOOKUP = {
     "sat": "sat", "شنبه": "sat",
     "sun": "sun", "یکشنبه": "sun",
@@ -167,6 +81,92 @@ DAY_LOOKUP = {
     "thu": "thu", "پنج شنبه": "thu", "پنج‌شنبه": "thu",
     "fri": "fri", "جمعه": "fri",
 }
+
+# In-memory storage dynamically initialized from school_config.json
+SUBJECT_DATA: List[Dict[str, str]] = []
+CATEGORY_DATA: List[Dict[str, Any]] = []
+SUBJECT_BY_ID: Dict[str, Dict[str, str]] = {}
+SUBJECT_BY_NAME: Dict[str, Dict[str, str]] = {}
+WEEKLY_SCHEDULE: Dict[str, Dict[str, Any]] = {}
+
+
+def load_school_config() -> Dict[str, Any]:
+    """Load school subjects, categories, and schedule from school_config.json."""
+    global SUBJECT_DATA, CATEGORY_DATA, SUBJECT_BY_ID, SUBJECT_BY_NAME, WEEKLY_SCHEDULE
+
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            SUBJECT_DATA = data.get("subjects", [])
+            CATEGORY_DATA = data.get("categories", [])
+            WEEKLY_SCHEDULE = data.get("weekly_schedule", {})
+        except Exception as exc:
+            logger.error("Failed to read %s: %s", CONFIG_PATH, exc)
+
+    if not SUBJECT_DATA:
+        # Built-in fallback
+        SUBJECT_DATA = [
+            {"id": "web-design", "name": "طراحی وب", "name_en": "Web Design", "teacher": "محمدی‌فر"},
+            {"id": "persian", "name": "فارسی", "name_en": "Persian", "teacher": "عسگری"},
+            {"id": "human-env", "name": "انسان و محیط زیست", "name_en": "Human & Environment", "teacher": "عزیزی"},
+            {"id": "religion", "name": "دین و زندگی", "name_en": "Religion", "teacher": "داوودی"},
+            {"id": "sports", "name": "تربیت بدنی", "name_en": "Sports", "teacher": "عزیزی"},
+            {"id": "arabic", "name": "عربی", "name_en": "Arabic", "teacher": "داوودی"},
+            {"id": "entrepreneurship", "name": "کارآفرینی", "name_en": "Entrepreneurship", "teacher": "مجیدی"},
+            {"id": "history", "name": "تاریخ", "name_en": "History", "teacher": "نظم‌ده"},
+            {"id": "english", "name": "زبان انگلیسی", "name_en": "English", "teacher": "علمدار"},
+            {"id": "content-creation", "name": "تولید محتوای کامپیوتری", "name_en": "Computer Content Creation", "teacher": "حیدری"},
+            {"id": "production-mgmt", "name": "مدیریت تولید", "name_en": "Production Management", "teacher": "م. محمدی"},
+            {"id": "media-literacy", "name": "تفکر و سواد رسانه‌ای", "name_en": "Thinking & Media Literacy", "teacher": "محمدی"},
+            {"id": "math", "name": "ریاضی", "name_en": "Math", "teacher": "یوسفی"},
+            {"id": "chemistry", "name": "شیمی", "name_en": "Chemistry", "teacher": "گل‌محمدی"},
+        ]
+
+    SUBJECT_BY_ID = {s["id"]: s for s in SUBJECT_DATA}
+    SUBJECT_BY_NAME = {s["name"]: s for s in SUBJECT_DATA}
+
+    return {
+        "subjects": SUBJECT_DATA,
+        "categories": CATEGORY_DATA,
+        "weekly_schedule": WEEKLY_SCHEDULE,
+    }
+
+
+def save_school_config(new_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Save updated subjects, categories, and schedule to JSON and reload in-memory state."""
+    global SUBJECT_DATA, CATEGORY_DATA, SUBJECT_BY_ID, SUBJECT_BY_NAME, WEEKLY_SCHEDULE
+
+    if "subjects" in new_config:
+        SUBJECT_DATA = new_config["subjects"]
+    if "categories" in new_config:
+        CATEGORY_DATA = new_config["categories"]
+    if "weekly_schedule" in new_config:
+        WEEKLY_SCHEDULE = new_config["weekly_schedule"]
+
+    SUBJECT_BY_ID = {s["id"]: s for s in SUBJECT_DATA}
+    SUBJECT_BY_NAME = {s["name"]: s for s in SUBJECT_DATA}
+
+    full_payload = {
+        "subjects": SUBJECT_DATA,
+        "categories": CATEGORY_DATA,
+        "weekly_schedule": WEEKLY_SCHEDULE,
+    }
+
+    try:
+        CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(full_payload, f, ensure_ascii=False, indent=2)
+        logger.info("Successfully updated school config at %s", CONFIG_PATH)
+    except Exception as exc:
+        logger.error("Failed to write %s: %s", CONFIG_PATH, exc)
+        raise
+
+    return full_payload
+
+
+# Initialize on import
+load_school_config()
 
 
 def get_iran_now() -> datetime:
@@ -210,7 +210,7 @@ def format_due_date_relative(due_utc: Optional[datetime], now_iran: Optional[dat
     elif day_diff > 2:
         rel = f"{day_fa} {jd} {month_fa} تا ساعت {time_str} ({day_diff} روز دیگر)"
     elif day_diff == -1:
-        rel = f"دیروز موعدش گذشت (منقضی)"
+        rel = "دیروز موعدش گذشت (منقضی)"
     else:
         rel = f"{abs(day_diff)} روز پیش موعدش گذشت (منقضی)"
 
@@ -223,7 +223,7 @@ def resolve_subject(subject_query: str) -> Optional[Dict[str, str]]:
         return None
     clean = subject_query.strip().lower()
     for s in SUBJECT_DATA:
-        if clean in s["name"].lower() or clean == s["id"] or clean in s["name_en"].lower():
+        if clean in s["name"].lower() or clean == s.get("id", "").lower() or clean in s.get("name_en", "").lower():
             return s
         if s["name"].lower() in clean:
             return s
@@ -244,13 +244,14 @@ def get_current_school_status(now: Optional[datetime] = None) -> Dict[str, Any]:
 
     # Next school day (Sat..Wed)
     offset = 1
-    while True:
+    next_school_day = "شنبه"
+    next_school_schedule = []
+    while offset <= 7:
         candidate = now + timedelta(days=offset)
         c_key, c_fa = WEEKDAYS_MAP.get(candidate.weekday(), ("", ""))
         if WEEKLY_SCHEDULE.get(c_key, {}).get("is_school_day"):
             next_school_day = c_fa
-            next_school_key = c_key
-            next_school_schedule = WEEKLY_SCHEDULE[c_key]["periods"]
+            next_school_schedule = WEEKLY_SCHEDULE[c_key].get("periods", [])
             break
         offset += 1
 
@@ -293,3 +294,22 @@ def get_current_school_status(now: Optional[datetime] = None) -> Dict[str, Any]:
         "next_school_day": next_school_day,
         "next_school_schedule": next_school_schedule,
     }
+
+
+def get_school_knowledge_prompt() -> str:
+    """Dynamic context describing current modular subjects, teachers, and schedule."""
+    lines = ["📚 لیست دروس، موضوعات و دبیران کلاس (کاملاً ماژولار و به‌روزشده):"]
+    for s in SUBJECT_DATA:
+        teacher = s.get("teacher", "نامشخص")
+        name = s.get("name", "")
+        lines.append(f"- درس «{name}» (دبیر: {teacher})")
+
+    lines.append("\n🗓 برنامه هفتگی کلاس‌ها:")
+    for d_key in ("sat", "sun", "mon", "tue", "wed"):
+        day_info = WEEKLY_SCHEDULE.get(d_key, {})
+        d_name = day_info.get("day_fa", d_key)
+        periods = day_info.get("periods", [])
+        period_desc = ", ".join(f"زنگ {p.get('period')}: {p.get('subject')} ({p.get('teacher')})" for p in periods)
+        lines.append(f"- {d_name}: {period_desc if periods else 'تعطیل'}")
+
+    return "\n".join(lines)

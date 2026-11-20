@@ -16,6 +16,7 @@ SUBTYPES = [
     ("written_exam", "📋 پرسش کتبی", "exam"),
     ("oral", "🗣 پرسش شفاهی", "exam"),
     ("podmani", "📑 آزمون پودمانی", "exam"),
+    ("reminder", "📌 فقط یادآوری", "reminder"),
 ]
 
 SUBTYPE_MAP = {s[0]: s[1] for s in SUBTYPES}
@@ -58,6 +59,53 @@ SUBJECT_DAY_INDEX: Dict[str, int] = {
 }
 
 
+def get_current_subjects() -> List[Tuple[str, str, str]]:
+    """Dynamically get subjects with emojis and teacher names from modular config."""
+    emoji_map = {
+        "web-design": "💻",
+        "math": "📐",
+        "chemistry": "🧪",
+        "content-creation": "🎨",
+        "persian": "📖",
+        "human-env": "🌍",
+        "entrepreneurship": "💼",
+        "history": "📜",
+        "english": "🇬🇧",
+        "religion": "🕌",
+        "arabic": "🕋",
+        "production-mgmt": "⚙️",
+        "media-literacy": "🧠",
+        "sports": "🏃",
+    }
+    if school_knowledge.SUBJECT_DATA:
+        res = []
+        for s in school_knowledge.SUBJECT_DATA:
+            s_id = s.get("id", "")
+            emo = emoji_map.get(s_id, "📚")
+            res.append((s_id, f"{emo} {s.get('name', s_id)}", s.get("teacher", "")))
+        return res
+    return SUBJECTS
+
+
+def get_current_subject_map() -> Dict[str, Tuple[str, str]]:
+    return {s[0]: (s[1], s[2]) for s in get_current_subjects()}
+
+
+def get_current_subject_day_index() -> Dict[str, int]:
+    day_indices = {"sat": 0, "sun": 1, "mon": 2, "tue": 3, "wed": 4}
+    if school_knowledge.WEEKLY_SCHEDULE:
+        res: Dict[str, int] = {}
+        for d_key, d_idx in day_indices.items():
+            sched = school_knowledge.WEEKLY_SCHEDULE.get(d_key, {})
+            for p in sched.get("periods", []):
+                s_id = p.get("subject_id")
+                if s_id and s_id not in res:
+                    res[s_id] = d_idx
+        return res
+    return SUBJECT_DAY_INDEX
+
+
+
 def get_start_of_class_week(now_iran: datetime) -> datetime:
     """Saturday 00:00:00 of the current class week in Iran time."""
     class_idx = (now_iran.weekday() + 2) % 7
@@ -94,7 +142,7 @@ def build_step2_keyboard(subtype: str) -> Dict[str, Any]:
     """Step 2: Choose course/subject."""
     buttons: List[List[Dict[str, str]]] = []
     row: List[Dict[str, str]] = []
-    for s_id, s_name, _ in SUBJECTS:
+    for s_id, s_name, _ in get_current_subjects():
         row.append({"text": s_name, "callback_data": f"wiz:s3:{subtype}:{s_id}"})
         if len(row) == 2:
             buttons.append(row)
@@ -112,7 +160,7 @@ def build_step3_keyboard(subtype: str, subject_id: str) -> Tuple[str, Dict[str, 
     """Step 3: Choose proposed deadline presets (mirrors the mobile app logic)."""
     now_iran = school_knowledge.get_iran_now()
     current_class_idx = (now_iran.weekday() + 2) % 7
-    subject_day = SUBJECT_DAY_INDEX.get(subject_id, 0)
+    subject_day = get_current_subject_day_index().get(subject_id, 0)
 
     # In mobile app: upcoming is this week (offset 0) if day is still ahead, else next week (offset 1)
     upcoming_offset = 0 if subject_day > current_class_idx else 1
@@ -134,7 +182,7 @@ def build_step3_keyboard(subtype: str, subject_id: str) -> Tuple[str, Dict[str, 
     label_p3 = "شنبه هفته آینده (۲۳:۵۹)"
 
     sub_label = SUBTYPE_MAP.get(subtype, "تکلیف")
-    subj_name, teacher = SUBJECT_MAP.get(subject_id, ("عمومی", ""))
+    subj_name, teacher = get_current_subject_map().get(subject_id, ("عمومی", ""))
     clean_sub = sub_label.split(" ", 1)[-1]
     clean_subj = subj_name.split(" ", 1)[-1]
     auto_title = f"{clean_sub} {clean_subj}"
@@ -271,11 +319,12 @@ async def handle_wizard_callback(
                 due_dt = None
 
         sub_label = SUBTYPE_MAP.get(subtype, "تکلیف")
-        subj_name, teacher = SUBJECT_MAP.get(subject_id, ("عمومی", ""))
+        subj_name, teacher = get_current_subject_map().get(subject_id, ("عمومی", ""))
         clean_sub = sub_label.split(" ", 1)[-1]
         clean_subj = subj_name.split(" ", 1)[-1]
         auto_title = f"{clean_sub} {clean_subj}"
 
+        is_reminder = (subtype == "reminder")
         new_assignment = models.Assignment(
             title=auto_title,
             description="",
@@ -284,6 +333,7 @@ async def handle_wizard_callback(
             category=clean_subj,
             course=clean_subj,
             subtype=subtype,
+            is_reminder_only=is_reminder,
             owner_id=user.id,
             creator_id=user.id,
         )

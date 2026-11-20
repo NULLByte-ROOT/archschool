@@ -128,6 +128,7 @@ class Assignment(Base):
     subject_id = Column(String(40), default="", index=True)
     due_date = Column(DateTime, nullable=True)
     completed = Column(Boolean, default=False, index=True)
+    is_reminder_only = Column(Boolean, default=False, nullable=False, index=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     creator_id = Column(
         Integer,

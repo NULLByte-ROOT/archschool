@@ -175,6 +175,10 @@ OPENAI_TOOLS = [
                         "type": "string",
                         "description": "نام درس (مثلاً ریاضی، فیزیک، زیست)",
                     },
+                    "is_reminder_only": {
+                        "type": "boolean",
+                        "description": "آیا این مورد فقط جهت یادآوری است و نباید قابلیت تیک زدن داشته باشد؟",
+                    },
                 },
                 "required": ["title", "due_date"],
             },
@@ -435,6 +439,7 @@ def execute_tool(
             subj_info = school_knowledge.resolve_subject(subject)
             s_id = subj_info["id"] if subj_info else subject
             s_name = subj_info["name"] if subj_info else subject
+            is_reminder = bool(args.get("is_reminder_only", False))
 
             new_assignment = models.Assignment(
                 title=title,
@@ -443,6 +448,7 @@ def execute_tool(
                 subject_id=s_id,
                 category=s_name,
                 course=s_name,
+                is_reminder_only=is_reminder,
                 owner_id=current_user.id,
                 creator_id=current_user.id,
             )
@@ -506,6 +512,7 @@ def execute_tool(
                             db.query(models.Assignment)
                             .filter(
                                 models.Assignment.deleted_at.is_(None),
+                                models.Assignment.is_reminder_only.is_(False),
                                 ~models.Assignment.id.in_(completed_ids),
                                 or_(
                                     models.Assignment.due_date.is_(None),
@@ -618,6 +625,13 @@ def execute_tool(
                         )
                         .all()
                     )
+
+            if any(getattr(a, "is_reminder_only", False) for a in target_assignments) and len(target_assignments) == 1:
+                return {
+                    "success": False,
+                    "error": "این تکلیف فقط جهت یادآوری ثبت شده و امکان تیک زدن یا انجام آن وجود ندارد.",
+                }
+            target_assignments = [a for a in target_assignments if not getattr(a, "is_reminder_only", False)]
 
             if not target_assignments:
                 return {
@@ -765,6 +779,7 @@ async def ask_universal_ai_agent(
         meta_parts.append(f"کاربر: {current_user.username}")
     if is_school_query:
         meta_parts.append(f"امروز: {status['today_fa']}")
+        meta_parts.append(school_knowledge.get_school_knowledge_prompt())
 
     meta_prefix = f"[{' | '.join(meta_parts)}]\n" if meta_parts else ""
 

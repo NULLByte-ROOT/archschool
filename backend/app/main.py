@@ -99,6 +99,7 @@ def _ensure_columns() -> None:
             "category": "VARCHAR(20) DEFAULT ''",
             "subtype": "VARCHAR(40) DEFAULT ''",
             "subject_id": "VARCHAR(40) DEFAULT ''",
+            "is_reminder_only": "BOOLEAN NOT NULL DEFAULT FALSE",
             "creator_id": "INTEGER REFERENCES users(id) ON DELETE SET NULL",
             # Soft delete. NULL = live; existing rows backfill to NULL.
             "deleted_at": "TIMESTAMP",

@@ -122,3 +122,23 @@ def update_school_schedule(
     db.commit()
 
     return _out(_load_periods(db))
+
+
+@router.get("/school-config")
+def get_school_config(
+    _user: models.User = Depends(get_current_user),
+) -> dict:
+    """Retrieve modular school subjects, teachers, categories, and timetable."""
+    from ..services import school_knowledge
+    return school_knowledge.load_school_config()
+
+
+@router.put("/school-config")
+def update_school_config(
+    payload: dict,
+    _admin: models.User = Depends(get_current_admin),
+) -> dict:
+    """Update modular school subjects, teachers, categories, and timetable. Admin only."""
+    from ..services import school_knowledge
+    return school_knowledge.save_school_config(payload)
+

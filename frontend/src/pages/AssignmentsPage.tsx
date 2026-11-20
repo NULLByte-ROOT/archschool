@@ -25,6 +25,7 @@ import {
   LayoutGrid,
   List,
   Pencil,
+  Pin,
   Plus,
   RefreshCw,
   Trash2,
@@ -221,7 +222,16 @@ const AssignmentItem = memo(function AssignmentItem({
     onClick: () => onOpen(item.id),
   };
 
-  const toggle = (
+  const toggle = item.is_reminder_only ? (
+    <div
+      onClick={(e) => e.stopPropagation()}
+      title="فقط جهت یادآوری"
+      className="flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-[11px] font-medium text-amber-400 sm:min-h-0"
+    >
+      <Pin size={12} />
+      فقط یادآوری
+    </div>
+  ) : (
     <button
       onClick={(e) => {
         e.stopPropagation();

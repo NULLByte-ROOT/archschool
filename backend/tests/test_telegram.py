@@ -286,3 +286,44 @@ async def test_interactive_task_wizard_and_callbacks(db_session, monkeypatch):
     assert created.subject_id == "math"
     assert created.subtype == "written"
     assert created.creator_id == admin.id
+
+
+def test_reminder_only_assignment_and_deduplication(db_session):
+    from app.routers.telegram import _is_duplicate_update, _mark_update_completed
+
+    # 1. Test update deduplication
+    up_id = 999888777
+    assert _is_duplicate_update(up_id) is False  # first time
+    assert _is_duplicate_update(up_id) is True   # duplicate while in-flight
+    _mark_update_completed(up_id)
+    assert _is_duplicate_update(up_id) is True   # duplicate after completed
+
+    # 2. Test reminder-only assignment creation and anti-tick protection
+    admin = models.User(username="headmaster2", code="HEAD02", is_admin=True, role=models.ROLE_OWNER)
+    student = models.User(username="learner2", code="LEARN02", role=models.ROLE_MEMBER)
+    db_session.add_all([admin, student])
+    db_session.commit()
+
+    res_add = ai_agent.execute_tool(
+        "add_assignment",
+        {"title": "یادآوری آزمون جامع", "due_date": "2026-12-01", "is_reminder_only": True},
+        db_session,
+        admin,
+    )
+    assert res_add["success"] is True
+    a_id = res_add["assignment_id"]
+
+    reminder_task = db_session.query(models.Assignment).get(a_id)
+    assert reminder_task is not None
+    assert reminder_task.is_reminder_only is True
+
+    # 3. Student tries to tick reminder-only assignment -> blocked!
+    res_tick = ai_agent.execute_tool(
+        "toggle_assignment_completion",
+        {"action": "complete", "assignment_query": "یادآوری آزمون جامع"},
+        db_session,
+        student,
+    )
+    assert res_tick["success"] is False
+    assert "یادآوری" in res_tick["error"]
+

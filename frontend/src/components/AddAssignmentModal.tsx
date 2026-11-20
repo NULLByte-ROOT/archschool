@@ -56,6 +56,7 @@ function AssignmentForm({
   const [subjectId, setSubjectId] = useState<string | null>(assignment?.subject_id || null);
   const [due, setDue] = useState<string | null>(assignment?.due_date ?? null);
   const [title, setTitle] = useState(assignment?.title ?? "");
+  const [isReminderOnly, setIsReminderOnly] = useState(Boolean(assignment?.is_reminder_only));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,6 +112,7 @@ function AssignmentForm({
         category: groupId,
         subtype,
         due_date: due,
+        is_reminder_only: isReminderOnly,
       };
       if (assignment) {
         await updateAssignment(assignment.id, payload);
@@ -219,6 +221,30 @@ function AssignmentForm({
                 className="input pr-10"
               />
             </div>
+          </div>
+
+          <div
+            onClick={() => setIsReminderOnly(!isReminderOnly)}
+            className={`flex cursor-pointer items-center justify-between rounded-xl border p-3 transition ${
+              isReminderOnly
+                ? "border-amber-500/40 bg-amber-500/10"
+                : "border-white/10 bg-white/[0.03] hover:border-white/20"
+            }`}
+          >
+            <div className="text-right">
+              <span className={`block text-xs font-bold ${isReminderOnly ? "text-amber-400" : "text-fg-100"}`}>
+                📌 فقط جهت یادآوری
+              </span>
+              <span className="block text-[11px] text-fg-500">
+                این مورد صرفاً جهت اطلاع‌رسانی است و امکان تیک زدن ندارد.
+              </span>
+            </div>
+            <input
+              type="checkbox"
+              checked={isReminderOnly}
+              onChange={(e) => setIsReminderOnly(e.target.checked)}
+              className="h-4 w-4 cursor-pointer rounded accent-amber-500"
+            />
           </div>
 
           {error && (

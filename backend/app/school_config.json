@@ -1,0 +1,114 @@
+{
+  "subjects": [
+    {"id": "web-design", "name": "طراحی وب", "name_en": "Web Design", "teacher": "محمدی‌فر"},
+    {"id": "persian", "name": "فارسی", "name_en": "Persian", "teacher": "عسگری"},
+    {"id": "human-env", "name": "انسان و محیط زیست", "name_en": "Human & Environment", "teacher": "عزیزی"},
+    {"id": "religion", "name": "دین و زندگی", "name_en": "Religion", "teacher": "داوودی"},
+    {"id": "sports", "name": "تربیت بدنی", "name_en": "Sports", "teacher": "عزیزی"},
+    {"id": "arabic", "name": "عربی", "name_en": "Arabic", "teacher": "داوودی"},
+    {"id": "entrepreneurship", "name": "کارآفرینی", "name_en": "Entrepreneurship", "teacher": "مجیدی"},
+    {"id": "history", "name": "تاریخ", "name_en": "History", "teacher": "نظم‌ده"},
+    {"id": "english", "name": "زبان انگلیسی", "name_en": "English", "teacher": "علمدار"},
+    {"id": "content-creation", "name": "تولید محتوای کامپیوتری", "name_en": "Computer Content Creation", "teacher": "حیدری"},
+    {"id": "production-mgmt", "name": "مدیریت تولید", "name_en": "Production Management", "teacher": "م. محمدی"},
+    {"id": "media-literacy", "name": "تفکر و سواد رسانه‌ای", "name_en": "Thinking & Media Literacy", "teacher": "محمدی"},
+    {"id": "math", "name": "ریاضی", "name_en": "Math", "teacher": "یوسفی"},
+    {"id": "chemistry", "name": "شیمی", "name_en": "Chemistry", "teacher": "گل‌محمدی"}
+  ],
+  "categories": [
+    {
+      "id": "homework",
+      "label": "تکلیف",
+      "items": [
+        {"id": "written", "label": "نوشتنی"},
+        {"id": "practical", "label": "پروژه عملی"},
+        {"id": "research", "label": "تحقیق"}
+      ]
+    },
+    {
+      "id": "exam",
+      "label": "امتحان",
+      "items": [
+        {"id": "oral", "label": "پرسش شفاهی"},
+        {"id": "written_exam", "label": "کتبی"},
+        {"id": "podmani", "label": "پودمانی"},
+        {"id": "term1", "label": "نوبت اول"},
+        {"id": "term2", "label": "نوبت دوم"},
+        {"id": "question", "label": "پرسش"}
+      ]
+    }
+  ],
+  "weekly_schedule": {
+    "sat": {
+      "day_id": "sat",
+      "day_fa": "شنبه",
+      "is_school_day": true,
+      "periods": [
+        {"period": 1, "subject": "طراحی وب", "subject_id": "web-design", "teacher": "محمدی‌فر", "time": "08:00 تا 09:30"},
+        {"period": 2, "subject": "طراحی وب", "subject_id": "web-design", "teacher": "محمدی‌فر", "time": "09:30 تا 11:00"},
+        {"period": 3, "subject": "طراحی وب", "subject_id": "web-design", "teacher": "محمدی‌فر", "time": "11:00 تا 12:30"},
+        {"period": 4, "subject": "طراحی وب", "subject_id": "web-design", "teacher": "محمدی‌فر", "time": "12:30 تا 14:00"}
+      ],
+      "note": "کارگاه عملی ۴ زنگ پیوسته طراحی وب"
+    },
+    "sun": {
+      "day_id": "sun",
+      "day_fa": "یکشنبه",
+      "is_school_day": true,
+      "periods": [
+        {"period": 1, "subject": "فارسی", "subject_id": "persian", "teacher": "عسگری", "time": "08:00 تا 09:30"},
+        {"period": 2, "subject": "انسان و محیط زیست", "subject_id": "human-env", "teacher": "عزیزی", "time": "09:30 تا 11:00"},
+        {"period": 3, "subject": "دین و زندگی", "subject_id": "religion", "teacher": "داوودی", "time": "11:00 تا 12:30"},
+        {"period": 4, "subject": "تربیت بدنی", "subject_id": "sports", "teacher": "عزیزی", "time": "12:30 تا 14:00"}
+      ]
+    },
+    "mon": {
+      "day_id": "mon",
+      "day_fa": "دوشنبه",
+      "is_school_day": true,
+      "periods": [
+        {"period": 1, "subject": "عربی", "subject_id": "arabic", "teacher": "داوودی", "time": "08:00 تا 09:30"},
+        {"period": 2, "subject": "کارآفرینی", "subject_id": "entrepreneurship", "teacher": "مجیدی", "time": "09:30 تا 11:00"},
+        {"period": 3, "subject": "تاریخ", "subject_id": "history", "teacher": "نظم‌ده", "time": "11:00 تا 12:30"},
+        {"period": 4, "subject": "زبان انگلیسی", "subject_id": "english", "teacher": "علمدار", "time": "12:30 تا 14:00"}
+      ]
+    },
+    "tue": {
+      "day_id": "tue",
+      "day_fa": "سه‌شنبه",
+      "is_school_day": true,
+      "periods": [
+        {"period": 1, "subject": "تولید محتوای کامپیوتری", "subject_id": "content-creation", "teacher": "حیدری", "time": "08:00 تا 09:30"},
+        {"period": 2, "subject": "تولید محتوای کامپیوتری", "subject_id": "content-creation", "teacher": "حیدری", "time": "09:30 تا 11:00"},
+        {"period": 3, "subject": "تولید محتوای کامپیوتری", "subject_id": "content-creation", "teacher": "حیدری", "time": "11:00 تا 12:30"},
+        {"period": 4, "subject": "تولید محتوای کامپیوتری", "subject_id": "content-creation", "teacher": "حیدری", "time": "12:30 تا 14:00"}
+      ],
+      "note": "کارگاه عملی ۴ زنگ پیوسته تولید محتوای کامپیوتری"
+    },
+    "wed": {
+      "day_id": "wed",
+      "day_fa": "چهارشنبه",
+      "is_school_day": true,
+      "periods": [
+        {"period": 1, "subject": "مدیریت تولید", "subject_id": "production-mgmt", "teacher": "م. محمدی", "time": "08:00 تا 09:30"},
+        {"period": 2, "subject": "تفکر و سواد رسانه‌ای", "subject_id": "media-literacy", "teacher": "محمدی", "time": "09:30 تا 11:00"},
+        {"period": 3, "subject": "ریاضی", "subject_id": "math", "teacher": "یوسفی", "time": "11:00 تا 12:30"},
+        {"period": 4, "subject": "شیمی", "subject_id": "chemistry", "teacher": "گل‌محمدی", "time": "12:30 تا 14:00"}
+      ]
+    },
+    "thu": {
+      "day_id": "thu",
+      "day_fa": "پنج‌شنبه",
+      "is_school_day": false,
+      "periods": [],
+      "note": "تعطیل"
+    },
+    "fri": {
+      "day_id": "fri",
+      "day_fa": "جمعه",
+      "is_school_day": false,
+      "periods": [],
+      "note": "تعطیل"
+    }
+  }
+}

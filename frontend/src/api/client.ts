@@ -189,6 +189,7 @@ export interface Assignment {
   subject_id: string;
   due_date: string | null;
   completed: boolean;
+  is_reminder_only?: boolean;
   owner_id: number | null;
   creator_id: number | null;
   creator_username: string | null;
@@ -402,6 +403,7 @@ export async function createAssignment(data: {
   subject_id?: string;
   due_date?: string | null;
   completed?: boolean;
+  is_reminder_only?: boolean;
 }): Promise<Assignment> {
   return request<Assignment>("/assignments/", {
     method: "POST",

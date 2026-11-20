@@ -125,6 +125,7 @@ class _StatsContext:
     __slots__ = (
         "users",
         "live_assignments",
+        "checkable_assignments",
         "all_completions",
         "live_completions",
         "attachments",
@@ -198,7 +199,10 @@ class _StatsContext:
         self.subject_totals: Counter[str] = Counter(
             _subject_label(assignment) for assignment in self.live_assignments
         )
-        self.total_assignments = len(self.live_assignments)
+        self.checkable_assignments = [
+            a for a in self.live_assignments if not getattr(a, "is_reminder_only", False)
+        ]
+        self.total_assignments = len(self.checkable_assignments)
         self.keys = weekly_keys()
         self.today_key = school_now().date().isoformat()
 

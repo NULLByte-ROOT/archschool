@@ -1,20 +1,45 @@
 from datetime import datetime, timedelta, timezone
 import logging
-from typing import Any, Dict, Optional
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from typing import Any, Dict, Optional, Set
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from .. import models
 from ..config import settings
-from ..database import get_db
+from ..database import SessionLocal, get_db
 from ..dependencies import get_current_admin, get_current_user
 from ..services import ai_agent, telegram_bot
 
 logger = logging.getLogger("archschool.telegram_router")
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
+
+_PROCESSED_UPDATE_IDS: Set[int] = set()
+_IN_FLIGHT_UPDATE_IDS: Set[int] = set()
+_MAX_PROCESSED_CACHE: int = 10000
+
+
+def _is_duplicate_update(update_id: Optional[int]) -> bool:
+    if not update_id:
+        return False
+    if update_id in _IN_FLIGHT_UPDATE_IDS or update_id in _PROCESSED_UPDATE_IDS:
+        return True
+    _IN_FLIGHT_UPDATE_IDS.add(update_id)
+    return False
+
+
+def _mark_update_completed(update_id: Optional[int]) -> None:
+    if not update_id:
+        return
+    _IN_FLIGHT_UPDATE_IDS.discard(update_id)
+    _PROCESSED_UPDATE_IDS.add(update_id)
+    if len(_PROCESSED_UPDATE_IDS) > _MAX_PROCESSED_CACHE:
+        try:
+            _PROCESSED_UPDATE_IDS.pop()
+        except KeyError:
+            pass
 
 
 class BotSettingsUpdate(BaseModel):
@@ -38,14 +63,8 @@ class FetchModelsRequest(BaseModel):
     provider: Optional[str] = None
 
 
-@router.post("/webhook", include_in_schema=False)
-async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
-    """Receives incoming updates from Telegram Webhook."""
-    try:
-        update: Dict[str, Any] = await request.json()
-    except Exception:
-        return Response(status_code=400)
-
+async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> None:
+    """Core update processor invoked in the background after 200 OK has been returned."""
     token = telegram_bot.get_bot_setting(db, "telegram_bot_token")
     ai_key = telegram_bot.get_bot_setting(db, "ai_api_key") or telegram_bot.get_bot_setting(db, "gemini_api_key")
     provider = telegram_bot.get_bot_setting(db, "ai_provider", "openrouter")
@@ -55,7 +74,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     enabled = telegram_bot.get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
 
     if not token or not enabled:
-        return {"ok": True}
+        return
 
     # --- 0. Handle Inline Button Callback Queries (Wizard & Task Toggles) ---
     callback_query = update.get("callback_query")
@@ -76,20 +95,21 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
             await telegram_task_wizard.handle_wizard_callback(
                 db, cb_user, cb_data, cb_chat_id, cb_msg_id, cb_id, token
             )
-            return {"ok": True}
+            return
 
         if cb_data.startswith("task_toggle:"):
             await telegram_task_wizard.handle_toggle_callback(
                 db, cb_user, cb_data, cb_chat_id, cb_msg_id, cb_id, token
             )
-            return {"ok": True}
+            return
 
         await telegram_bot.answer_callback_query(token, cb_id)
-        return {"ok": True}
+        return
 
-    message = update.get("message") or update.get("edited_message")
+    # Only process standard messages; ignore edited_message to prevent duplicate replies
+    message = update.get("message")
     if not message:
-        return {"ok": True}
+        return
 
     chat = message.get("chat", {})
     chat_id = chat.get("id")
@@ -101,7 +121,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     msg_id = message.get("message_id")
 
     if not text or not chat_id or not from_id:
-        return {"ok": True}
+        return
 
     # Find if sender is an authenticated ArchSchool user
     user = db.query(models.User).filter(models.User.telegram_id == from_id).first()
@@ -127,7 +147,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
                     "لطفاً وارد اپلیکیشن ArchSchool شده، به تب پروفایل بروید و روی دکمه 'دریافت کد اتصال به ربات' بزنید."
                 )
             await telegram_bot.send_telegram_message(token, chat_id, reply)
-            return {"ok": True}
+            return
 
         if text == "/start":
             if user:
@@ -144,7 +164,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
                     "۳. کد رو همینجا برام بفرست تا حسابت فعال بشه! 🔥"
                 )
             await telegram_bot.send_telegram_message(token, chat_id, reply)
-            return {"ok": True}
+            return
 
     # --- 2. Handle Group Chat Mention / Reply Check ---
     elif chat_type in ("group", "supergroup"):
@@ -162,7 +182,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
 
         # If not directed to bot, ignore group chatter
         if not bot_mentioned and not is_reply_to_bot and not text.startswith("/"):
-            return {"ok": True}
+            return
 
         # Clean mention tag from text prompt
         if bot_user:
@@ -176,7 +196,7 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     if is_add_cmd:
         from app.services import telegram_task_wizard
         await telegram_task_wizard.start_add_task_wizard(token, chat_id, user, reply_to_message_id=msg_id)
-        return {"ok": True}
+        return
 
     # --- 4. Direct Task Completion Interceptor (100% immune to LLM hallucination) ---
     is_toggle_cmd = any(k in text for k in (
@@ -218,14 +238,14 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
             reply_text = f"⚠️ {err}"
 
         await telegram_bot.send_telegram_message(token, chat_id, reply_text, reply_to_message_id=msg_id)
-        return {"ok": True}
+        return
 
     # --- 5. Process general prompt with Universal AI Agent ---
     if not ai_key:
         await telegram_bot.send_telegram_message(
             token, chat_id, "⚠️ کلید هوش مصنوعی در سرور مدرسه هنوز تنظیم نشده است.", reply_to_message_id=msg_id
         )
-        return {"ok": True}
+        return
 
     # Fetch recent conversation memory for this chat
     history = telegram_bot.get_chat_history(db, chat_id, limit=10)
@@ -264,6 +284,32 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     await telegram_bot.send_telegram_message(
         token, chat_id, ai_reply, parse_mode="HTML", reply_to_message_id=msg_id, reply_markup=reply_markup
     )
+
+
+async def _process_telegram_update_task(update: Dict[str, Any], update_id: Optional[int]) -> None:
+    try:
+        with SessionLocal() as db:
+            await _handle_telegram_update_logic(update, db)
+    except Exception as exc:
+        logger.error("Error processing telegram update %s: %s", update_id, exc, exc_info=True)
+    finally:
+        _mark_update_completed(update_id)
+
+
+@router.post("/webhook", include_in_schema=False)
+async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
+    """Receives incoming updates from Telegram Webhook and acknowledges immediately (zero timeout/retry)."""
+    try:
+        update: Dict[str, Any] = await request.json()
+    except Exception:
+        return Response(status_code=400)
+
+    update_id = update.get("update_id")
+    if _is_duplicate_update(update_id):
+        logger.info("Ignoring duplicate or in-flight update_id: %s", update_id)
+        return {"ok": True}
+
+    background_tasks.add_task(_process_telegram_update_task, update, update_id)
     return {"ok": True}
 
 
