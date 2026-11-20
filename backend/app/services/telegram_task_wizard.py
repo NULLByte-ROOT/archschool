@@ -344,6 +344,10 @@ async def handle_wizard_callback(
         db.commit()
         db.refresh(new_assignment)
 
+        # Notify mobile devices and broadcast to group
+        from .. import notifications
+        notifications.notify_new_assignment(db, new_assignment)
+
         await telegram_bot.answer_callback_query(
             token, query_id, text="🎉 تکلیف با موفقیت ثبت شد!"
         )

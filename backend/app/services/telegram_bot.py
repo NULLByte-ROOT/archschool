@@ -601,3 +601,77 @@ async def broadcast_deadline_announcement(
     )
 
     return await send_telegram_message(token, group_id, text)
+
+
+async def broadcast_new_assignment(
+    db: Session,
+    assignment: models.Assignment,
+) -> bool:
+    """Send immediate new assignment alert to the Telegram supergroup."""
+    token = get_bot_setting(db, "telegram_bot_token")
+    group_id = get_bot_setting(db, "telegram_group_id")
+    enabled = get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
+
+    if not token or not group_id or not enabled:
+        return False
+
+    from . import school_knowledge
+    subj_info = school_knowledge.resolve_subject(assignment.subject_id or assignment.course or "")
+    teacher = f" (استاد {subj_info['teacher']})" if subj_info else ""
+    subj_name = subj_info["name"] if subj_info else (assignment.subject_id or "عمومی")
+
+    due_str = "بدون مهلت تحویل"
+    if assignment.due_date:
+        due_str = school_knowledge.format_iran_datetime(assignment.due_date)
+
+    is_reminder = getattr(assignment, "is_reminder_only", False)
+    header = "📌 <b>یادآوری جدید کلاس ثبت شد!</b>" if is_reminder else "📢 <b>تکلیف جدید در سامانه ثبت شد!</b> 📚🔥"
+
+    text = (
+        f"{header}\n\n"
+        f"🔹 <b>عنوان:</b> {assignment.title}\n"
+        f"🔹 <b>درس:</b> {subj_name}{teacher}\n"
+        f"⏰ <b>مهلت تحویل:</b> {due_str}\n"
+    )
+    if is_reminder:
+        text += "<i>(این مورد فقط جهت یادآوری ثبت شده و نیاز به تیک زدن ندارد)</i>\n\n"
+    else:
+        text += "\nبچه‌ها سریع دست‌به‌کار بشید و تیکش رو بزنید تا استریک‌تون پرواز کنه! 🚀⚡\n"
+
+    text += "📱 <i>مشاهده پیوست‌ها و جزئیات در اپلیکیشن ArchSchool</i>"
+    return await send_telegram_message(token, group_id, text)
+
+
+async def broadcast_leaderboard_reset(
+    db: Session,
+    season_number: int,
+    top_entries: List[Dict[str, Any]],
+) -> bool:
+    """Broadcast the bi-weekly leaderboard reset and season winners to the Telegram supergroup."""
+    token = get_bot_setting(db, "telegram_bot_token")
+    group_id = get_bot_setting(db, "telegram_group_id")
+    enabled = get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
+
+    if not token or not group_id or not enabled:
+        return False
+
+    medals = ["🥇", "🥈", "🥉"]
+    winners_text = ""
+    for idx, entry in enumerate(top_entries[:3]):
+        u_name = entry["user"].username
+        pct = round(entry.get("completion_percentage", 0), 1)
+        streak = entry.get("current_streak", 0)
+        winners_text += f"{medals[idx]} <b>نفر {idx+1}:</b> {u_name} ({pct}% تکمیل · استریک {streak} روز)\n"
+
+    if not winners_text:
+        winners_text = "بدون ثبت فعالیت در دوره قبل."
+
+    text = (
+        f"🏁 <b>سوت پایان سیزن {season_number} لیدربورد کلاس به صدا درآمد!</b> 🏆👑\n\n"
+        f"قهرمانان و رتبه‌های برتر این دوره دو هفته‌ای:\n\n"
+        f"{winners_text}\n"
+        f"🔥 <b>جدول رنکینگ برای دوره جدید ریست شد!</b>\n"
+        f"تمام امتیازها برای سیزن بعدی از صفر آغاز شد. رقابت دو هفته آینده از همین ثانیه شروع شد، ببینم کی صدر جدول رو فتح می‌کنه! 💪⚡\n\n"
+        f"📱 <i>مشاهده وضعیت سیزن جدید و تایمر معکوس در اپلیکیشن ArchSchool</i>"
+    )
+    return await send_telegram_message(token, group_id, text)

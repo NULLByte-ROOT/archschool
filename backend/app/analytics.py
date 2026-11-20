@@ -220,6 +220,31 @@ def _streak_at_risk(completed_today: bool) -> bool:
     return (wall.hour * 60 + wall.minute) >= STREAK_AT_RISK_MINUTE
 
 
+SEASON_EPOCH_UTC = datetime(2026, 11, 4, 18, 30, 0)
+SEASON_DURATION_DAYS = 14
+
+
+def get_current_season_info() -> dict:
+    now = utc_now()
+    diff = now - SEASON_EPOCH_UTC
+    season_seconds = SEASON_DURATION_DAYS * 86400
+
+    total_seconds = max(0, int(diff.total_seconds()))
+    season_number = (total_seconds // season_seconds) + 1
+
+    current_season_start = SEASON_EPOCH_UTC + timedelta(seconds=(season_number - 1) * season_seconds)
+    next_season_reset = current_season_start + timedelta(seconds=season_seconds)
+
+    seconds_remaining = max(0, int((next_season_reset - now).total_seconds()))
+
+    return {
+        "season_number": season_number,
+        "season_start_utc": current_season_start.isoformat(),
+        "next_reset_utc": next_season_reset.isoformat(),
+        "seconds_remaining": seconds_remaining,
+    }
+
+
 def compute_user_stats(
     db: Session,
     user_id: int,
@@ -244,13 +269,23 @@ def compute_user_stats(
     if user is None:
         return None
 
+    user_created = user.created_at or datetime.min
+    # Isolate new users from old overdue tasks created before their account existed
+    user_checkable = [
+        a
+        for a in ctx.checkable_assignments
+        if (a.created_at or user_created) >= user_created
+        or (a.due_date or user_created) >= user_created
+    ]
+    user_total = len(user_checkable)
+
     rows = ctx.completions_by_user.get(user_id, [])
     completed_count = len(rows)
     upload_count = ctx.attachments_by_user.get(user_id, 0)
 
     percentage = 0.0
-    if ctx.total_assignments:
-        percentage = completed_count * 100.0 / ctx.total_assignments
+    if user_total:
+        percentage = completed_count * 100.0 / user_total
     percentage = round(
         min(100.0, percentage + upload_count * UPLOAD_BONUS_PERCENT), 1
     )
@@ -317,7 +352,7 @@ def compute_user_stats(
         "rank": 0,
         "completion_percentage": percentage,
         "completed_count": completed_count,
-        "total_assignments": ctx.total_assignments,
+        "total_assignments": user_total,
         "upload_count": upload_count,
         "last_completion_time": last_completion_time,
         "average_speed_hours": average_speed,
@@ -385,6 +420,7 @@ def build_leaderboard(db: Session) -> tuple[list[dict], dict]:
         "weekly_trend": [
             {"date": key, "count": trend_by_day.get(key, 0)} for key in ctx.keys
         ],
+        "season": get_current_season_info(),
     }
     return entries, aggregates
 

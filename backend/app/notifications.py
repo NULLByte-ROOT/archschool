@@ -21,9 +21,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import threading
 from datetime import datetime, timedelta
 from typing import Any, Iterable
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -68,7 +70,11 @@ def tokens_for_users(
         .join(models.User, models.User.id == models.PushToken.user_id)
         .filter(
             models.PushToken.user_id.in_(ids),
-            channel_column.is_(True),
+            or_(
+                channel_column.is_(True),
+                channel_column == 1,
+                channel_column.is_(None),
+            ),
             models.User.is_active.is_(True),
         )
         .all()
@@ -186,7 +192,7 @@ def notify_new_assignment(db: Session, assignment: models.Assignment) -> None:
     if not settings.PUSH_NOTIFICATIONS_ENABLED:
         return
 
-    recipients = _active_user_ids(db, exclude=assignment.creator_id)
+    recipients = _active_user_ids(db)
     tokens = tokens_for_users(db, recipients, channel="assignments")
 
     parts = [assignment.title]
@@ -205,8 +211,23 @@ def notify_new_assignment(db: Session, assignment: models.Assignment) -> None:
                 "room": f"assignment:{assignment.id}",
             },
             channel_id="assignments",
+            sound="default",
         )
     _mark_initial_thresholds(db, assignment)
+
+    # Automatically broadcast new assignment to Telegram supergroup
+    try:
+        from .services import telegram_bot
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(telegram_bot.broadcast_new_assignment(db, assignment))
+        except RuntimeError:
+            threading.Thread(
+                target=lambda: asyncio.run(telegram_bot.broadcast_new_assignment(db, assignment)),
+                daemon=True,
+            ).start()
+    except Exception as exc:
+        logger.warning("Could not dispatch Telegram group assignment broadcast: %s", exc)
 
 
 # ---------------------------------------------------------------------------

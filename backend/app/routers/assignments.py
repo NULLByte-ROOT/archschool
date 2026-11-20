@@ -303,8 +303,16 @@ def list_overdue_assignments(
             models.Assignment.due_date.isnot(None),
             models.Assignment.due_date < now,
         )
-        .order_by(models.Assignment.due_date.desc())
     )
+    if current.created_at:
+        from sqlalchemy import or_
+        q = q.filter(
+            or_(
+                models.Assignment.created_at >= current.created_at,
+                models.Assignment.due_date >= current.created_at,
+            )
+        )
+    q = q.order_by(models.Assignment.due_date.desc())
     return [_serialize(obj, current) for obj in q.all()]
 
 

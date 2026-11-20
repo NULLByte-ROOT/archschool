@@ -190,10 +190,27 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
 
     # --- 3. Interactive Button-Based Assignment Creation Interceptor ---
     is_add_cmd = any(k in text for k in (
-        "تکلیف اضافه", "افزودن تکلیف", "ثبت تکلیف", "تکلیف جدید",
+        "تکلیف اد کن", "تکلیف اد", "اد کن", "اد کردن تکلیف", "تکلیف اد کنید",
+        "تکلیف اضافه کن", "تکلیف اضافه", "افزودن تکلیف", "ثبت تکلیف", "تکلیف جدید",
+        "تکلیف بزار", "تکلیف بذار", "مشق اضافه کن", "مشق اد کن", "مشق بزار", "مشق بذار",
         "/new_assignment", "/add_assignment", "میخوام تکلیف بسازم", "میخوام تکلیف اضافه کنم"
     ))
     if is_add_cmd:
+        if not user:
+            await telegram_bot.send_telegram_message(
+                token, chat_id,
+                "داش تو اصلاً کی هستی که دستور اد کردن تکلیف میدی؟! 😏\nتو سیستم مدرسه نشناختمت سلطان! اول کد اتصالت رو از تب پروفایل اپلیکیشن برام بفرست تا بشناسمت.",
+                reply_to_message_id=msg_id
+            )
+            return
+        if not (user.is_admin or user.role in ("admin", "owner")):
+            await telegram_bot.send_telegram_message(
+                token, chat_id,
+                f"داش {user.username}، تو که مدیر یا صاحب مدرسه نیستی بخوای تکلیف اد کنی! برو مشقاتو بنویس تکلیفت نسوزه 😂🔥",
+                reply_to_message_id=msg_id
+            )
+            return
+
         from app.services import telegram_task_wizard
         await telegram_task_wizard.start_add_task_wizard(token, chat_id, user, reply_to_message_id=msg_id)
         return
@@ -271,7 +288,7 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     add_task_keywords = (
         "افزودن تکلیف", "اضافه کردن تکلیف", "ثبت تکلیف", "تکلیف جدید",
         "تکلیف بزار", "تکلیف بذار", "تکلیف اضافه", "تکلیف ثبت", "ایجاد تکلیف",
-        "مشق اضافه", "مشق ثبت", "تکلیف بده"
+        "مشق اضافه", "مشق ثبت", "تکلیف بده", "تکلیف اد کن", "تکلیف اد", "اد کن", "اد کردن"
     )
     if user and (user.is_admin or user.role in ("admin", "owner")):
         if any(k in text for k in add_task_keywords):
