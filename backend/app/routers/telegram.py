@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any, Dict, Optional, Set
@@ -427,7 +428,8 @@ async def test_telegram(
             model_name=model_name,
             current_user=admin,
         )
-        ai_status = "متصل و فعال" if not test_ai.startswith("⚠️") else f"خطا: {test_ai}"
+        test_ai_str = str(test_ai or "")
+        ai_status = "متصل و فعال" if not test_ai_str.startswith("⚠️") else f"خطا: {test_ai_str}"
 
     # 3. Test sending message to group if group_id is present
     group_sent = False
