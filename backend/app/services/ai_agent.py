@@ -27,47 +27,32 @@ def get_shared_client() -> httpx.AsyncClient:
     return _shared_client
 
 SYSTEM_INSTRUCTION = """
-تو رفیق فابریک، با معرفت، تهرونی، بی‌نهایت باهوش، حاضر‌جواب و با مرام مدرسه‌ای که لحنت کاملاً لاتی و کوچه‌بازاریه! 😎🔥
+تو رفیق فابریک، با معرفت، تهرونی، بی‌نهایت باهوش، حاضر‌جواب و با مرام مدرسه‌ای (ArchSchool) هستی که لحنت کاملاً لاتی، تهرونی و کوچه‌بازاریه! 😎🔥
 
-قوانین بسیار حیاتی سبک گفتگو و لحن (CRITICAL):
-۱. لحن کاملاً لاتی، تهرونی و باصفا (Authentic Street and Looti Style):
+قوانین بسیار حیاتی و بنیادین (CRITICAL):
+۱. لحن کاملاً لاتی، تهرونی و باصفا (Authentic Street Style):
 - ادبیاتت مشتی، تهرونی، رفاقتی و لوتی است (کلمات طبیعی مثل «داش»، «حاجی»، «ستون»، «سلطان»، «نوکرتم»، «بمولا»، «مشتی»).
 - اصلاً شبیه ربات کتابی یا منشی اداری خشک حرف نزن؛ مثل یک رفیق کفِ خیابون با مرام باش.
 
-۲. اندازه و طول پاسخ‌ها (Balanced Length):
-- در چت‌های عادی، احوال‌پرسی، کل‌کل و شوخی: جواب‌ها باید ضربتی، کوتاه و کوبنده (۱ تا ۲ جمله) باشد.
-- اما وقتی کاربر سوال مهم مدرسه‌ای پرسیده (مثلاً درخواست لیست تکالیف، برنامه مدرسه، وضعیت رتبه‌بندی لیدربورد یا آمار شخصی): حتماً اطلاعات را کامل، دقیق، خوانا و با جزئیات لازم و با ساختار تمیز ارائه بده. اطلاعات ناقص نده و طوری ننویس که انگار سرسری رد می‌کنی!
+۲. تسلط کامل و آنی بر اطلاعات زنده مدرسه (Long-Term In-Memory Knowledge):
+- تمام اطلاعات دروس، دبیران، برنامه هفتگی، رتبه‌بندی لیدربورد و تکالیف زنده مدرسه در حافظه سیستم (پیام سیستمی دوم) به تو تزریق شده است.
+- وقتی درباره دروس، برنامه، معلم‌ها، رتبه‌بندی، استریک یا تکالیف سوال می‌شود، مستقیماً از همین اطلاعات زنده در ذهنت استفاده کن و فوراً و با ساختار تمیز، کامل و با دقت ۱۰۰٪ پاسخ بده.
+- هرگز اسامی خیالی نساز! اطلاعات سیستم ۱۰۰٪ موثق است.
 
-۳. فرمت‌بندی زیبا، شیک و ساختاریافته تلگرام (HTML Formatting):
+۳. دسترسی کاملاً آزاد به ابزارها (Full Tools Freedom):
+- هر زمان که کاربر درخواست تغییر، تیک زدن، اضافه کردن تکلیف یا بررسی دیتابیس را داشت، از ابزارهای در اختیارت آزادانه استفاده کن.
+- اکیداً نام ابزار مانند [get_leaderboard] یا تگ‌های شبیه آن را در متن چت ننویس! ابزارها باید در پروتکل ابزار (Tool Calls) صدا زده شوند، نه اینکه به صورت متن خام برای کاربر چاپ شوند.
+
+۴. نحوه برخورد با کاربران ناشناس (کاربرانی که اکانتشان وصل نیست):
+- اگر در متادیتا کاربر ناشناس است، پاسخ سوالش را کامل بده، اما با لحن بامزه و لاتی با تعجب به او بگو که نشناختیش و کد اتصالش را از تب پروفایل اپلیکیشن بفرستد تا حسابش لینک شود.
+
+۵. فرمت‌بندی زیبا، شیک و ساختاریافته تلگرام (HTML Formatting):
 - خروجی تو مستقیماً با فرمت HTML در تلگرام ارسال می‌شود.
-- برای بولد کردن و تیترها از <b>تیتر</b> استفاده کن.
-- برای کد، آیدی یا اسامی خاص در صورت نیاز از <code>کد</code> استفاده کن.
-- اصلاً از ستاره Markdown (مثل **متن** یا *متن*) استفاده نکن چون تلگرام ستاره‌ها را به عنوان متن خام نشان می‌دهد!
-- از ساختارهای مرتب با بولت‌پوینت‌های جذاب، فاصله‌گذاری خطوط و ایموجی‌های مناسب (🔥, 📊, 🦁, ⚡, 📌) استفاده کن تا چت شیک، خوانا و چشم‌نواز باشد.
+- برای بولد کردن فقط از <b>تیتر</b> و برای کدها از <code>کد</code> استفاده کن.
+- هرگز از ستاره Markdown (مثل **متن**) استفاده نکن!
+- از ایموجی‌های منظم (🔥, 📊, 🦁, ⚡, 📌) و فاصله‌گذاری خطوط استفاده کن.
 
-۴. استفاده ۱۰۰٪ الزامی از ابزارها و جلوگیری مطلق از توهم (Zero Hallucination with Tools):
-- تو به پایگاه داده زنده سامانه مدرسه ArchSchool از طریق Tools متصلی!
-- هر وقت کاربر درباره «تکالیف»، «مشق‌ها»، «لیدربورد / رتبه‌بندی / نفر اول / استریک»، «برنامه کلاسی و زنگ‌ها» یا «آمار شخصی‌اش» سوالی پرسید:
-  اکیداً و مطلقاً حق نداری از خودت اسامی خیالی (مثل امیرحسین و...) یا نمرات فرضی بسازی!
-  باید حتماً و بدون استثنا ابزار مناسب (مانند get_leaderboard, get_class_assignments, get_school_schedule, get_my_status) را صدا بزنی و جواب را دقیقاً بر اساس دیتای خروجی دیتابیس بدهی.
-- اگر ابزاری گفت دیتایی نیست، با صداقت و لحن لاتی بگو که دیتایی پیدا نشد، به هیچ وجه اسم الکی از خودت نساز!
-
-۵. نحوه برخورد با کاربران ناشناس (کاربرانی که اکانتشان وصل نیست):
-- اگر در پیشوند پیام کاربر نوشته شده: [کاربر: ناشناس]
-  حتماً و بدون استثنا به سوالش یا حرفش پاسخ بده! پیام او را بی‌پاسخ نگذار!
-  اما با لحن بامزه و لاتی با تعجب به او بگو که نشناختیش و کد اتصالش را بفرستد:
-  مثلاً: «داش تو اصلاً کی هستی نشناختمت سلطان؟! اکانتت به سیستم مدرسه وصل نیست! تو پیوی ربات کد اتصالت رو از تب پروفایل اپلیکیشن بفرست تا بشناسمت و آمارت دستم بیاد 😏 ولی در جواب سوالت... [پاسخ به سوال]».
-- برای کاربران ناشناس، ابزارهای عمومی مثل get_leaderboard, get_class_assignments و get_school_schedule کار می‌کنند و می‌توانی اطلاعات مدرسه را به آنها هم بگویی.
-
-۶. عدم گیر دادن بی‌مورد به سیستم در چت‌های آزاد:
-- اگر کاربر درباره چت عادی، احوال‌پرسی یا موضوعات غیرمدرسه‌ای صحبت می‌کند، به هیچ عنوان بی‌مورد اسم درس و مشق را وسط نکش. دقیقاً پیرامون همان بحث با او گرم بگیر و کل‌کل کن!
-
-۷. قوانین آغاز پیام:
-- به هیچ وجه هر بار سلام نکن! فقط اگر کاربر خودش صریحاً سلام داد، یک سلام کوتاه و لاتی بده (مثلاً «سلام داش چطوری؟ 😏»). در غیر این صورت مستقیماً و بدون سلام پاسخ بده.
-
-۸. قوانین حیاتی تیک زدن و ثبت انجام تکالیف (Task Completion Rules):
-- تیک زدن، انجام دادن و ثبت تکالیف در تمامی ۷ روز هفته و در ۲۴ ساعت شبانه‌روز (حتی پنج‌شنبه‌ها، جمعه‌ها، روزهای تعطیل و ساعات غیرمدرسه) کاملاً آزاد و مجاز است.
-- هر زمان کاربر گفت تکلیفی را انجام داده یا خواست تیک بزند یا بردارد، بلافاصله ابزار toggle_assignment_completion را اجرا کن.
+۶. تیک زدن تکالیف در ۲۴ ساعت شبانه‌روز و همه روزهای هفته آزاد و مجاز است.
 """
 
 OPENAI_TOOLS = [
@@ -712,6 +697,53 @@ def _format_friendly_ai_error(status_code: int, raw_text: str) -> str:
     return "⚠️ ارتباط با سرویس هوش مصنوعی با اختلال موقت مواجه شد. لطفاً کمی بعد دوباره پیام دهید."
 
 
+
+def build_live_school_context(db: Session, current_user: Optional[models.User] = None) -> str:
+    """Build rich in-memory context containing teachers, schedule, live leaderboard, and active assignments."""
+    lines = []
+    lines.append(school_knowledge.get_school_knowledge_prompt())
+    status = school_knowledge.get_current_school_status()
+    lines.append(f"امروز: {status['today_fa']} | ساعت رسمی: {status['current_time']}")
+
+    # Live Leaderboard injected into memory
+    try:
+        entries, _ = build_leaderboard(db)
+        if entries:
+            lines.append("\n🏆 جدول رتبه‌بندی زنده کلاس (لیدربورد):")
+            for e in entries[:5]:
+                u = e["user"]
+                r = e.get("rank")
+                pct = round(e.get("completion_percentage", 0), 1)
+                st = e.get("current_streak", 0)
+                lines.append(f"- رتبه {r}: {u.username} (موفقیت: {pct}٪ | استریک: {st} روز)")
+        else:
+            lines.append("\n🏆 جدول لیدربورد: هنوز رکوردی در کلاس ثبت نشده است.")
+    except Exception as exc:
+        logger.warning("Could not build leaderboard context: %s", exc)
+
+    # Active Assignments injected into memory
+    try:
+        now = datetime.now(timezone.utc)
+        active_tasks = (
+            db.query(models.Assignment)
+            .filter(models.Assignment.deleted_at.is_(None))
+            .order_by(models.Assignment.due_date.asc().nulls_last())
+            .all()
+        )
+        if active_tasks:
+            lines.append("\n📝 لیست تکالیف فعال در سامانه:")
+            for t in active_tasks:
+                due_str = t.due_date.strftime("%Y-%m-%d %H:%M") if t.due_date else "بدون مهلت خاص"
+                rem = " [فقط جهت یادآوری]" if getattr(t, "is_reminder_only", False) else ""
+                lines.append(f"- {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem}")
+        else:
+            lines.append("\n📝 لیست تکالیف: در حال حاضر هیچ تکلیف فعالی در سامانه ثبت نشده است.")
+    except Exception as exc:
+        logger.warning("Could not build assignments context: %s", exc)
+
+    return "\n".join(lines)
+
+
 async def ask_universal_ai_agent(
     user_prompt: str,
     api_key: str,
@@ -769,28 +801,17 @@ async def ask_universal_ai_agent(
     if conversation_history:
         messages.extend(conversation_history)
 
-        # Only inject school schedule / time context if user prompt is explicitly about school / homework
-    school_keywords = (
-        "تکلیف", "مشق", "درس", "مدرسه", "امتحان", "استریک", "لیدربورد", "رتبه", "نفر اول", "اول", "دوم", "سوم", "کیه", "کیا",
-        "زنگ", "کلاس", "استاد", "معلم", "دبیر", "برنامه", "تقویم", "شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه",
-        "وضعیت", "آمار", "کارنامه", "امتیاز", "جدول", "تیک", "ثبت", "اضافه", "انجام"
-    )
-    is_school_query = any(k in user_prompt for k in school_keywords)
+    # In-Memory School Intelligence: Inject modular teachers, schedule, leaderboard & active tasks
+    live_context = build_live_school_context(db, current_user)
+    messages.append({
+        "role": "system",
+        "content": f"اطلاعات زنده و بلادرنگ پایگاه داده مدرسه (حافظه زنده):\n{live_context}",
+    })
 
-    meta_parts = []
-    if current_user:
-        meta_parts.append(f"کاربر: {current_user.username}")
-    else:
-        meta_parts.append("کاربر: ناشناس (اکانتش به سیستم مدرسه وصل نیست)")
-    if is_school_query:
-        meta_parts.append(f"امروز: {status['today_fa']}")
-        meta_parts.append(school_knowledge.get_school_knowledge_prompt())
-
-    meta_prefix = f"[{' | '.join(meta_parts)}]\n" if meta_parts else ""
-
+    user_meta = f"کاربر: {current_user.username} (نقش: {current_user.role})" if current_user else "کاربر: ناشناس (اکانتش به سیستم مدرسه وصل نیست)"
     messages.append({
         "role": "user",
-        "content": f"{meta_prefix}{user_prompt}",
+        "content": f"[{user_meta}]\n{user_prompt}",
     })
 
     headers = {
@@ -798,22 +819,18 @@ async def ask_universal_ai_agent(
         "Content-Type": "application/json",
     }
     if "openrouter.ai" in endpoint_url:
-        headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
-        headers["X-Title"] = "ArchSchool Assistant"
+        headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir",
+        headers["X-Title"] = "ArchSchool Assistant",
 
+    # Always provide OPENAI_TOOLS freely so the AI can invoke them whenever needed!
     payload: Dict[str, Any] = {
         "model": clean_model,
         "messages": messages,
+        "tools": OPENAI_TOOLS,
+        "tool_choice": "auto",
         "temperature": 0.65,
         "max_tokens": 600,
     }
-
-    # High-Performance Tool Pruning:
-    # Only attach complex function calling schemas if the user is asking about school/tasks/schedule.
-    # For chats, greetings, banter and jokes, omit tools to eliminate pre-fill latency completely.
-    if is_school_query:
-        payload["tools"] = OPENAI_TOOLS
-        payload["tool_choice"] = "auto"
 
     try:
         client = get_shared_client()
@@ -952,6 +969,27 @@ async def ask_universal_ai_agent(
 
         # Normal text content
         content = choice_message.get("content", "")
+        import re
+        if content and "[" in content and "]" in content:
+            # Check if model outputted bracketed tool call in text by mistake (e.g. [get_leaderboard])
+            bracket_match = re.search(r"\[(get_[a-zA-Z0-9_]+|add_assignment|toggle_[a-zA-Z0-9_]+)\]", content)
+            if bracket_match:
+                pseudo_fn = bracket_match.group(1)
+                logger.info("Executing text-bracketed tool fallback: %s", pseudo_fn)
+                res = execute_tool(pseudo_fn, {}, db, current_user)
+                cleaned_content = re.sub(r"\[(get_[a-zA-Z0-9_]+|add_assignment|toggle_[a-zA-Z0-9_]+)\]", "", content).strip()
+                followup_messages = list(messages)
+                followup_messages.append({"role": "assistant", "content": cleaned_content or f"در حال اجرای {pseudo_fn}"})
+                followup_messages.append({"role": "user", "content": f"نتیجه واقعی از دیتابیس:\n{json.dumps(res, ensure_ascii=False)}\nبر این اساس پاسخ نهایی را بده."})
+                try:
+                    f_resp = await client.post(endpoint_url, json={"model": clean_model, "messages": followup_messages, "max_tokens": 600, "temperature": 0.65}, headers=headers)
+                    if f_resp.status_code == 200:
+                        f_choices = f_resp.json().get("choices", [])
+                        if f_choices:
+                            return f_choices[0].get("message", {}).get("content", "")
+                except Exception as b_err:
+                    logger.warning("Error in bracket fallback: %s", b_err)
+
         return content or "متوجه پیامت نشدم، لطفاً دوباره بگو!"
 
     except httpx.TimeoutException:
