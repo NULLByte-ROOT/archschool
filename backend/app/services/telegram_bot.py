@@ -62,8 +62,6 @@ async def fetch_provider_models(api_key: str, base_url: str) -> List[Dict[str, s
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
     }
-    if "googleapis.com" in clean_base or api_key.startswith("AIzaSy"):
-        headers["x-goog-api-key"] = api_key.strip()
     if "openrouter.ai" in clean_base:
         headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
         headers["X-Title"] = "ArchSchool Assistant"
