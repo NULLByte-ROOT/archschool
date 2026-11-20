@@ -312,13 +312,15 @@ def is_recent_conversation(
 def format_telegram_html(text: str) -> str:
     """Format and sanitize AI output for Telegram HTML parse_mode.
 
-    1. Converts markdown headers (### Title) to <b>Title</b>.
-    2. Converts markdown bullets (* or -) to clean emoji bullets (🔹).
-    3. Converts bold markdown (**text** or ***text***) to <b>text</b>.
-    4. Converts inline code (`code`) to <code>code</code>.
-    5. Converts single asterisk italics (*text*) to <i>text</i>.
-    6. Strips any stray remaining asterisks so no ugly markdown shows up.
-    7. Escapes raw < and > while preserving valid Telegram tags (b, i, u, s, code, pre, a, blockquote).
+    1. Converts markdown code blocks (```python ... ```) to <pre><code>...</code></pre>.
+    2. Converts markdown headers (### Title) to <b>Title</b>.
+    3. Converts markdown bullets (* or -) to clean emoji bullets (🔹).
+    4. Converts bold markdown (**text** or __text__) to <b>text</b>.
+    5. Converts inline code (`code`) to <code>code</code>.
+    6. Converts single asterisk italics (*text* or _text_) to <i>text</i>.
+    7. Converts markdown links [text](url) to <a href="url">text</a>.
+    8. Strips any stray remaining asterisks or underscores so no ugly markdown shows up.
+    9. Escapes raw < and > while preserving valid Telegram tags (b, i, u, s, code, pre, a, blockquote).
     """
     if not text:
         return ""
@@ -326,25 +328,32 @@ def format_telegram_html(text: str) -> str:
     # Normalize linebreaks
     text = text.replace("\r\n", "\n")
 
-    # 1. Convert headers like ### Title -> <b>Title</b>
+    # 1. Convert code blocks: ```lang ... ``` -> <pre><code>...</code></pre>
+    text = re.sub(r'```([a-zA-Z0-9_]*)\n?(.*?)```', r'<pre><code>\2</code></pre>', text, flags=re.DOTALL)
+
+    # 2. Convert headers like ### Title -> <b>Title</b>
     text = re.sub(r'^(?:#{1,6})\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
 
-    # 2. Convert bullet points: * Item or - Item -> 🔹 Item
+    # 3. Convert bullet points: * Item or - Item -> 🔹 Item
     text = re.sub(r'^\s*[\*\-]\s+(.+)$', r'🔹 \1', text, flags=re.MULTILINE)
 
-    # 3. Convert bold: **text** or ***text*** -> <b>text</b>
+    # 4. Convert bold: **text** or ***text*** or __text__ -> <b>text</b>
     text = re.sub(r'\*{2,3}([^\*\n]+?)\*{2,3}', r'<b>\1</b>', text)
+    text = re.sub(r'_{2}([^\_\n]+?)_{2}', r'<b>\1</b>', text)
 
-    # 4. Convert inline code: `code` -> <code>code</code>
+    # 5. Convert inline code: `code` -> <code>code</code>
     text = re.sub(r'`([^`\n]+)`', r'<code>\1</code>', text)
 
-    # 5. Convert italic: *text* (when not already matched) -> <i>text</i>
-    text = re.sub(r'(?<!\*)\*([^\*\n]+?)\*(?!\*)', r'<i>\1</i>', text)
+    # 6. Convert markdown links: [label](url) -> <a href="url">label</a>
+    text = re.sub(r'\[([^\]]+)\]\((https?://[^\)]+)\)', r'<a href="\2">\1</a>', text)
 
-    # 6. Remove any remaining stray asterisks
+    # 7. Convert italic: *text* or _text_ -> <i>text</i>
+    text = re.sub(r'(?<!\*)\*([^\*\n]+?)\*(?!\*)', r'<i>\1</i>', text)
+    text = re.sub(r'(?<![a-zA-Z0-9_])_([^\_\n]+?)_(?![a-zA-Z0-9_])', r'<i>\1</i>', text)
+
+    # 8. Remove any remaining stray asterisks
     text = re.sub(r'\*{1,}', '', text)
 
-    # 7. Protect and preserve valid Telegram HTML tags, escape other < and >
     tag_regex = re.compile(
         r'(</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|a|blockquote)(?:\s+href="[^"]*")?\s*>)',
         re.IGNORECASE,

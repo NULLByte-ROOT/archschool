@@ -190,12 +190,19 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
             text = text.replace(f"@{bot_user}", "").strip()
 
     # --- 3. Interactive Button-Based Assignment Creation Interceptor ---
+    # Trigger whenever user expresses intent to create/add/assign any task, homework, or exam
+    add_triggers = (
+        "تکلیف", "مشق", "تمرین", "امتحان", "پرسش", "پروژه", "یادآوری", "ثبت", "اضافه", "اد", "بساز", "ایجاد", "بزار", "بذار"
+    )
     is_add_cmd = any(k in text for k in (
         "تکلیف اد کن", "تکلیف اد", "اد کن", "اد کردن تکلیف", "تکلیف اد کنید",
         "تکلیف اضافه کن", "تکلیف اضافه", "افزودن تکلیف", "ثبت تکلیف", "تکلیف جدید",
         "تکلیف بزار", "تکلیف بذار", "مشق اضافه کن", "مشق اد کن", "مشق بزار", "مشق بذار",
-        "/new_assignment", "/add_assignment", "میخوام تکلیف بسازم", "میخوام تکلیف اضافه کنم"
-    ))
+        "تکلیف ثبت کن", "مشق ثبت کن", "تمرین اد کن", "تمرین اضافه کن", "امتحان اضافه کن", "امتحان ثبت کن",
+        "/new_assignment", "/add_assignment", "میخوام تکلیف بسازم", "میخوام تکلیف اضافه کنم", "میخوام مشق اضافه کنم"
+    )) or (
+        any(w in text for w in ("تکلیف", "مشق", "تمرین", "امتحان")) and any(w in text for w in ("اد", "اضافه", "ثبت", "جدید", "بزار", "بذار", "ایجاد", "بساز"))
+    )
     if is_add_cmd:
         if not user:
             await telegram_bot.send_telegram_message(
