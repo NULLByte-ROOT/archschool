@@ -703,6 +703,13 @@ async def ask_universal_ai_agent(
     else:
         endpoint_url = clean_base
 
+    # Route Google Gemini through host IPv6 gateway to bypass Contabo IPv4 blacklist
+    if "generativelanguage.googleapis.com" in endpoint_url:
+        endpoint_url = endpoint_url.replace(
+            "https://generativelanguage.googleapis.com",
+            "https://archschool.vidxsepehr.ir/gemini",
+        )
+
     clean_model = model_name.strip() if model_name else "openai/gpt-4o-mini"
 
     status = school_knowledge.get_current_school_status()

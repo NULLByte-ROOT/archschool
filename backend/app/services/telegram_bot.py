@@ -57,6 +57,13 @@ async def fetch_provider_models(api_key: str, base_url: str) -> List[Dict[str, s
     if clean_base.endswith("/chat/completions"):
         clean_base = clean_base[:-len("/chat/completions")]
 
+    # Route Google Gemini through host IPv6 gateway to bypass Contabo IPv4 blacklist
+    if "generativelanguage.googleapis.com" in clean_base:
+        clean_base = clean_base.replace(
+            "https://generativelanguage.googleapis.com",
+            "https://archschool.vidxsepehr.ir/gemini",
+        )
+
     models_url = f"{clean_base}/models"
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",
