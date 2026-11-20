@@ -945,9 +945,9 @@ async def ask_universal_ai_agent(
             elif followup_resp:
                 return _format_friendly_ai_error(followup_resp.status_code, followup_resp.text)
 
-            # Normal text content
-            content = choice_message.get("content", "")
-            return content or "متوجه پیامت نشدم، لطفاً دوباره بگو!"
+        # Normal text content
+        content = choice_message.get("content", "")
+        return content or "متوجه پیامت نشدم، لطفاً دوباره بگو!"
 
     except httpx.TimeoutException:
         logger.error("AI provider timeout to %s", endpoint_url)
