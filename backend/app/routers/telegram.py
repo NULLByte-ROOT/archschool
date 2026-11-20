@@ -264,9 +264,12 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
         )
         return
 
-    # Fetch recent conversation memory for this chat
-    history = telegram_bot.get_chat_history(db, chat_id, limit=10)
+    # Fetch compact recent conversation memory (6 messages) for fast TTFT
+    history = telegram_bot.get_chat_history(db, chat_id, limit=6)
     is_recent = telegram_bot.is_recent_conversation(db, chat_id, max_idle_minutes=120)
+
+    # Instant visual feedback: send 'typing' action immediately to Telegram header
+    asyncio.create_task(telegram_bot.send_chat_action(token, chat_id, "typing"))
 
     ai_reply = await ai_agent.ask_universal_ai_agent(
         user_prompt=text,

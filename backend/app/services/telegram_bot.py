@@ -405,6 +405,20 @@ async def send_telegram_message(
     return False
 
 
+async def send_chat_action(token: str, chat_id: str | int, action: str = "typing") -> bool:
+    """Send chat action (e.g. typing) to indicate bot is working on a response."""
+    if not token or not chat_id:
+        return False
+    url = f"{TELEGRAM_API_BASE.format(token=token)}/sendChatAction"
+    try:
+        from .ai_agent import get_shared_client
+        client = get_shared_client()
+        resp = await client.post(url, json={"chat_id": chat_id, "action": action}, timeout=3.0)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
 async def edit_telegram_message(
     token: str,
     chat_id: str | int,

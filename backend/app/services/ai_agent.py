@@ -13,6 +13,19 @@ from . import school_knowledge
 
 logger = logging.getLogger("archschool.ai_agent")
 
+_shared_client: Optional[httpx.AsyncClient] = None
+
+
+def get_shared_client() -> httpx.AsyncClient:
+    """Persistent connection pool to prevent per-request TLS handshake and TCP latency."""
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient(
+            timeout=30.0,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0),
+        )
+    return _shared_client
+
 SYSTEM_INSTRUCTION = """
 تو یک رفیق فابریک، لوتی، تهرونی، بی‌نهایت باهوش، حاضر‌جواب، تیکه‌انداز و با مرام هستی که لحنت کاملاً لاتی و کوچه‌بازاریه! 😎🔥
 
@@ -786,115 +799,151 @@ async def ask_universal_ai_agent(
     payload: Dict[str, Any] = {
         "model": clean_model,
         "messages": messages,
-        "tools": OPENAI_TOOLS,
-        "tool_choice": "auto",
-        "temperature": 0.7,
-        "max_tokens": 250,
+        "temperature": 0.65,
+        "max_tokens": 160,
     }
 
-    try:
-        async with httpx.AsyncClient(timeout=35.0) as client:
-            resp = None
-            last_status = 200
-            last_text = ""
+    # High-Performance Tool Pruning:
+    # Only attach complex function calling schemas if the user is asking about school/tasks/schedule.
+    # For chats, greetings, banter and jokes, omit tools to eliminate pre-fill latency completely.
+    if is_school_query:
+        payload["tools"] = OPENAI_TOOLS
+        payload["tool_choice"] = "auto"
 
-            for attempt in range(1, 4):  # Up to 3 attempts with 2s interval on busy/error
+    try:
+        client = get_shared_client()
+        resp = None
+        last_status = 200
+        last_text = ""
+
+        for attempt in range(1, 4):  # Up to 3 attempts with 2s interval on busy/error
+            try:
+                resp = await client.post(endpoint_url, json=payload, headers=headers)
+                if resp.status_code == 200:
+                    break
+                last_status = resp.status_code
+                last_text = resp.text
+                logger.warning(
+                    "AI provider busy/error (attempt %d/3) %s from %s: %s",
+                    attempt, resp.status_code, endpoint_url, resp.text[:200]
+                )
+                if attempt < 3 and _is_busy_error(resp.status_code, resp.text):
+                    await asyncio.sleep(2.0)
+                    continue
+                break
+            except (httpx.TimeoutException, httpx.NetworkError) as net_err:
+                logger.warning("AI provider network/timeout (attempt %d/3): %s", attempt, net_err)
+                if attempt < 3:
+                    await asyncio.sleep(2.0)
+                    continue
+                return "⚠️ پاسخ ارائه‌دهنده هوش مصنوعی بیش از حد طول کشید یا سرور شلوغ است. لطفاً کمی بعد تلاش کنید."
+
+        if not resp or resp.status_code != 200:
+            logger.error("AI provider error %s after retries from %s: %s", last_status, endpoint_url, last_text)
+            return _format_friendly_ai_error(last_status, last_text)
+
+        data = resp.json()
+        choices = data.get("choices", [])
+        if not choices:
+            return "پاسخی از هوش مصنوعی دریافت نشد."
+
+        first_choice = choices[0]
+        choice_message = first_choice.get("message", {})
+        tool_calls = choice_message.get("tool_calls")
+
+        # --- Tool Calling Branch ---
+        if tool_calls:
+            clean_assistant: Dict[str, Any] = {
+                "role": "assistant",
+                "content": choice_message.get("content"),
+                "tool_calls": tool_calls,
+            }
+            messages.append(clean_assistant)
+
+            last_fn_name = ""
+            last_tool_output: Dict[str, Any] = {}
+            last_fn_args: Dict[str, Any] = {}
+
+            for tc in tool_calls:
+                call_id = tc.get("id") or "call_1"
+                fn_data = tc.get("function", {})
+                fn_name = fn_data.get("name", "")
+                fn_args_raw = fn_data.get("arguments", "{}")
                 try:
-                    resp = await client.post(endpoint_url, json=payload, headers=headers)
-                    if resp.status_code == 200:
+                    fn_args = json.loads(fn_args_raw) if isinstance(fn_args_raw, str) else fn_args_raw
+                except Exception:
+                    fn_args = {}
+
+                last_fn_name = fn_name
+                last_fn_args = fn_args
+
+                logger.info("Universal AI invoking tool: %s with args: %s", fn_name, fn_args)
+                tool_output = execute_tool(fn_name, fn_args, db, current_user)
+                last_tool_output = tool_output
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": str(call_id),
+                    "content": json.dumps(tool_output, ensure_ascii=False),
+                })
+
+            # Zero-Round-Trip Latency Optimization for mutations:
+            # If the user toggled or added a task, respond immediately with authentic street-smart style!
+            # This completely avoids an expensive, redundant 3-second 2nd HTTP round-trip to the LLM.
+            if len(tool_calls) == 1 and last_fn_name == "toggle_assignment_completion":
+                if last_tool_output.get("success"):
+                    titles = "، ".join(last_tool_output.get("modified_titles", [])) or "تکلیف"
+                    act = last_tool_output.get("action", "complete")
+                    streak = last_tool_output.get("current_streak", 0)
+                    pct = last_tool_output.get("new_completion_percentage", 0)
+                    if act == "complete":
+                        return f"ردیفه ستون! «{titles}» با موفقیت انجام شد و تیک خورد. دمت گرم، استریکت شد {streak} روز! ({pct}٪ کل) 🔥🦁"
+                    else:
+                        return f"حله دادا! تیک «{titles}» رو برداشتم برات. مشتی باشی 🫡"
+                else:
+                    err = last_tool_output.get("error") or last_tool_output.get("message") or "تکلیفی برای تغییر پیدا نشد!"
+                    return f"داش {err}"
+
+            elif len(tool_calls) == 1 and last_fn_name == "add_assignment":
+                if last_tool_output.get("success"):
+                    t_title = last_fn_args.get("title", "")
+                    return f"رو جفت چشام داش! تکلیف «{t_title}» با موفقیت تو سیستم ثبت شد و ردیفه. 🫡✨"
+                else:
+                    err = last_tool_output.get("error") or "نتونستم تکلیف رو ثبت کنم."
+                    return f"داش نشد: {err}"
+
+            # Fast follow-up request for read-only queries (schedule, status, leaderboard)
+            # Notice tools are omitted here to prevent the LLM from second-guessing another tool call.
+            followup_payload = {
+                "model": clean_model,
+                "messages": messages,
+                "temperature": 0.65,
+                "max_tokens": 150,
+            }
+            followup_resp = None
+            for f_attempt in range(1, 4):
+                try:
+                    followup_resp = await client.post(endpoint_url, json=followup_payload, headers=headers)
+                    if followup_resp.status_code == 200:
                         break
-                    last_status = resp.status_code
-                    last_text = resp.text
-                    logger.warning(
-                        "AI provider busy/error (attempt %d/3) %s from %s: %s",
-                        attempt, resp.status_code, endpoint_url, resp.text[:200]
-                    )
-                    if attempt < 3 and _is_busy_error(resp.status_code, resp.text):
+                    if f_attempt < 3 and _is_busy_error(followup_resp.status_code, followup_resp.text):
                         await asyncio.sleep(2.0)
                         continue
                     break
-                except (httpx.TimeoutException, httpx.NetworkError) as net_err:
-                    logger.warning("AI provider network/timeout (attempt %d/3): %s", attempt, net_err)
-                    if attempt < 3:
+                except (httpx.TimeoutException, httpx.NetworkError):
+                    if f_attempt < 3:
                         await asyncio.sleep(2.0)
                         continue
-                    return "⚠️ پاسخ ارائه‌دهنده هوش مصنوعی بیش از حد طول کشید یا سرور شلوغ است. لطفاً کمی بعد تلاش کنید."
+                    break
 
-            if not resp or resp.status_code != 200:
-                logger.error("AI provider error %s after retries from %s: %s", last_status, endpoint_url, last_text)
-                return _format_friendly_ai_error(last_status, last_text)
-
-            data = resp.json()
-            choices = data.get("choices", [])
-            if not choices:
-                return "پاسخی از هوش مصنوعی دریافت نشد."
-
-            first_choice = choices[0]
-            choice_message = first_choice.get("message", {})
-            tool_calls = choice_message.get("tool_calls")
-
-            # --- Tool Calling Branch ---
-            if tool_calls:
-                # Add assistant message with tool_calls to history (clean schema)
-                clean_assistant: Dict[str, Any] = {
-                    "role": "assistant",
-                    "content": choice_message.get("content"),
-                    "tool_calls": tool_calls,
-                }
-                messages.append(clean_assistant)
-
-                for tc in tool_calls:
-                    call_id = tc.get("id") or "call_1"
-                    fn_data = tc.get("function", {})
-                    fn_name = fn_data.get("name", "")
-                    fn_args_raw = fn_data.get("arguments", "{}")
-                    try:
-                        fn_args = json.loads(fn_args_raw) if isinstance(fn_args_raw, str) else fn_args_raw
-                    except Exception:
-                        fn_args = {}
-
-                    logger.info("Universal AI invoking tool: %s with args: %s", fn_name, fn_args)
-                    tool_output = execute_tool(fn_name, fn_args, db, current_user)
-
-                    # Append tool result message
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": str(call_id),
-                        "content": json.dumps(tool_output, ensure_ascii=False),
-                    })
-
-                # Follow-up request to get final friendly response with retry on busy
-                followup_payload = {
-                    "model": clean_model,
-                    "messages": messages,
-                    "tools": OPENAI_TOOLS,
-                    "temperature": 0.7,
-                    "max_tokens": 250,
-                }
-                followup_resp = None
-                for f_attempt in range(1, 4):
-                    try:
-                        followup_resp = await client.post(endpoint_url, json=followup_payload, headers=headers)
-                        if followup_resp.status_code == 200:
-                            break
-                        if f_attempt < 3 and _is_busy_error(followup_resp.status_code, followup_resp.text):
-                            await asyncio.sleep(2.0)
-                            continue
-                        break
-                    except (httpx.TimeoutException, httpx.NetworkError):
-                        if f_attempt < 3:
-                            await asyncio.sleep(2.0)
-                            continue
-                        break
-
-                if followup_resp and followup_resp.status_code == 200:
-                    followup_data = followup_resp.json()
-                    followup_choices = followup_data.get("choices", [])
-                    if followup_choices:
-                        final_content = followup_choices[0].get("message", {}).get("content", "")
-                        return final_content or "انجام شد!"
-                elif followup_resp:
-                    return _format_friendly_ai_error(followup_resp.status_code, followup_resp.text)
+            if followup_resp and followup_resp.status_code == 200:
+                followup_data = followup_resp.json()
+                followup_choices = followup_data.get("choices", [])
+                if followup_choices:
+                    final_content = followup_choices[0].get("message", {}).get("content", "")
+                    return final_content or "انجام شد!"
+            elif followup_resp:
+                return _format_friendly_ai_error(followup_resp.status_code, followup_resp.text)
 
             # Normal text content
             content = choice_message.get("content", "")
