@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone, timedelta
@@ -675,12 +676,21 @@ def execute_tool(
         return {"success": False, "error": str(exc)}
 
 
+def _is_busy_error(status_code: int, raw_text: str = "") -> bool:
+    """Check if the response corresponds to server busy, rate limit, quota exhaustion or temporary overload."""
+    if status_code in (429, 500, 502, 503, 504):
+        return True
+    lower = raw_text.lower()
+    return any(k in lower for k in ("rate limit", "resource exhausted", "overloaded", "busy", "quota", "too many requests", "capacity", "retry"))
+
+
 def _format_friendly_ai_error(status_code: int, raw_text: str) -> str:
     """Generate friendly Persian error messages without exposing technical codes or raw HTML/JSON."""
-    if status_code == 429:
-        return "⚠️ سرویس هوش مصنوعی در حال حاضر پرمصرف است یا به سقف مجاز درخواست در دقیقه رسیده است. لطفاً یک دقیقه بعد دوباره امتحان کنید."
-    elif status_code in (500, 502, 503, 504):
-        return "⚠️ سرور هوش مصنوعی به طور موقت تحت بار سنگین ترافیکی است یا در دسترس نیست. لطفاً یک دقیقه دیگر تلاش کنید."
+    lower = raw_text.lower()
+    if status_code == 429 or "rate limit" in lower or "quota" in lower:
+        return "⚠️ سرور هوش مصنوعی در حال حاضر شلوغ است یا به سقف مجاز درخواست در دقیقه رسیده است. لطفاً چند لحظه بعد دوباره پیام بدهید."
+    elif status_code in (500, 502, 503, 504) or "overloaded" in lower or "busy" in lower:
+        return "⚠️ سرور هوش مصنوعی به طور موقت تحت بار سنگین ترافیکی است. لطفاً چند لحظه دیگر تلاش کنید."
     elif status_code in (401, 403):
         return "⚠️ کلید دسترسی هوش مصنوعی نامعتبر است یا دسترسی به این مدل محدود شده است. لطفاً تنظیمات کلید را در پنل مدرسه بررسی کنید."
     elif status_code == 404:
@@ -784,10 +794,35 @@ async def ask_universal_ai_agent(
 
     try:
         async with httpx.AsyncClient(timeout=35.0) as client:
-            resp = await client.post(endpoint_url, json=payload, headers=headers)
-            if resp.status_code != 200:
-                logger.error("AI provider error %s from %s: %s", resp.status_code, endpoint_url, resp.text)
-                return _format_friendly_ai_error(resp.status_code, resp.text)
+            resp = None
+            last_status = 200
+            last_text = ""
+
+            for attempt in range(1, 4):  # Up to 3 attempts with 2s interval on busy/error
+                try:
+                    resp = await client.post(endpoint_url, json=payload, headers=headers)
+                    if resp.status_code == 200:
+                        break
+                    last_status = resp.status_code
+                    last_text = resp.text
+                    logger.warning(
+                        "AI provider busy/error (attempt %d/3) %s from %s: %s",
+                        attempt, resp.status_code, endpoint_url, resp.text[:200]
+                    )
+                    if attempt < 3 and _is_busy_error(resp.status_code, resp.text):
+                        await asyncio.sleep(2.0)
+                        continue
+                    break
+                except (httpx.TimeoutException, httpx.NetworkError) as net_err:
+                    logger.warning("AI provider network/timeout (attempt %d/3): %s", attempt, net_err)
+                    if attempt < 3:
+                        await asyncio.sleep(2.0)
+                        continue
+                    return "⚠️ پاسخ ارائه‌دهنده هوش مصنوعی بیش از حد طول کشید یا سرور شلوغ است. لطفاً کمی بعد تلاش کنید."
+
+            if not resp or resp.status_code != 200:
+                logger.error("AI provider error %s after retries from %s: %s", last_status, endpoint_url, last_text)
+                return _format_friendly_ai_error(last_status, last_text)
 
             data = resp.json()
             choices = data.get("choices", [])
@@ -828,7 +863,7 @@ async def ask_universal_ai_agent(
                         "content": json.dumps(tool_output, ensure_ascii=False),
                     })
 
-                # Follow-up request to get final friendly response
+                # Follow-up request to get final friendly response with retry on busy
                 followup_payload = {
                     "model": clean_model,
                     "messages": messages,
@@ -836,13 +871,30 @@ async def ask_universal_ai_agent(
                     "temperature": 0.7,
                     "max_tokens": 250,
                 }
-                followup_resp = await client.post(endpoint_url, json=followup_payload, headers=headers)
-                if followup_resp.status_code == 200:
+                followup_resp = None
+                for f_attempt in range(1, 4):
+                    try:
+                        followup_resp = await client.post(endpoint_url, json=followup_payload, headers=headers)
+                        if followup_resp.status_code == 200:
+                            break
+                        if f_attempt < 3 and _is_busy_error(followup_resp.status_code, followup_resp.text):
+                            await asyncio.sleep(2.0)
+                            continue
+                        break
+                    except (httpx.TimeoutException, httpx.NetworkError):
+                        if f_attempt < 3:
+                            await asyncio.sleep(2.0)
+                            continue
+                        break
+
+                if followup_resp and followup_resp.status_code == 200:
                     followup_data = followup_resp.json()
                     followup_choices = followup_data.get("choices", [])
                     if followup_choices:
                         final_content = followup_choices[0].get("message", {}).get("content", "")
                         return final_content or "انجام شد!"
+                elif followup_resp:
+                    return _format_friendly_ai_error(followup_resp.status_code, followup_resp.text)
 
             # Normal text content
             content = choice_message.get("content", "")
