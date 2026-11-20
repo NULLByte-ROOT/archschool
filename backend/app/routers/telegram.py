@@ -191,17 +191,21 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
 
     # --- 3. Interactive Button-Based Assignment Creation Interceptor ---
     # Trigger whenever user expresses intent to create/add/assign any task, homework, or exam
-    add_triggers = (
-        "تکلیف", "مشق", "تمرین", "امتحان", "پرسش", "پروژه", "یادآوری", "ثبت", "اضافه", "اد", "بساز", "ایجاد", "بزار", "بذار"
+    task_nouns = ("تکلیف", "مشق", "تمرین", "امتحان", "پرسش", "پروژه", "یادآوری", "تسک", "کویز", "کوئیز", "آزمون")
+    action_verbs = (
+        "اد", "اضافه", "ثبت", "جدید", "بزار", "بذار", "ایجاد", "بساز", "بنویس", "تعیین",
+        "بدم", "بدیم", "بگیم", "داریم", "وارد", "ثبتش", "بزاریم", "بذاریم", "تعریف"
     )
-    is_add_cmd = any(k in text for k in (
-        "تکلیف اد کن", "تکلیف اد", "اد کن", "اد کردن تکلیف", "تکلیف اد کنید",
-        "تکلیف اضافه کن", "تکلیف اضافه", "افزودن تکلیف", "ثبت تکلیف", "تکلیف جدید",
-        "تکلیف بزار", "تکلیف بذار", "مشق اضافه کن", "مشق اد کن", "مشق بزار", "مشق بذار",
-        "تکلیف ثبت کن", "مشق ثبت کن", "تمرین اد کن", "تمرین اضافه کن", "امتحان اضافه کن", "امتحان ثبت کن",
-        "/new_assignment", "/add_assignment", "میخوام تکلیف بسازم", "میخوام تکلیف اضافه کنم", "میخوام مشق اضافه کنم"
-    )) or (
-        any(w in text for w in ("تکلیف", "مشق", "تمرین", "امتحان")) and any(w in text for w in ("اد", "اضافه", "ثبت", "جدید", "بزار", "بذار", "ایجاد", "بساز"))
+    is_add_cmd = (
+        text.startswith(("/new_assignment", "/add_assignment", "/new_task", "/add_task"))
+        or any(k in text for k in (
+            "تکلیف اد", "اد کن", "اد کردن", "اضافه کن", "اضافه کردن", "افزودن تکلیف", "ثبت تکلیف", "تکلیف جدید",
+            "تکلیف بزار", "تکلیف بذار", "مشق بزار", "مشق بذار", "مشق اد", "مشق اضافه", "تکلیف ثبت", "مشق ثبت",
+            "تمرین اد", "تمرین اضافه", "امتحان اد", "امتحان اضافه", "یادآوری بزار", "یادآوری بذار", "یادآوری اضافه",
+            "تکلیف داریم", "مشق داریم", "امتحان داریم", "میخوام تکلیف", "میخوام مشق", "یه تکلیف", "یه مشق",
+            "تکلیف بنویس", "مشق بنویس", "تکلیف بدم", "مشق بدم"
+        ))
+        or (any(n in text for n in task_nouns) and any(v in text for v in action_verbs))
     )
     if is_add_cmd:
         if not user:
@@ -302,7 +306,7 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
         "مشق اضافه", "مشق ثبت", "تکلیف بده", "تکلیف اد کن", "تکلیف اد", "اد کن", "اد کردن"
     )
     if user and (user.is_admin or user.role in ("admin", "owner")):
-        if any(k in text for k in add_task_keywords):
+        if any(k in text for k in add_task_keywords) or (any(n in text for n in task_nouns) and any(v in text for v in action_verbs)):
             reply_markup = {
                 "inline_keyboard": [
                     [{"text": "➕ افزودن تکلیف جدید با دکمه", "callback_data": "wiz:s1"}]

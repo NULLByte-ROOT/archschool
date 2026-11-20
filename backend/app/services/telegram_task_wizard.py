@@ -123,12 +123,21 @@ def calculate_due_date(week_offset: int, day_index: int, now_iran: Optional[date
     return utc_due
 
 
-def build_step1_keyboard() -> Dict[str, Any]:
-    """Step 1: Choose assignment topic/subtype."""
+def build_step1_keyboard(is_reminder: bool = False) -> Dict[str, Any]:
+    """Step 1: Choose assignment topic/subtype with Toggle Reminder button."""
     buttons: List[List[Dict[str, str]]] = []
+    
+    # Toggle reminder button at top
+    toggle_icon = "🟢 روشن (تکلیف فقط جهت یادآوری ثبت می‌شود)" if is_reminder else "⚪ خاموش (تکلیف عادی با قابلیت تیک زدن)"
+    toggle_next = "0" if is_reminder else "1"
+    buttons.append([{"text": f"📌 حالت فقط یادآوری: {toggle_icon}", "callback_data": f"wiz:toggle_rem:{toggle_next}"}])
+
     row: List[Dict[str, str]] = []
     for code, label, _ in SUBTYPES:
-        row.append({"text": label, "callback_data": f"wiz:s2:{code}"})
+        if code == "reminder":
+            continue
+        cb = f"wiz:s2:{code}:{'1' if is_reminder else '0'}"
+        row.append({"text": label, "callback_data": cb})
         if len(row) == 2:
             buttons.append(row)
             row = []
@@ -138,25 +147,26 @@ def build_step1_keyboard() -> Dict[str, Any]:
     return {"inline_keyboard": buttons}
 
 
-def build_step2_keyboard(subtype: str) -> Dict[str, Any]:
+def build_step2_keyboard(subtype: str, is_reminder: bool = False) -> Dict[str, Any]:
     """Step 2: Choose course/subject."""
     buttons: List[List[Dict[str, str]]] = []
     row: List[Dict[str, str]] = []
+    rem_flag = "1" if is_reminder else "0"
     for s_id, s_name, _ in get_current_subjects():
-        row.append({"text": s_name, "callback_data": f"wiz:s3:{subtype}:{s_id}"})
+        row.append({"text": s_name, "callback_data": f"wiz:s3:{subtype}:{s_id}:{rem_flag}"})
         if len(row) == 2:
             buttons.append(row)
             row = []
     if row:
         buttons.append(row)
     buttons.append([
-        {"text": "🔙 مرحله قبل", "callback_data": "wiz:s1"},
+        {"text": "🔙 مرحله قبل", "callback_data": f"wiz:s1:{rem_flag}"},
         {"text": "❌ انصراف", "callback_data": "wiz:cancel"},
     ])
     return {"inline_keyboard": buttons}
 
 
-def build_step3_keyboard(subtype: str, subject_id: str) -> Tuple[str, Dict[str, Any]]:
+def build_step3_keyboard(subtype: str, subject_id: str, is_reminder: bool = False) -> Tuple[str, Dict[str, Any]]:
     """Step 3: Choose proposed deadline presets (mirrors the mobile app logic)."""
     now_iran = school_knowledge.get_iran_now()
     current_class_idx = (now_iran.weekday() + 2) % 7
@@ -186,11 +196,12 @@ def build_step3_keyboard(subtype: str, subject_id: str) -> Tuple[str, Dict[str, 
     clean_sub = sub_label.split(" ", 1)[-1]
     clean_subj = subj_name.split(" ", 1)[-1]
     auto_title = f"{clean_sub} {clean_subj}"
+    rem_text = "\n📌 <b>نوع: فقط جهت یادآوری (بدون امکان تیک زدن)</b>" if is_reminder else ""
 
     text = (
         f"📋 <b>افزودن تکلیف جدید به سامانه</b>\n\n"
         f"موضوع: <b>{clean_sub}</b> ✅\n"
-        f"درس: <b>{clean_subj}</b> (استاد {teacher}) ✅\n"
+        f"درس: <b>{clean_subj}</b> (استاد {teacher}) ✅{rem_text}\n"
         f"عنوان پیش‌فرض: <b>{auto_title}</b>\n\n"
         f"<b>گام ۳ از ۳:</b> مهلت تحویل پیشنهادی را انتخاب کنید:\n"
         f"<i>(کپشن و عنوان دقیقاً مثل اپلیکیشن به صورت خودکار ثبت می‌شود)</i>"
@@ -200,15 +211,16 @@ def build_step3_keyboard(subtype: str, subject_id: str) -> Tuple[str, Dict[str, 
     iso_p1 = due_p1.strftime("%Y%m%d%H%M")
     iso_p2 = due_p2.strftime("%Y%m%d%H%M")
     iso_p3 = due_p3.strftime("%Y%m%d%H%M")
+    rem_flag = "1" if is_reminder else "0"
 
     buttons = [
-        [{"text": f"✦ پیشنهادی درس: {label_p0}", "callback_data": f"wiz:save:{subtype}:{subject_id}:{iso_p0}"}],
-        [{"text": f"📅 {label_p1}", "callback_data": f"wiz:save:{subtype}:{subject_id}:{iso_p1}"}],
-        [{"text": f"📅 {label_p2}", "callback_data": f"wiz:save:{subtype}:{subject_id}:{iso_p2}"}],
-        [{"text": f"📅 {label_p3}", "callback_data": f"wiz:save:{subtype}:{subject_id}:{iso_p3}"}],
-        [{"text": "⚪ بدون مهلت تحویل", "callback_data": f"wiz:save:{subtype}:{subject_id}:none"}],
+        [{"text": f"✦ پیشنهادی درس: {label_p0}", "callback_data": f"wiz:save:{subtype}:{subject_id}:{iso_p0}:{rem_flag}"}],
+        [{"text": f"📅 {label_p1}", "callback_data": f"wiz:save:{subtype}:{subject_id}:{iso_p1}:{rem_flag}"}],
+        [{"text": f"📅 {label_p2}", "callback_data": f"wiz:save:{subtype}:{subject_id}:{iso_p2}:{rem_flag}"}],
+        [{"text": f"📅 {label_p3}", "callback_data": f"wiz:save:{subtype}:{subject_id}:{iso_p3}:{rem_flag}"}],
+        [{"text": "⚪ بدون مهلت تحویل", "callback_data": f"wiz:save:{subtype}:{subject_id}:none:{rem_flag}"}],
         [
-            {"text": "🔙 مرحله قبل", "callback_data": f"wiz:s2:{subtype}"},
+            {"text": "🔙 مرحله قبل", "callback_data": f"wiz:s2:{subtype}:{rem_flag}"},
             {"text": "❌ انصراف", "callback_data": "wiz:cancel"},
         ],
     ]
@@ -266,29 +278,48 @@ async def handle_wizard_callback(
         )
         return True
 
+    # Toggle Reminder State
+    if data.startswith("wiz:toggle_rem:"):
+        rem_val = data.split(":", 2)[2] == "1"
+        await telegram_bot.answer_callback_query(
+            token, query_id, text="حالت فقط یادآوری روشن شد 🟢" if rem_val else "حالت فقط یادآوری خاموش شد ⚪"
+        )
+        text = (
+            "📋 <b>افزودن تکلیف جدید به سامانه</b>\n\n"
+            "<b>گام ۱ از ۳:</b> موضوع و نوع تکلیف را انتخاب کنید:"
+        )
+        return await telegram_bot.edit_telegram_message(
+            token, chat_id, message_id, text, reply_markup=build_step1_keyboard(is_reminder=rem_val)
+        )
+
     # 2. Step 1 (Back to step 1)
-    if data == "wiz:s1":
+    if data.startswith("wiz:s1"):
+        parts = data.split(":")
+        rem_val = parts[2] == "1" if len(parts) > 2 else False
         await telegram_bot.answer_callback_query(token, query_id)
         text = (
             "📋 <b>افزودن تکلیف جدید به سامانه</b>\n\n"
             "<b>گام ۱ از ۳:</b> موضوع و نوع تکلیف را انتخاب کنید:"
         )
         return await telegram_bot.edit_telegram_message(
-            token, chat_id, message_id, text, reply_markup=build_step1_keyboard()
+            token, chat_id, message_id, text, reply_markup=build_step1_keyboard(is_reminder=rem_val)
         )
 
     # 3. Step 2 (Subtype selected) -> Choose subject
     if data.startswith("wiz:s2:"):
-        subtype = data.split(":", 2)[2]
+        parts = data.split(":")
+        subtype = parts[2]
+        rem_val = parts[3] == "1" if len(parts) > 3 else False
         await telegram_bot.answer_callback_query(token, query_id)
         sub_label = SUBTYPE_MAP.get(subtype, "تکلیف").split(" ", 1)[-1]
+        rem_badge = " [📌 فقط جهت یادآوری]" if rem_val else ""
         text = (
             f"📋 <b>افزودن تکلیف جدید به سامانه</b>\n"
-            f"موضوع: <b>{sub_label}</b> ✅\n\n"
+            f"موضوع: <b>{sub_label}</b>{rem_badge} ✅\n\n"
             f"<b>گام ۲ از ۳:</b> درس مورد نظر را انتخاب کنید:"
         )
         return await telegram_bot.edit_telegram_message(
-            token, chat_id, message_id, text, reply_markup=build_step2_keyboard(subtype)
+            token, chat_id, message_id, text, reply_markup=build_step2_keyboard(subtype, is_reminder=rem_val)
         )
 
     # 4. Step 3 (Subject selected) -> Choose due date
@@ -296,8 +327,9 @@ async def handle_wizard_callback(
         parts = data.split(":")
         subtype = parts[2]
         subject_id = parts[3]
+        rem_val = parts[4] == "1" if len(parts) > 4 else False
         await telegram_bot.answer_callback_query(token, query_id)
-        text, kb = build_step3_keyboard(subtype, subject_id)
+        text, kb = build_step3_keyboard(subtype, subject_id, is_reminder=rem_val)
         return await telegram_bot.edit_telegram_message(
             token, chat_id, message_id, text, reply_markup=kb
         )
@@ -308,6 +340,7 @@ async def handle_wizard_callback(
         subtype = parts[2]
         subject_id = parts[3]
         due_iso = parts[4]
+        rem_val = parts[5] == "1" if len(parts) > 5 else (subtype == "reminder")
 
         due_dt = None
         due_display = "بدون مهلت تحویل"
@@ -324,7 +357,7 @@ async def handle_wizard_callback(
         clean_subj = subj_name.split(" ", 1)[-1]
         auto_title = f"{clean_sub} {clean_subj}"
 
-        is_reminder = (subtype == "reminder")
+        is_reminder = rem_val
         new_assignment = models.Assignment(
             title=auto_title,
             description="",
@@ -352,9 +385,11 @@ async def handle_wizard_callback(
             token, query_id, text="🎉 تکلیف با موفقیت ثبت شد!"
         )
 
+        rem_badge = "📌 نوع: <b>فقط جهت یادآوری (بدون قابلیت تیک زدن)</b>\n" if is_reminder else ""
         confirm_msg = (
             f"🎉 <b>تکلیف جدید با موفقیت در سامانه ثبت شد!</b>\n\n"
             f"📌 عنوان: <b>{auto_title}</b>\n"
+            f"{rem_badge}"
             f"📚 درس: <b>{clean_subj}</b> (استاد {teacher})\n"
             f"⏰ مهلت تحویل: <b>{due_display}</b>\n"
             f"👤 ثبت‌کننده: <b>{user.username}</b> (+۱ امتیاز فعالیت روزانه به شما تعلق گرفت 🔥)\n\n"
