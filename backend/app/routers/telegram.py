@@ -194,36 +194,19 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
         if bot_user:
             text = text.replace(f"@{bot_user}", "").strip()
 
-    # --- 3. Interactive Button-Based Assignment Creation Interceptor ---
-    # Trigger whenever user expresses intent to create/add/assign any task, homework, or exam
-    task_nouns = ("تکلیف", "مشق", "تمرین", "امتحان", "پرسش", "پروژه", "یادآوری", "تسک", "کویز", "کوئیز", "آزمون")
-    action_verbs = (
-        "اد", "اضافه", "ثبت", "جدید", "بزار", "بذار", "ایجاد", "بساز", "بنویس", "تعیین",
-        "بدم", "بدیم", "بگیم", "داریم", "وارد", "ثبتش", "بزاریم", "بذاریم", "تعریف"
-    )
-    is_add_cmd = (
-        text.startswith(("/new_assignment", "/add_assignment", "/new_task", "/add_task"))
-        or any(k in text for k in (
-            "تکلیف اد", "اد کن", "اد کردن", "اضافه کن", "اضافه کردن", "افزودن تکلیف", "ثبت تکلیف", "تکلیف جدید",
-            "تکلیف بزار", "تکلیف بذار", "مشق بزار", "مشق بذار", "مشق اد", "مشق اضافه", "تکلیف ثبت", "مشق ثبت",
-            "تمرین اد", "تمرین اضافه", "امتحان اد", "امتحان اضافه", "یادآوری بزار", "یادآوری بذار", "یادآوری اضافه",
-            "تکلیف داریم", "مشق داریم", "امتحان داریم", "میخوام تکلیف", "میخوام مشق", "یه تکلیف", "یه مشق",
-            "تکلیف بنویس", "مشق بنویس", "تکلیف بدم", "مشق بدم"
-        ))
-        or (any(n in text for n in task_nouns) and any(v in text for v in action_verbs))
-    )
-    if is_add_cmd:
+    # --- 3. Explicit Slash Command for Task Creation Wizard ---
+    if text.startswith(("/new_assignment", "/add_assignment", "/new_task", "/add_task")):
         if not user:
             await telegram_bot.send_telegram_message(
                 token, chat_id,
-                "داش تو اصلاً کی هستی که دستور اد کردن تکلیف میدی؟! 😏\nتو سیستم مدرسه نشناختمت سلطان! اول کد اتصالت رو از تب پروفایل اپلیکیشن برام بفرست تا بشناسمت.",
+                "برای افزودن تکلیف باید ابتدا حساب کاربری خود را متصل کنید. کد اتصال را از تب پروفایل اپلیکیشن ارسال نمایید.",
                 reply_to_message_id=msg_id
             )
             return
         if not (user.is_admin or user.role in ("admin", "owner")):
             await telegram_bot.send_telegram_message(
                 token, chat_id,
-                f"داش {user.username}، تو که مدیر یا صاحب مدرسه نیستی بخوای تکلیف اد کنی! برو مشقاتو بنویس تکلیفت نسوزه 😂🔥",
+                "فقط مدیران و معلمان مدرسه مجاز به افزودن تکلیف جدید هستند.",
                 reply_to_message_id=msg_id
             )
             return
@@ -288,7 +271,7 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     # Instant visual feedback: send 'typing' action immediately to Telegram header
     asyncio.create_task(telegram_bot.send_chat_action(token, chat_id, "typing"))
 
-    ai_reply = await ai_agent.ask_universal_ai_agent(
+    ai_reply, ai_meta = await ai_agent.ask_universal_ai_agent(
         user_prompt=text,
         api_key=ai_key,
         db=db,
@@ -303,20 +286,11 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     telegram_bot.save_chat_history(db, chat_id, role="user", content=text, user_id=user.id if user else None)
     telegram_bot.save_chat_history(db, chat_id, role="assistant", content=ai_reply, user_id=user.id if user else None)
 
-    # Attach interactive action button ONLY when user asks to add/create a task (no buttons for ticking)
+    # Attach interactive action button ONLY if the AI model invoked the add homework wizard tool
     reply_markup = None
-    add_task_keywords = (
-        "افزودن تکلیف", "اضافه کردن تکلیف", "ثبت تکلیف", "تکلیف جدید",
-        "تکلیف بزار", "تکلیف بذار", "تکلیف اضافه", "تکلیف ثبت", "ایجاد تکلیف",
-        "مشق اضافه", "مشق ثبت", "تکلیف بده", "تکلیف اد کن", "تکلیف اد", "اد کن", "اد کردن"
-    )
-    if user and (user.is_admin or user.role in ("admin", "owner")):
-        if any(k in text for k in add_task_keywords) or (any(n in text for n in task_nouns) and any(v in text for v in action_verbs)):
-            reply_markup = {
-                "inline_keyboard": [
-                    [{"text": "➕ افزودن تکلیف جدید با دکمه", "callback_data": "wiz:s1"}]
-                ]
-            }
+    if ai_meta.get("open_wizard"):
+        from app.services import telegram_task_wizard
+        reply_markup = telegram_task_wizard.build_step1_keyboard()
 
     await telegram_bot.send_telegram_message(
         token, chat_id, ai_reply, parse_mode="HTML", reply_to_message_id=msg_id, reply_markup=reply_markup
@@ -482,7 +456,7 @@ async def test_telegram(
     # 2. Test AI API Key if present
     ai_status = "تنظیم نشده"
     if ai_key:
-        test_ai = await ai_agent.ask_universal_ai_agent(
+        test_ai, _ = await ai_agent.ask_universal_ai_agent(
             user_prompt="یک پیام کوتاه تستی و سلام بگو",
             api_key=ai_key,
             db=db,

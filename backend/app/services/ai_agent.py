@@ -54,9 +54,9 @@ def get_ai_prompts_and_config(db: Session) -> Dict[str, Any]:
         logger.warning("Could not read BotSetting from DB, falling back to defaults: %s", exc)
         data = {}
 
-    system_prompt = data.get("ai_system_prompt") or default_prompts.DEFAULT_SYSTEM_PROMPT
-    persona_anchor = data.get("ai_persona_anchor") or default_prompts.DEFAULT_PERSONA_ANCHOR
-    followup_anchor = data.get("ai_followup_anchor") or default_prompts.DEFAULT_FOLLOWUP_ANCHOR
+    system_prompt = data.get("ai_system_prompt") if data.get("ai_system_prompt") is not None else default_prompts.DEFAULT_SYSTEM_PROMPT
+    persona_anchor = data.get("ai_persona_anchor") if data.get("ai_persona_anchor") is not None else default_prompts.DEFAULT_PERSONA_ANCHOR
+    followup_anchor = data.get("ai_followup_anchor") if data.get("ai_followup_anchor") is not None else default_prompts.DEFAULT_FOLLOWUP_ANCHOR
 
     try:
         temp = float(data.get("ai_temperature", default_prompts.DEFAULT_TEMPERATURE))
@@ -174,6 +174,17 @@ OPENAI_TOOLS = [
                     },
                 },
                 "required": ["scope"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "open_add_homework_wizard",
+            "description": "باز کردن و ارسال منوی تعاملی و دکمه‌ای هوشمند برای افزودن یا ثبت تکلیف، مشق، امتحان، پروژه یا یادآوری جدید در مدرسه. هر زمان کاربر تمایل به ایجاد، ثبت، تعریف، یا افزودن تکلیف یا یادآوری جدید داشت، این ابزار را فراخوانی کن.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
             },
         },
     },
@@ -659,6 +670,25 @@ def execute_tool(
                 "new_rank": user_entry.get("rank") if user_entry else "نامشخص",
             }
 
+        elif name == "open_add_homework_wizard":
+            if not current_user:
+                return {
+                    "success": False,
+                    "action": "auth_required",
+                    "message": "برای افزودن تکلیف باید حساب کاربری شما به ربات متصل باشد.",
+                }
+            if not (current_user.is_admin or current_user.role in ("admin", "owner")):
+                return {
+                    "success": False,
+                    "action": "permission_denied",
+                    "message": f"کاربر {current_user.username}، فقط مدیران و معلمان مدرسه مجاز به افزودن تکلیف جدید هستند.",
+                }
+            return {
+                "success": True,
+                "action": "open_wizard",
+                "message": "منوی افزودن تکلیف با موفقیت باز شد. کاربر اکنون می‌تواند نوع، درس و مهلت را از طریق دکمه‌ها انتخاب کند.",
+            }
+
         return {"success": False, "error": f"ابزار ناشناخته: {name}"}
     except Exception as exc:
         logger.error("Error executing tool %s: %s", name, exc)
@@ -675,7 +705,7 @@ def _is_busy_error(status_code: int, raw_text: str = "") -> bool:
 
 def _format_friendly_ai_error(status_code: int, raw_text: str) -> str:
     """Generate friendly Persian error messages without exposing technical codes or raw HTML/JSON."""
-    return "داش یه مشکلی پیش اومده، شرمنده! میشه ۱ دقیقه بعد دوباره بگی؟ 🦁"
+    return "در ارتباط با هوش مصنوعی مشکلی پیش آمد. لطفاً ۱ دقیقه دیگر دوباره تلاش کنید."
 
 
 
@@ -734,13 +764,14 @@ async def ask_universal_ai_agent(
     current_user: Optional[models.User] = None,
     conversation_history: Optional[List[Dict[str, Any]]] = None,
     is_recent: bool = False,
-) -> str:
+) -> Tuple[str, Dict[str, Any]]:
     """Universal OpenAI-compatible chat completions caller with Tools / Function Calling.
 
     Works natively with OpenRouter, Grok (xAI), DeepSeek, OpenAI, Groq, Together, and self-hosted models.
     """
+    meta: Dict[str, Any] = {"open_wizard": False}
     if not api_key:
-        return "⚠️ کلید API هوش مصنوعی هنوز در پنل مدیریت مدرسه تنظیم نشده است."
+        return ("⚠️ کلید API هوش مصنوعی هنوز در پنل مدیریت مدرسه تنظیم نشده است.", meta)
 
     clean_base = (base_url or "https://openrouter.ai/api/v1").rstrip("/")
     if not clean_base.endswith("/chat/completions"):
@@ -757,49 +788,35 @@ async def ask_universal_ai_agent(
 
     clean_model = model_name.strip() if model_name else "openai/gpt-4o-mini"
 
-    status = school_knowledge.get_current_school_status()
-    user_info = (
-        f"کاربر صحبت‌کننده: {current_user.username} (نقش: {current_user.role})"
-        if current_user
-        else "کاربر صحبت‌کننده: هنوز اکانت تلگرام خود را به حساب کاربری ArchSchool لینک نکرده است."
-    )
-    time_context = (
-        f"اطلاعات زنده زمانی و تقویم:\n"
-        f"- امروز: {status['today_fa']} | ساعت رسمی ایران: {status['current_time']}\n"
-        f"- فردا: {status['tomorrow_fa']}\n"
-        f"- روز کلاسی بعدی: {status['next_school_day']}"
-    )
-    session_hint = (
-        "وضعیت مکالمه: گفتگوی فعال در جریان است. سلام تکراری نده و مستقیماً و صمیمی صحبت را ادامه بده."
-        if is_recent
-        else "وضعیت مکالمه: شروع مکالمه جدید است. یک سلام گرم، خودمانی و پرانرژی با نام کاربر بده."
-    )
-
     prompts_cfg = get_ai_prompts_and_config(db)
 
-    messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": prompts_cfg["system_prompt"]},
-    ]
+    messages: List[Dict[str, Any]] = []
 
+    # 1. Custom System Instruction (if set in admin panel)
+    if prompts_cfg.get("system_prompt"):
+        messages.append({"role": "system", "content": prompts_cfg["system_prompt"]})
+
+    # 2. In-Memory School Database Context (factual data: teachers, schedule, active tasks, leaderboard)
+    live_context = build_live_school_context(db, current_user)
+    if live_context:
+        messages.append({
+            "role": "system",
+            "content": f"اطلاعات زنده پایگاه داده مدرسه:\n{live_context}",
+        })
+
+    # 3. Conversation history
     if conversation_history:
         messages.extend(conversation_history)
 
-    # In-Memory School Intelligence: Inject modular teachers, schedule, leaderboard & active tasks
-    live_context = build_live_school_context(db, current_user)
-    messages.append({
-        "role": "system",
-        "content": f"اطلاعات زنده و بلادرنگ پایگاه داده مدرسه (حافظه زنده):\n{live_context}",
-    })
-
-    user_meta = f"کاربر: {current_user.username} (نقش: {current_user.role})" if current_user else "کاربر: ناشناس (اکانتش به سیستم مدرسه وصل نیست)"
-    
-    # Reinforce the persona anchor right before user prompt so it never fades
+    # 4. Persona anchor (if set in admin panel)
     if prompts_cfg.get("persona_anchor"):
         messages.append({
             "role": "system",
             "content": prompts_cfg["persona_anchor"],
         })
 
+    # 5. User prompt
+    user_meta = f"کاربر: {current_user.username} (نقش: {current_user.role})" if current_user else "کاربر: ناشناس"
     messages.append({
         "role": "user",
         "content": f"[{user_meta}]\n{user_prompt}",
@@ -810,17 +827,16 @@ async def ask_universal_ai_agent(
         "Content-Type": "application/json",
     }
     if "openrouter.ai" in endpoint_url:
-        headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir",
-        headers["X-Title"] = "ArchSchool Assistant",
+        headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
+        headers["X-Title"] = "ArchSchool Assistant"
 
-    # Always provide OPENAI_TOOLS freely so the AI can invoke them whenever needed!
     payload: Dict[str, Any] = {
         "model": clean_model,
         "messages": messages,
         "tools": OPENAI_TOOLS,
         "tool_choice": "auto",
-        "temperature": prompts_cfg.get("temperature", 0.85),
-        "max_tokens": prompts_cfg.get("max_tokens", 600),
+        "temperature": prompts_cfg.get("temperature", 0.7),
+        "max_tokens": prompts_cfg.get("max_tokens", 1000),
     }
 
     try:
@@ -829,7 +845,7 @@ async def ask_universal_ai_agent(
         last_status = 200
         last_text = ""
 
-        for attempt in range(1, 4):  # Up to 3 attempts with 2s interval on busy/error
+        for attempt in range(1, 4):
             try:
                 resp = await client.post(endpoint_url, json=payload, headers=headers)
                 if resp.status_code == 200:
@@ -849,16 +865,16 @@ async def ask_universal_ai_agent(
                 if attempt < 3:
                     await asyncio.sleep(2.0)
                     continue
-                return "داش یه مشکلی پیش اومده، شرمنده! میشه ۱ دقیقه بعد دوباره بگی؟ 🦁"
+                return (_format_friendly_ai_error(504, "Network timeout"), meta)
 
         if not resp or resp.status_code != 200:
             logger.error("AI provider error %s after retries from %s: %s", last_status, endpoint_url, last_text)
-            return _format_friendly_ai_error(last_status, last_text)
+            return (_format_friendly_ai_error(last_status, last_text), meta)
 
         data = resp.json()
         choices = data.get("choices", [])
         if not choices:
-            return "پاسخی از هوش مصنوعی دریافت نشد."
+            return ("پاسخی از هوش مصنوعی دریافت نشد.", meta)
 
         first_choice = choices[0]
         choice_message = first_choice.get("message", {})
@@ -894,15 +910,24 @@ async def ask_universal_ai_agent(
                 tool_output = execute_tool(fn_name, fn_args, db, current_user)
                 last_tool_output = tool_output
 
+                if fn_name == "open_add_homework_wizard" and tool_output.get("success"):
+                    meta["open_wizard"] = True
+
                 messages.append({
                     "role": "tool",
                     "tool_call_id": str(call_id),
                     "content": json.dumps(tool_output, ensure_ascii=False),
                 })
 
-            # Zero-Round-Trip Latency Optimization for mutations:
-            # If the user toggled or added a task, respond immediately with authentic street-smart style!
-            # This completely avoids an expensive, redundant 3-second 2nd HTTP round-trip to the LLM.
+            # Check if wizard tool was opened
+            if last_fn_name == "open_add_homework_wizard":
+                if last_tool_output.get("success"):
+                    meta["open_wizard"] = True
+                    return ("منوی افزودن تکلیف جدید باز شد. لطفاً نوع، موضوع و مهلت را از گزینه‌های زیر انتخاب کنید:", meta)
+                else:
+                    err_msg = last_tool_output.get("message") or "دسترسی لازم برای افزودن تکلیف وجود ندارد."
+                    return (err_msg, meta)
+
             if len(tool_calls) == 1 and last_fn_name == "toggle_assignment_completion":
                 if last_tool_output.get("success"):
                     titles = "، ".join(last_tool_output.get("modified_titles", [])) or "تکلیف"
@@ -910,23 +935,14 @@ async def ask_universal_ai_agent(
                     streak = last_tool_output.get("current_streak", 0)
                     pct = last_tool_output.get("new_completion_percentage", 0)
                     if act == "complete":
-                        return f"ردیفه ستون! «{titles}» با موفقیت انجام شد و تیک خورد. دمت گرم، استریکت شد {streak} روز! ({pct}٪ کل) 🔥🦁"
+                        return (f"تکلیف «{titles}» با موفقیت به عنوان انجام‌شده ثبت شد. (استریک: {streak} روز | موفقیت کل: {pct}٪)", meta)
                     else:
-                        return f"حله دادا! تیک «{titles}» رو برداشتم برات. مشتی باشی 🫡"
+                        return (f"علامت انجام تکلیف «{titles}» برداشته شد.", meta)
                 else:
-                    err = last_tool_output.get("error") or last_tool_output.get("message") or "تکلیفی برای تغییر پیدا نشد!"
-                    return f"داش {err}"
-
-            elif len(tool_calls) == 1 and last_fn_name == "add_assignment":
-                if last_tool_output.get("success"):
-                    t_title = last_fn_args.get("title", "")
-                    return f"رو جفت چشام داش! تکلیف «{t_title}» با موفقیت تو سیستم ثبت شد و ردیفه. 🫡✨"
-                else:
-                    err = last_tool_output.get("error") or "نتونستم تکلیف رو ثبت کنم."
-                    return f"داش نشد: {err}"
+                    err = last_tool_output.get("error") or last_tool_output.get("message") or "تکلیفی برای تغییر پیدا نشد."
+                    return (err, meta)
 
             # Fast follow-up request for read-only queries (schedule, status, leaderboard)
-            # Notice tools are omitted here to prevent the LLM from second-guessing another tool call.
             if prompts_cfg.get("followup_anchor"):
                 messages.append({
                     "role": "system",
@@ -935,8 +951,8 @@ async def ask_universal_ai_agent(
             followup_payload = {
                 "model": clean_model,
                 "messages": messages,
-                "temperature": prompts_cfg.get("temperature", 0.85),
-                "max_tokens": prompts_cfg.get("max_tokens", 600),
+                "temperature": prompts_cfg.get("temperature", 0.7),
+                "max_tokens": prompts_cfg.get("max_tokens", 1000),
             }
             followup_resp = None
             for f_attempt in range(1, 4):
@@ -959,21 +975,23 @@ async def ask_universal_ai_agent(
                 followup_choices = followup_data.get("choices", [])
                 if followup_choices:
                     final_content = followup_choices[0].get("message", {}).get("content", "")
-                    return final_content or "انجام شد!"
+                    return (final_content or "انجام شد.", meta)
             elif followup_resp:
-                return _format_friendly_ai_error(followup_resp.status_code, followup_resp.text)
+                return (_format_friendly_ai_error(followup_resp.status_code, followup_resp.text), meta)
 
         # Normal text content
         content = choice_message.get("content", "")
         import re
         if content and "[" in content and "]" in content:
-            # Check if model outputted bracketed tool call in text by mistake (e.g. [get_leaderboard])
-            bracket_match = re.search(r"\[(get_[a-zA-Z0-9_]+|add_assignment|toggle_[a-zA-Z0-9_]+)\]", content)
+            bracket_match = re.search(r"\[(get_[a-zA-Z0-9_]+|open_add_homework_wizard|toggle_[a-zA-Z0-9_]+)\]", content)
             if bracket_match:
                 pseudo_fn = bracket_match.group(1)
                 logger.info("Executing text-bracketed tool fallback: %s", pseudo_fn)
                 res = execute_tool(pseudo_fn, {}, db, current_user)
-                cleaned_content = re.sub(r"\[(get_[a-zA-Z0-9_]+|add_assignment|toggle_[a-zA-Z0-9_]+)\]", "", content).strip()
+                if pseudo_fn == "open_add_homework_wizard" and res.get("success"):
+                    meta["open_wizard"] = True
+                    return ("منوی افزودن تکلیف جدید باز شد. لطفاً نوع، موضوع و مهلت را از گزینه‌های زیر انتخاب کنید:", meta)
+                cleaned_content = re.sub(r"\[(get_[a-zA-Z0-9_]+|open_add_homework_wizard|toggle_[a-zA-Z0-9_]+)\]", "", content).strip()
                 followup_messages = list(messages)
                 followup_messages.append({"role": "assistant", "content": cleaned_content or f"در حال اجرای {pseudo_fn}"})
                 followup_messages.append({"role": "user", "content": f"نتیجه واقعی از دیتابیس:\n{json.dumps(res, ensure_ascii=False)}"})
@@ -983,19 +1001,19 @@ async def ask_universal_ai_agent(
                         "content": prompts_cfg["followup_anchor"],
                     })
                 try:
-                    f_resp = await client.post(endpoint_url, json={"model": clean_model, "messages": followup_messages, "max_tokens": prompts_cfg.get("max_tokens", 600), "temperature": prompts_cfg.get("temperature", 0.85)}, headers=headers)
+                    f_resp = await client.post(endpoint_url, json={"model": clean_model, "messages": followup_messages, "max_tokens": prompts_cfg.get("max_tokens", 1000), "temperature": prompts_cfg.get("temperature", 0.7)}, headers=headers)
                     if f_resp.status_code == 200:
                         f_choices = f_resp.json().get("choices", [])
                         if f_choices:
-                            return f_choices[0].get("message", {}).get("content", "")
+                            return (f_choices[0].get("message", {}).get("content", ""), meta)
                 except Exception as b_err:
                     logger.warning("Error in bracket fallback: %s", b_err)
 
-        return content or "متوجه پیامت نشدم، لطفاً دوباره بگو!"
+        return (content or "متوجه پیامت نشدم، لطفاً دوباره بگو!", meta)
 
     except httpx.TimeoutException:
         logger.error("AI provider timeout to %s", endpoint_url)
-        return "داش یه مشکلی پیش اومده، شرمنده! میشه ۱ دقیقه بعد دوباره بگی؟ 🦁"
+        return (_format_friendly_ai_error(504, "Timeout"), meta)
     except Exception as exc:
         logger.error("Universal AI agent exception: %s", exc)
-        return "داش یه مشکلی پیش اومده، شرمنده! میشه ۱ دقیقه بعد دوباره بگی؟ 🦁"
+        return (_format_friendly_ai_error(500, str(exc)), meta)

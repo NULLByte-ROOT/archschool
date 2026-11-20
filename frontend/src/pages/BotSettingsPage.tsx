@@ -170,7 +170,7 @@ export default function BotSettingsPage() {
   }
 
   async function handleResetPrompt() {
-    if (!window.confirm("آیا مطمئن هستید که می‌خواهید متن پرامپت و لنگرها به حالت پیش‌فرض لاتی داش هوشنگ بازگردند؟")) {
+    if (!window.confirm("آیا از بازنشانی پرامپت‌ها و لنگرها به تنظیمات اولیه اطمینان دارید؟")) {
       return;
     }
     setResetting(true);
@@ -314,7 +314,7 @@ export default function BotSettingsPage() {
                   پرامپت دستور سیستمی اصلی (System Instruction)
                 </h3>
                 <p className="mt-1 text-xs text-fg-500">
-                  این متن شاکله و روح هوش مصنوعی، لحن لاتی، تیکه‌اندازی‌ها، قوانین و نمونه‌های مکالمه عینی (Few-Shot) است.
+                  تعریف نقش، دستورالعمل سیستمی، قوانین پاسخگویی و سبک تعامل مدل هوش مصنوعی.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -332,7 +332,7 @@ export default function BotSettingsPage() {
                   onClick={handleResetPrompt}
                   disabled={resetting}
                   className="btn-ghost flex h-8 items-center gap-1.5 border-danger/30 px-3 text-[11px] text-danger hover:bg-danger/10"
-                  title="بازنشانی به پرامپت پیش‌فرض لاتی داش هوشنگ"
+                  title="بازنشانی پرامپت‌ها به حالت پیش‌فرض"
                 >
                   <RotateCcw size={13} className={resetting ? "animate-spin" : ""} />
                   بازنشانی به پیش‌فرض
@@ -346,11 +346,11 @@ export default function BotSettingsPage() {
               rows={18}
               dir="rtl"
               className="input w-full resize-y font-mono text-[13px] leading-relaxed tracking-wide text-fg-100"
-              placeholder="دستورالعمل سیستمی و پرامپت هویت را اینجا بنویسید..."
+              placeholder="دستورالعمل سیستمی، قوانین پاسخگویی و نقش هوش مصنوعی را در این بخش بنویسید (در صورت خالی بودن، مدل با رفتار استاندارد خود عمل می‌کند)..."
             />
             <div className="mt-2 flex justify-between text-[11px] text-fg-500">
               <span>تعداد کاراکتر: {systemPrompt.length.toLocaleString("fa-IR")}</span>
-              <span>تغییرات بلافاصله پس از ذخیره روی پاسخ‌های بات اعمال می‌شود.</span>
+              <span>تغییرات بلافاصله پس از ذخیره روی پاسخ‌های مدل اعمال می‌شود.</span>
             </div>
           </div>
 
@@ -359,10 +359,10 @@ export default function BotSettingsPage() {
             <div className="panel relative p-4 sm:p-6">
               <Corners />
               <h3 className="mb-1 text-xs font-bold text-white">
-                لنگر تثبیت لحن پیش از پیام کاربر (Persona Anchor)
+                لنگر پیوستگی لحن و رفتار (Persona Anchor)
               </h3>
               <p className="mb-3 text-[11px] text-fg-500">
-                این پیام مخفی سیستمی دقیقاً قبل از آخرین پیام کاربر تزریق می‌شود تا مدل لحن لاتی و صمیمیت خود را فراموش نکند.
+                این پیام سیستمی پیش از آخرین پیام کاربر جهت هدایت مدل و حفظ پیوستگی لحن تزریق می‌شود (اختیاری).
               </p>
               <textarea
                 value={personaAnchor}
@@ -370,7 +370,7 @@ export default function BotSettingsPage() {
                 rows={5}
                 dir="rtl"
                 className="input w-full resize-y text-xs leading-relaxed text-fg-100"
-                placeholder="دستور لنگر لحن..."
+                placeholder="دستور لنگر لحن و رفتار..."
               />
             </div>
 
@@ -378,10 +378,10 @@ export default function BotSettingsPage() {
             <div className="panel relative p-4 sm:p-6">
               <Corners />
               <h3 className="mb-1 text-xs font-bold text-white">
-                یادآوری لحن پس از اجرای ابزارها (Follow-up Anchor)
+                یادآوری پس از فراخوانی ابزارها (Follow-up Anchor)
               </h3>
               <p className="mb-3 text-[11px] text-fg-500">
-                این پیام بعد از دریافت نتایج خام دیتابیس (مثل لیدربورد و برنامه) تزریق می‌شود تا مدل پاسخ را با شوخی و کل‌کل تحویل دهد نه اداری.
+                این پیام پس از اجرای ابزارها (مانند دریافت تکالیف یا برنامه) جهت قالب‌بندی و ارائه مناسب اطلاعات اعمال می‌شود (اختیاری).
               </p>
               <textarea
                 value={followupAnchor}
@@ -389,7 +389,7 @@ export default function BotSettingsPage() {
                 rows={5}
                 dir="rtl"
                 className="input w-full resize-y text-xs leading-relaxed text-fg-100"
-                placeholder="دستور گزارش داده‌های ابزار..."
+                placeholder="دستور نحوه گزارش و قالب‌بندی داده‌های ابزار..."
               />
             </div>
           </div>
@@ -534,7 +534,7 @@ export default function BotSettingsPage() {
                   className="w-full accent-white"
                 />
                 <p className="mt-1 text-[10px] text-fg-500">
-                  برای طنز و لحن لاتی، مقادیر 0.8 تا 0.95 بهترین نتیجه را می‌دهند.
+                  مقدار پیش‌فرض 0.7 تعادل مناسبی بین دقت و تنوع پاسخ‌ها ایجاد می‌کند.
                 </p>
               </div>
 

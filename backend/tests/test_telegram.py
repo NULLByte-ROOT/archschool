@@ -390,8 +390,32 @@ def test_dynamic_prompt_management_and_reset(db_session):
     reset_settings = telegram_bot.reset_bot_prompts(db_session)
     ai_agent.invalidate_prompt_cache()
     assert reset_settings["ai_system_prompt"] == default_prompts.DEFAULT_SYSTEM_PROMPT
+    assert reset_settings["ai_system_prompt"] == ""
     assert reset_settings["ai_temperature"] == default_prompts.DEFAULT_TEMPERATURE
-    assert "داش هوشنگ" in reset_settings["ai_system_prompt"]
+
+
+def test_open_add_homework_wizard_tool_permissions(db_session):
+    from app.services import ai_agent
+
+    admin = models.User(username="head_admin", code="HEAD11", is_admin=True, role=models.ROLE_ADMIN)
+    student = models.User(username="regular_student", code="STU11", is_admin=False, role=models.ROLE_MEMBER)
+    db_session.add_all([admin, student])
+    db_session.commit()
+
+    # 1. Unauthenticated user
+    res_unauth = ai_agent.execute_tool("open_add_homework_wizard", {}, db_session, None)
+    assert res_unauth["success"] is False
+    assert res_unauth["action"] == "auth_required"
+
+    # 2. Regular student (not admin) -> permission denied
+    res_stu = ai_agent.execute_tool("open_add_homework_wizard", {}, db_session, student)
+    assert res_stu["success"] is False
+    assert res_stu["action"] == "permission_denied"
+
+    # 3. Admin user -> open_wizard success
+    res_admin = ai_agent.execute_tool("open_add_homework_wizard", {}, db_session, admin)
+    assert res_admin["success"] is True
+    assert res_admin["action"] == "open_wizard"
 
 
 
