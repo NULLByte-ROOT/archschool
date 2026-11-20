@@ -34,7 +34,7 @@ def is_staff(user: "User") -> bool:
 
 
 def is_owner(user: "User") -> bool:
-    return user.role == ROLE_OWNER
+    return bool(user and getattr(user, "role", None) == ROLE_OWNER)
 
 
 class User(Base):

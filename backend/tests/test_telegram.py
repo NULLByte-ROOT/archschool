@@ -327,3 +327,43 @@ def test_reminder_only_assignment_and_deduplication(db_session):
     assert res_tick["success"] is False
     assert "یادآوری" in res_tick["error"]
 
+
+def test_owner_exempt_from_anti_cheat_rate_limit(db_session):
+    from datetime import datetime, timedelta
+    from fastapi import HTTPException
+    from app.routers.assignments import _toggle_completion
+
+    owner = models.User(username="the_owner", code="OWNER99", role=models.ROLE_OWNER, is_admin=True)
+    student = models.User(username="the_student", code="STUDENT99", role=models.ROLE_MEMBER)
+    assignment = models.Assignment(
+        title="تکلیف فوری تست",
+        due_date=datetime.utcnow() + timedelta(days=2),
+        created_at=datetime.utcnow(),
+    )
+    db_session.add_all([owner, student, assignment])
+    db_session.commit()
+
+    # 1. Student attempting immediate completion is blocked by anti-cheat delay
+    with pytest.raises(HTTPException) as exc_info:
+        _toggle_completion(db_session, assignment, student)
+    assert exc_info.value.status_code == 400
+    assert "تقلب" in exc_info.value.detail
+
+    # 2. Owner attempting immediate and repeated toggles is NEVER blocked (no delay, no rate limit)
+    for _ in range(10):
+        _toggle_completion(db_session, assignment, owner)
+        db_session.commit()
+
+    # Verify owner completion state exists
+    is_completed = (
+        db_session.query(models.AssignmentCompletion)
+        .filter(
+            models.AssignmentCompletion.user_id == owner.id,
+            models.AssignmentCompletion.assignment_id == assignment.id,
+        )
+        .first()
+    )
+    # Since toggled 10 times (even count), it toggled back to undone without any error or lock!
+    assert is_completed is None
+
+

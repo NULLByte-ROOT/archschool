@@ -101,14 +101,17 @@ def _get_or_404(db: Session, assignment_id: int) -> models.Assignment:
 
 
 def _ensure_completion_delay(
-    assignment: models.Assignment, now: datetime
+    assignment: models.Assignment, now: datetime, current: Optional[models.User] = None
 ) -> None:
     """Reject "Done" before the assignment had time to be done.
 
     Guards against blanket-checking every task the instant it appears: a user
     must wait ``COMPLETION_DELAY_MINUTES`` from creation before marking it done.
     Un-marking is always allowed (it cannot inflate anyone's stats).
+    Exempts the owner account from anti-cheat delays.
     """
+    if current and models.is_owner(current):
+        return
     delay = timedelta(minutes=max(0, settings.COMPLETION_DELAY_MINUTES))
     if delay <= timedelta(0):
         return
@@ -138,7 +141,10 @@ def _guard_toggle_attempt(
     toggle for ``TOGGLE_LOCK_MINUTES``. The lock is committed *before* raising:
     the request session would otherwise roll back the very row that has to make
     the punishment stick.
+    Exempts the owner account from anti-cheat rate limits.
     """
+    if models.is_owner(current):
+        return
     guard = (
         db.query(models.CompletionToggleGuard)
         .filter(
@@ -243,10 +249,11 @@ def _toggle_completion(
         )
         .first()
     )
-    # The 30-minute rule only protects the "mark as done" direction.
-    if existing is None:
-        _ensure_completion_delay(assignment, now)
-    _guard_toggle_attempt(db, assignment, current, now)
+    # Anti-cheat rules (completion delay and toggle rate limit) do not apply to the owner.
+    if not models.is_owner(current):
+        if existing is None:
+            _ensure_completion_delay(assignment, now, current)
+        _guard_toggle_attempt(db, assignment, current, now)
     if existing:
         db.delete(existing)
         _record_daily_activity(db, current.id, now, -1)
