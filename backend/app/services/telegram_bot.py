@@ -17,7 +17,7 @@ TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
 PROVIDER_DEFAULTS = {
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.1-flash-lite",
     },
     "groq": {
         "base_url": "https://api.groq.com/openai/v1",
@@ -62,6 +62,8 @@ async def fetch_provider_models(api_key: str, base_url: str) -> List[Dict[str, s
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
     }
+    if "googleapis.com" in clean_base or api_key.startswith("AIzaSy"):
+        headers["x-goog-api-key"] = api_key.strip()
     if "openrouter.ai" in clean_base:
         headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
         headers["X-Title"] = "ArchSchool Assistant"
@@ -76,6 +78,13 @@ async def fetch_provider_models(api_key: str, base_url: str) -> List[Dict[str, s
                     resp.status_code,
                     resp.text[:100],
                 )
+                if "googleapis.com" in clean_base:
+                    return [
+                        {"id": "gemini-3.1-flash-lite", "name": "gemini-3.1-flash-lite (فعال و پرسرعت)"},
+                        {"id": "gemini-3-flash-preview", "name": "gemini-3-flash-preview"},
+                        {"id": "gemma-4-26b-a4b-it", "name": "gemma-4-26b-a4b-it"},
+                        {"id": "gemini-3.8-flash", "name": "gemini-3.8-flash"},
+                    ]
                 return []
             data = resp.json()
             raw_models = data.get("data", [])
@@ -83,25 +92,30 @@ async def fetch_provider_models(api_key: str, base_url: str) -> List[Dict[str, s
             excluded_keywords = [
                 "whisper", "tts", "embedding", "embed", "moderation",
                 "safeguard", "prompt-guard", "rerank", "dall-e", "audio",
-                "canopylabs", "orpheus"
+                "canopylabs", "orpheus", "live", "image", "preview-tts"
             ]
             for item in raw_models:
                 m_id = item.get("id") if isinstance(item, dict) else str(item)
                 if not m_id:
                     continue
-                lower_id = m_id.lower()
+                clean_id = m_id.replace("models/", "")
+                lower_id = clean_id.lower()
                 if any(k in lower_id for k in excluded_keywords):
                     continue
-                model_items.append({"id": m_id, "name": m_id})
+                model_items.append({"id": clean_id, "name": clean_id})
 
             def sort_key(m: Dict[str, str]) -> int:
                 mid = m["id"].lower()
-                if "gemini-2.5-flash" in mid:
+                if "gemini-3.1-flash-lite" in mid:
                     return 0
-                if "gemini-2.0-flash" in mid or "gemini-1.5-flash" in mid:
+                if "gemini-3-flash-preview" in mid:
                     return 1
-                if "gemini" in mid:
+                if "gemma-4-26b" in mid:
                     return 2
+                if "gemini-3.8-flash" in mid:
+                    return 3
+                if "gemini" in mid:
+                    return 4
                 if "gpt-oss-120b" in mid:
                     return 0
                 if "gpt-oss-20b" in mid or "qwen3.8" in mid:

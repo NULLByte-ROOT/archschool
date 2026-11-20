@@ -61,7 +61,7 @@ def test_bot_settings(db_session):
     # Test Gemini defaults
     gemini_base, gemini_model = telegram_bot.get_provider_defaults("gemini")
     assert gemini_base == "https://generativelanguage.googleapis.com/v1beta/openai/"
-    assert gemini_model == "gemini-2.5-flash"
+    assert gemini_model == "gemini-3.1-flash-lite"
 
 
 def test_universal_ai_tools_execution(db_session):

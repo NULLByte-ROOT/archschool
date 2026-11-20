@@ -739,6 +739,8 @@ async def ask_universal_ai_agent(
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
     }
+    if "googleapis.com" in endpoint_url or api_key.startswith("AIzaSy"):
+        headers["x-goog-api-key"] = api_key.strip()
     if "openrouter.ai" in endpoint_url:
         headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
         headers["X-Title"] = "ArchSchool Assistant"
