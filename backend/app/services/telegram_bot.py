@@ -296,6 +296,21 @@ def save_chat_history(
         logger.warning("Failed to save telegram chat history: %s", exc)
 
 
+def clear_chat_history(db: Session, chat_id: Optional[int] = None) -> int:
+    """Clear chat history for a specific chat or across all chats to eliminate memory latency."""
+    try:
+        q = db.query(models.TelegramChatHistory)
+        if chat_id is not None:
+            q = q.filter(models.TelegramChatHistory.chat_id == chat_id)
+        count = q.delete(synchronize_session=False)
+        db.commit()
+        return count
+    except Exception as exc:
+        logger.warning("Failed to clear telegram chat history: %s", exc)
+        db.rollback()
+        return 0
+
+
 def get_chat_history(
     db: Session,
     chat_id: int,

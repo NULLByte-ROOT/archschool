@@ -27,24 +27,13 @@ def get_shared_client() -> httpx.AsyncClient:
     return _shared_client
 
 _prompt_cache: Optional[Dict[str, Any]] = None
-_prompt_cache_time: float = 0.0
-
-
 def invalidate_prompt_cache() -> None:
-    """Invalidate cached prompts so updates in admin panel take effect immediately."""
-    global _prompt_cache, _prompt_cache_time
-    _prompt_cache = None
-    _prompt_cache_time = 0.0
+    """Compatibility no-op since prompts are now read in real-time without caching."""
+    pass
 
 
 def get_ai_prompts_and_config(db: Session) -> Dict[str, Any]:
-    """Retrieve system instruction, anchors, temperature, and max_tokens from DB (cached for 60s)."""
-    global _prompt_cache, _prompt_cache_time
-    import time
-    now = time.time()
-    if _prompt_cache is not None and (now - _prompt_cache_time) < 60.0:
-        return _prompt_cache
-
+    """Retrieve system instruction, anchors, temperature, and max_tokens directly from DB with zero cache delay."""
     from ..prompts import default_prompts
 
     try:
@@ -68,15 +57,13 @@ def get_ai_prompts_and_config(db: Session) -> Dict[str, Any]:
     except (ValueError, TypeError):
         max_tokens = default_prompts.DEFAULT_MAX_TOKENS
 
-    _prompt_cache = {
+    return {
         "system_prompt": system_prompt,
         "persona_anchor": persona_anchor,
         "followup_anchor": followup_anchor,
         "temperature": temp,
         "max_tokens": max_tokens,
     }
-    _prompt_cache_time = now
-    return _prompt_cache
 
 OPENAI_TOOLS = [
     {
@@ -792,30 +779,26 @@ async def ask_universal_ai_agent(
 
     messages: List[Dict[str, Any]] = []
 
-    # 1. Custom System Instruction (if set in admin panel)
-    if prompts_cfg.get("system_prompt"):
-        messages.append({"role": "system", "content": prompts_cfg["system_prompt"]})
+    # Assemble unified system instruction (Custom prompt + Persona anchor + Live school context)
+    system_sections: List[str] = []
+    if prompts_cfg.get("system_prompt") and prompts_cfg["system_prompt"].strip():
+        system_sections.append(prompts_cfg["system_prompt"].strip())
 
-    # 2. In-Memory School Database Context (factual data: teachers, schedule, active tasks, leaderboard)
+    if prompts_cfg.get("persona_anchor") and prompts_cfg["persona_anchor"].strip():
+        system_sections.append(prompts_cfg["persona_anchor"].strip())
+
     live_context = build_live_school_context(db, current_user)
-    if live_context:
-        messages.append({
-            "role": "system",
-            "content": f"اطلاعات زنده پایگاه داده مدرسه:\n{live_context}",
-        })
+    if live_context and live_context.strip():
+        system_sections.append(f"اطلاعات زنده پایگاه داده مدرسه:\n{live_context.strip()}")
 
-    # 3. Conversation history
+    if system_sections:
+        messages.append({"role": "system", "content": "\n\n".join(system_sections)})
+
+    # Conversation history
     if conversation_history:
         messages.extend(conversation_history)
 
-    # 4. Persona anchor (if set in admin panel)
-    if prompts_cfg.get("persona_anchor"):
-        messages.append({
-            "role": "system",
-            "content": prompts_cfg["persona_anchor"],
-        })
-
-    # 5. User prompt
+    # User prompt
     user_meta = f"کاربر: {current_user.username} (نقش: {current_user.role})" if current_user else "کاربر: ناشناس"
     messages.append({
         "role": "user",

@@ -305,7 +305,7 @@ export default function BotSettingsPage() {
       {/* TAB 1: SYSTEM PROMPT & PERSONA */}
       {activeTab === "prompt" && (
         <div className="space-y-6">
-          <div className="panel relative p-4 sm:p-6">
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
             <Corners />
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -356,7 +356,7 @@ export default function BotSettingsPage() {
 
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
             {/* Persona Anchor */}
-            <div className="panel relative p-4 sm:p-6">
+            <div className="panel relative overflow-hidden p-4 sm:p-6">
               <Corners />
               <h3 className="mb-1 text-xs font-bold text-white">
                 لنگر پیوستگی لحن و رفتار (Persona Anchor)
@@ -375,7 +375,7 @@ export default function BotSettingsPage() {
             </div>
 
             {/* Follow-up Anchor */}
-            <div className="panel relative p-4 sm:p-6">
+            <div className="panel relative overflow-hidden p-4 sm:p-6">
               <Corners />
               <h3 className="mb-1 text-xs font-bold text-white">
                 یادآوری پس از فراخوانی ابزارها (Follow-up Anchor)
@@ -399,7 +399,7 @@ export default function BotSettingsPage() {
       {/* TAB 2: AI ENGINE & MODEL */}
       {activeTab === "ai" && (
         <div className="space-y-6">
-          <div className="panel relative p-4 sm:p-6">
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
             <Corners />
             <h3 className="mb-4 text-sm font-bold text-white">انتخاب و پیکربندی ارائه‌دهنده (AI Provider)</h3>
             
@@ -515,7 +515,7 @@ export default function BotSettingsPage() {
           </div>
 
           {/* Hyperparameters */}
-          <div className="panel relative p-4 sm:p-6">
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
             <Corners />
             <h3 className="mb-4 text-sm font-bold text-white">پارامترهای تولید پاسخ (Hyperparameters)</h3>
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
@@ -562,7 +562,7 @@ export default function BotSettingsPage() {
       {/* TAB 3: TELEGRAM INTEGRATION */}
       {activeTab === "telegram" && (
         <div className="space-y-6">
-          <div className="panel relative p-4 sm:p-6">
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
             <Corners />
             <h3 className="mb-4 text-sm font-bold text-white">اتصال ربات تلگرام به مدرسه</h3>
 
@@ -618,7 +618,7 @@ export default function BotSettingsPage() {
           </div>
 
           {/* Test Box */}
-          <div className="panel relative p-4 sm:p-6">
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
             <Corners />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>

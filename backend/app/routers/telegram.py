@@ -194,7 +194,17 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
         if bot_user:
             text = text.replace(f"@{bot_user}", "").strip()
 
-    # --- 3. Explicit Slash Command for Task Creation Wizard ---
+    # --- 3. Clear Chat History Command ---
+    if text.strip().lower() in ("/clear", "/reset", "پاکسازی حافظه", "شروع مجدد", "reset"):
+        telegram_bot.clear_chat_history(db, chat_id)
+        await telegram_bot.send_telegram_message(
+            token, chat_id,
+            "🧹 حافظه پیام‌های قبلی این گفتگو پاک شد. از این لحظه گفتگو با تنظیمات و پرامپت جدید آغاز می‌شود.",
+            reply_to_message_id=msg_id
+        )
+        return
+
+    # --- 4. Explicit Slash Command for Task Creation Wizard ---
     if text.startswith(("/new_assignment", "/add_assignment", "/new_task", "/add_task")):
         if not user:
             await telegram_bot.send_telegram_message(
@@ -383,9 +393,11 @@ async def update_settings(
 
     if payload.ai_system_prompt is not None:
         telegram_bot.set_bot_setting(db, "ai_system_prompt", payload.ai_system_prompt.strip())
+        telegram_bot.clear_chat_history(db)
 
     if payload.ai_persona_anchor is not None:
         telegram_bot.set_bot_setting(db, "ai_persona_anchor", payload.ai_persona_anchor.strip())
+        telegram_bot.clear_chat_history(db)
 
     if payload.ai_followup_anchor is not None:
         telegram_bot.set_bot_setting(db, "ai_followup_anchor", payload.ai_followup_anchor.strip())
@@ -410,9 +422,20 @@ def reset_prompt(
 ):
     """Reset AI system prompt and anchors back to default prompts (Admin/Owner only)."""
     settings = telegram_bot.reset_bot_prompts(db)
+    telegram_bot.clear_chat_history(db)
     from app.services import ai_agent
     ai_agent.invalidate_prompt_cache()
     return {"ok": True, "settings": settings}
+
+
+@router.post("/clear-history")
+def clear_bot_history(
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(get_current_admin),
+):
+    """Clear all Telegram bot conversation history (Admin/Owner only)."""
+    deleted_count = telegram_bot.clear_chat_history(db)
+    return {"ok": True, "deleted_count": deleted_count}
 
 
 @router.get("/default-prompts")
