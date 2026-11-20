@@ -367,3 +367,31 @@ def test_owner_exempt_from_anti_cheat_rate_limit(db_session):
     assert is_completed is None
 
 
+def test_dynamic_prompt_management_and_reset(db_session):
+    from app.services import telegram_bot, ai_agent
+    from app.prompts import default_prompts
+
+    # 1. Fetch initial settings (should contain defaults)
+    settings = telegram_bot.get_all_bot_settings(db_session)
+    assert settings["ai_system_prompt"] == default_prompts.DEFAULT_SYSTEM_PROMPT
+    assert settings["ai_temperature"] == default_prompts.DEFAULT_TEMPERATURE
+
+    # 2. Update prompt dynamically
+    custom_prompt = "تو یک دستیار کاملاً رسمی و آکادمیک هستی."
+    telegram_bot.set_bot_setting(db_session, "ai_system_prompt", custom_prompt)
+    telegram_bot.set_bot_setting(db_session, "ai_temperature", "0.4")
+    ai_agent.invalidate_prompt_cache()
+
+    cfg = ai_agent.get_ai_prompts_and_config(db_session)
+    assert cfg["system_prompt"] == custom_prompt
+    assert cfg["temperature"] == 0.4
+
+    # 3. Reset back to defaults
+    reset_settings = telegram_bot.reset_bot_prompts(db_session)
+    ai_agent.invalidate_prompt_cache()
+    assert reset_settings["ai_system_prompt"] == default_prompts.DEFAULT_SYSTEM_PROMPT
+    assert reset_settings["ai_temperature"] == default_prompts.DEFAULT_TEMPERATURE
+    assert "داش هوشنگ" in reset_settings["ai_system_prompt"]
+
+
+

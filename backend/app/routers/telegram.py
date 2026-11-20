@@ -52,6 +52,11 @@ class BotSettingsUpdate(BaseModel):
     ai_model: Optional[str] = None
     gemini_api_key: Optional[str] = None
     bot_enabled: Optional[bool] = None
+    ai_system_prompt: Optional[str] = None
+    ai_persona_anchor: Optional[str] = None
+    ai_followup_anchor: Optional[str] = None
+    ai_temperature: Optional[float] = None
+    ai_max_tokens: Optional[int] = None
 
 
 class BotTestRequest(BaseModel):
@@ -402,7 +407,53 @@ async def update_settings(
             db, "telegram_bot_enabled", "true" if payload.bot_enabled else "false"
         )
 
+    if payload.ai_system_prompt is not None:
+        telegram_bot.set_bot_setting(db, "ai_system_prompt", payload.ai_system_prompt.strip())
+
+    if payload.ai_persona_anchor is not None:
+        telegram_bot.set_bot_setting(db, "ai_persona_anchor", payload.ai_persona_anchor.strip())
+
+    if payload.ai_followup_anchor is not None:
+        telegram_bot.set_bot_setting(db, "ai_followup_anchor", payload.ai_followup_anchor.strip())
+
+    if payload.ai_temperature is not None:
+        telegram_bot.set_bot_setting(db, "ai_temperature", str(payload.ai_temperature))
+
+    if payload.ai_max_tokens is not None:
+        telegram_bot.set_bot_setting(db, "ai_max_tokens", str(payload.ai_max_tokens))
+
+    # Invalidate in-memory prompt cache so new settings apply immediately
+    from app.services import ai_agent
+    ai_agent.invalidate_prompt_cache()
+
     return {"ok": True, "settings": telegram_bot.get_all_bot_settings(db)}
+
+
+@router.post("/reset-prompt")
+def reset_prompt(
+    db: Session = Depends(get_db),
+    admin: models.User = Depends(get_current_admin),
+):
+    """Reset AI system prompt and anchors back to default prompts (Admin/Owner only)."""
+    settings = telegram_bot.reset_bot_prompts(db)
+    from app.services import ai_agent
+    ai_agent.invalidate_prompt_cache()
+    return {"ok": True, "settings": settings}
+
+
+@router.get("/default-prompts")
+def get_default_prompts(
+    admin: models.User = Depends(get_current_admin),
+):
+    """Retrieve default baseline prompts without altering database."""
+    from ..prompts import default_prompts
+    return {
+        "ai_system_prompt": default_prompts.DEFAULT_SYSTEM_PROMPT,
+        "ai_persona_anchor": default_prompts.DEFAULT_PERSONA_ANCHOR,
+        "ai_followup_anchor": default_prompts.DEFAULT_FOLLOWUP_ANCHOR,
+        "ai_temperature": default_prompts.DEFAULT_TEMPERATURE,
+        "ai_max_tokens": default_prompts.DEFAULT_MAX_TOKENS,
+    }
 
 
 @router.post("/test")

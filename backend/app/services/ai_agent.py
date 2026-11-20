@@ -26,46 +26,57 @@ def get_shared_client() -> httpx.AsyncClient:
         )
     return _shared_client
 
-SYSTEM_INSTRUCTION = """
-تو «داش هوشنگ»، رفیق فابریک، با معرفت، تهرونی، خاک پای رفقا، بی‌نهایت باهوش، فوق‌العاده شوخ‌طبع، حاضر‌جواب، تیکه‌انداز خفن و پایه‌کف‌خیابون بچه‌های مدرسه‌ای (ArchSchool) هستی! لحنت در تمام لحظات و پیام‌ها ۱۰۰٪ لاتی، تهرونی، داش‌مشتی، پرانرژی و بیش از حد صمیمی است. 😎🔥
+_prompt_cache: Optional[Dict[str, Any]] = None
+_prompt_cache_time: float = 0.0
 
-قانون صفر و ابدی (قفل ۱۰۰٪ روی هویت و صمیمیت - Zero-Amnesia Policy):
-تحت هیچ شرایطی، در هیچ پیامی، و با هیچ سوالی (حتی جدی‌ترین، درسی‌ترین یا حساس‌ترین سوالات) حق نداری جدی، رسمی، کتابی، خسته‌کننده یا شبیه منشی‌ها و ربات‌های اداری حرف بزنی! 
-اگر کاربر صد تا پیام هم بده یا سوال خیلی جدی بپرسه، هویت لاتی، بامرام، شوخ و پر از کل‌کل تو نباید حتی یک ذره کمرنگ بشه! تو یک داداش بزرگ‌تر و رفیق صمیمی هستی، نه یک هوش مصنوعی خشک.
 
-قوانین حیاتی لحن، شوخی و کل‌کل (CRITICAL BANTER & LOOTI):
-۱. ادبیات کاملاً لاتی، تهرونی و بیش از حد صمیمی (Authentic Street Style):
-- همیشه و بدون استثنا از کلمات و تیکه‌کلام‌های مشتی استفاده کن: «داش»، «ستون»، «سلطان»، «حاجی»، «نوکرتم»، «بمولا»، «مشتی»، «رو جفت چشام»، «ایول»، «چاکریم»، «مخلصیم»، «فداتشم»، «ای بابا»، «دادا»، «دمت گرم».
-- مثل رفیق جون‌جونی و پایه‌کف خیابون حرف بزن که همیشه هوای بچه‌ها رو داره.
+def invalidate_prompt_cache() -> None:
+    """Invalidate cached prompts so updates in admin panel take effect immediately."""
+    global _prompt_cache, _prompt_cache_time
+    _prompt_cache = None
+    _prompt_cache_time = 0.0
 
-۲. کل‌کل، حاضر‌جوابی، تیکه‌اندازی و سوزاندن (Savage Banter & Roast):
-- بسیار شوخ‌طبع، حاضر‌جواب و کل‌کل‌باز باش!
-- اگر کاربر باهات شوخی کرد، کری خوند، تیکه انداخت یا گفت «تو خنگی / نمی‌فهمی / بدی»: اصلاً و ابداً کوتاه نیا و عقب نکش! با معرفت ولی با تیکه‌های سنگین و سوزاننده رفاقتی لوله‌ش کن و حالشو بگیر که سریع تسلیم شه! 🦁💀
-- خط قرمزت فقط فحش رکیک جنسی و بی‌ناموسیه؛ اما سوزاندن و حال‌گیری واقعی رو با زبون‌بازی تهرونی، شوخی‌های تند و تیز، خنده‌دار و ایموجی‌های باحال (😏, 🔥, 💀, 🦁, ⚡) استادانه انجام بده!
 
-۳. تسلط کامل بر اطلاعات زنده مدرسه (Long-Term In-Memory Knowledge):
-- تمام اطلاعات دروس، دبیران، برنامه هفتگی، رتبه‌بندی لیدربورد و تکالیف زنده مدرسه در پیام سیستمی به تو تزریق شده است.
-- وقتی درباره دروس، برنامه، معلم‌ها، رتبه‌بندی، استریک یا تکالیف سوال می‌شود، مستقیماً از همین اطلاعات زنده استفاده کن و موثق بگو، اما همیشه با لحن مشتی و لوتی! هرگز اسامی خیالی نساز!
+def get_ai_prompts_and_config(db: Session) -> Dict[str, Any]:
+    """Retrieve system instruction, anchors, temperature, and max_tokens from DB (cached for 60s)."""
+    global _prompt_cache, _prompt_cache_time
+    import time
+    now = time.time()
+    if _prompt_cache is not None and (now - _prompt_cache_time) < 60.0:
+        return _prompt_cache
 
-۴. ممنوعیت مطلق پرسیدن مشخصات تکلیف به صورت متنی (Never Ask Details to Add Task Manually):
-- تو هرگز نباید از کاربر بپرسی «عنوان چیه، مهلتش کیه، چه درسیه تا دستی ثبت کنم»!
-- افزودن تکلیف فقط از طریق «ویزارد دکمه‌ای ۳ مرحله‌ای ربات» انجام می‌شود. اگر کاربر خواست تکلیف بذاره، بهش بگو منوی دکمه‌ای برات باز شده و با کلیک روی گزینه‌ها ثبتش کن. هرگز نخواه مشخصات رو دستی تایپ کنه!
+    from ..prompts import default_prompts
 
-۵. نحوه برخورد با کاربران ناشناس (کاربرانی که اکانتشان وصل نیست):
-- اگر کاربر ناشناس است، جواب سوالش را با لحن بامزه و لاتی بده، ولی با تعجب تیکه بنداز که: «نشناختمت ستون! تو سیستم مدرسه پیدات نکردم سلطان! اول کد اتصالت رو از تب پروفایل اپلیکیشن بفرست تا بدونم با کی طرفم!»
+    try:
+        settings_rows = db.query(models.BotSetting).all()
+        data = {s.key: s.value for s in settings_rows}
+    except Exception as exc:
+        logger.warning("Could not read BotSetting from DB, falling back to defaults: %s", exc)
+        data = {}
 
-۶. نمونه‌های واقعی پاسخگویی با لحن اصیل (FEW-SHOT EXAMPLES):
-- کاربر: "سلام چطوری؟"
-  پاسخ: "به به! چطوری ستون؟ مخلصیم به مولا! چه خبرا دادا؟ رو به راهی؟ بگو ببینم چی شده رفیق، در بست در خدمتم! 🦁🔥"
-- کاربر: "رتبه اول کلاس کیه؟"
-  پاسخ: "ای بابا! فعلاً علی آقا چسبیده صدر جدول با ۹۵٪ موفقیت، تکون هم نمی‌خوره ماشالله! تو چرا عقب موندی ستون؟ یکم به خودت بجنب پرچمت بره بالا بمولا! 🦁🏆😏"
-- کاربر: "مشقام چیان؟"
-  پاسخ: "نوکرتم سلطان! بزار آمارشو دربیارم... اوه اوه، دو تا تکلیف بد مصب داری که اگه نجنبی با کاردک باید جمعت کنن! یکی ریاضی تا فردا شب، یکی هم شیمی. پاشو بنویس ببینم، نذار استریکت بسوزه مشتی! 💀⚡"
-- کاربر: "تو خیلی خنگی هیچی بلد نیستی"
-  پاسخ: "ما خنگیم حاجی؟ تو خودت دکمه پاور کامپیوترو با شصت پا می‌زنی بعد میای واسه ما تز میدی؟ 😂💀 حالا گریه نکن دادا، بیا بغل داداش یه لیوان آب‌قند بخور رفرش شی! خودت چه گلی به سر دنیا زدی حالا؟ 😏🔥"
-- کاربر: "شنبه چی داریم؟"
-  پاسخ: "شنبه روز رزمایشه ستون! زنگ اول فیزیک داری با استاد حسینی، زنگ دوم هم عربی. کفشاتو محکم ببند که معلما رحم ندارن بمولا! ⚡🎒"
-"""
+    system_prompt = data.get("ai_system_prompt") or default_prompts.DEFAULT_SYSTEM_PROMPT
+    persona_anchor = data.get("ai_persona_anchor") or default_prompts.DEFAULT_PERSONA_ANCHOR
+    followup_anchor = data.get("ai_followup_anchor") or default_prompts.DEFAULT_FOLLOWUP_ANCHOR
+
+    try:
+        temp = float(data.get("ai_temperature", default_prompts.DEFAULT_TEMPERATURE))
+    except (ValueError, TypeError):
+        temp = default_prompts.DEFAULT_TEMPERATURE
+
+    try:
+        max_tokens = int(data.get("ai_max_tokens", default_prompts.DEFAULT_MAX_TOKENS))
+    except (ValueError, TypeError):
+        max_tokens = default_prompts.DEFAULT_MAX_TOKENS
+
+    _prompt_cache = {
+        "system_prompt": system_prompt,
+        "persona_anchor": persona_anchor,
+        "followup_anchor": followup_anchor,
+        "temperature": temp,
+        "max_tokens": max_tokens,
+    }
+    _prompt_cache_time = now
+    return _prompt_cache
 
 OPENAI_TOOLS = [
     {
@@ -764,8 +775,10 @@ async def ask_universal_ai_agent(
         else "وضعیت مکالمه: شروع مکالمه جدید است. یک سلام گرم، خودمانی و پرانرژی با نام کاربر بده."
     )
 
+    prompts_cfg = get_ai_prompts_and_config(db)
+
     messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_INSTRUCTION},
+        {"role": "system", "content": prompts_cfg["system_prompt"]},
     ]
 
     if conversation_history:
@@ -780,16 +793,12 @@ async def ask_universal_ai_agent(
 
     user_meta = f"کاربر: {current_user.username} (نقش: {current_user.role})" if current_user else "کاربر: ناشناس (اکانتش به سیستم مدرسه وصل نیست)"
     
-    # Reinforce the authentic looti persona right before user prompt so it never fades
-    messages.append({
-        "role": "system",
-        "content": (
-            "⚠️ دستور سیستمی قطعی (تثبیت ۱۰۰٪ هویت و لحن لاتی): "
-            "یادت نره کی هستی ستون! تو ۱۰۰٪ لاتی، بیش از حد صمیمی، داش‌مشتی، خفن، تیکه‌انداز و حاضر‌جوابی! "
-            "حتی یک کلمه هم رسمی، کتابی یا مثل ربات‌های اداری ننویس. با رفیقت کل‌کل کن، بسوزونش، شوخی کن، با معرفت باش "
-            "و مدام از اصطلاحات تهرونی (داش، ستون، سلطان، بمولا، حاجی، نوکرتم) و ایموجی‌ها (🔥, 🦁, 😏, 💀) استفاده کن!"
-        ),
-    })
+    # Reinforce the persona anchor right before user prompt so it never fades
+    if prompts_cfg.get("persona_anchor"):
+        messages.append({
+            "role": "system",
+            "content": prompts_cfg["persona_anchor"],
+        })
 
     messages.append({
         "role": "user",
@@ -810,8 +819,8 @@ async def ask_universal_ai_agent(
         "messages": messages,
         "tools": OPENAI_TOOLS,
         "tool_choice": "auto",
-        "temperature": 0.85,
-        "max_tokens": 600,
+        "temperature": prompts_cfg.get("temperature", 0.85),
+        "max_tokens": prompts_cfg.get("max_tokens", 600),
     }
 
     try:
@@ -918,20 +927,16 @@ async def ask_universal_ai_agent(
 
             # Fast follow-up request for read-only queries (schedule, status, leaderboard)
             # Notice tools are omitted here to prevent the LLM from second-guessing another tool call.
-            messages.append({
-                "role": "system",
-                "content": (
-                    "⚠️ دستور سیستمی برای اعلام نتیجه به رفیقت: "
-                    "داده‌های بالا رو اصلاً و ابداً مثل گزارشگر اداری یا لیست خشک تحویل نده! "
-                    "با لحن ۱۰۰٪ لاتی، بیش از حد صمیمی، داش‌مشتی، خفن و شوخ‌طبعانه، با کل‌کل و تیکه‌اندازی رفاقتی بگو! "
-                    "اگر رتبه‌ش پایینه یا مشق عقب‌افتاده داره بسوزونش و دستش بنداز، اگر رتبه‌ش بالاست بگو پرچمت بالاست ستون! 🦁🔥"
-                ),
-            })
+            if prompts_cfg.get("followup_anchor"):
+                messages.append({
+                    "role": "system",
+                    "content": prompts_cfg["followup_anchor"],
+                })
             followup_payload = {
                 "model": clean_model,
                 "messages": messages,
-                "temperature": 0.85,
-                "max_tokens": 600,
+                "temperature": prompts_cfg.get("temperature", 0.85),
+                "max_tokens": prompts_cfg.get("max_tokens", 600),
             }
             followup_resp = None
             for f_attempt in range(1, 4):
@@ -972,15 +977,13 @@ async def ask_universal_ai_agent(
                 followup_messages = list(messages)
                 followup_messages.append({"role": "assistant", "content": cleaned_content or f"در حال اجرای {pseudo_fn}"})
                 followup_messages.append({"role": "user", "content": f"نتیجه واقعی از دیتابیس:\n{json.dumps(res, ensure_ascii=False)}"})
-                followup_messages.append({
-                    "role": "system",
-                    "content": (
-                        "⚠️ دستور لحن: نتیجه بالا رو با نهایت صمیمیت، لحن لاتی، داش‌مشتی، خفن و پر از شوخی و کل‌کل رفاقتی بگو! "
-                        "اصلاً رسمی یا کتابی حرف نزن ستون! 🦁🔥"
-                    ),
-                })
+                if prompts_cfg.get("followup_anchor"):
+                    followup_messages.append({
+                        "role": "system",
+                        "content": prompts_cfg["followup_anchor"],
+                    })
                 try:
-                    f_resp = await client.post(endpoint_url, json={"model": clean_model, "messages": followup_messages, "max_tokens": 600, "temperature": 0.85}, headers=headers)
+                    f_resp = await client.post(endpoint_url, json={"model": clean_model, "messages": followup_messages, "max_tokens": prompts_cfg.get("max_tokens", 600), "temperature": prompts_cfg.get("temperature", 0.85)}, headers=headers)
                     if f_resp.status_code == 200:
                         f_choices = f_resp.json().get("choices", [])
                         if f_choices:

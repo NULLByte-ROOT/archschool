@@ -16,6 +16,7 @@ import ChatPage from "./pages/ChatPage";
 import LeaderboardPage from "./pages/LeaderboardPage";
 import BellSchedulePage from "./pages/BellSchedulePage";
 import ServerStatsPage from "./pages/ServerStatsPage";
+import BotSettingsPage from "./pages/BotSettingsPage";
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
             {/* پنل ادمین — بالای منو، فقط نقش‌های staff */}
             <Route element={<ProtectedRoute adminOnly />}>
               <Route path="rootvoid" element={<UsersPage />} />
+              <Route path="admin/bot" element={<BotSettingsPage />} />
             </Route>
 
             {/* تنظیمات زنگ‌ها و داشبورد زندهٔ سرور — فقط Owner */}

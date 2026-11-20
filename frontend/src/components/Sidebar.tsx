@@ -14,6 +14,7 @@ import {
   Trophy,
   Gauge,
   BellRing,
+  Bot,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import { useUnreadTotal } from "../lib/unread";
@@ -105,9 +106,12 @@ function SidebarContent({ onClose }: { onClose?: () => void }) {
     [isMember, unreadTotal]
   );
 
-  // Admin+ gets the users page. Bells and server stats are Owner-only.
+  // Admin+ gets the users page and the AI & Bot prompt settings.
   const adminLinks = useMemo(
-    () => [{ to: "/rootvoid", label: "کاربران", icon: Users }],
+    () => [
+      { to: "/rootvoid", label: "کاربران", icon: Users },
+      { to: "/admin/bot", label: "هوش مصنوعی و ربات", icon: Bot },
+    ],
     []
   );
 

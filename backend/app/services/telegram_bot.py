@@ -164,6 +164,19 @@ def get_all_bot_settings(db: Session) -> Dict[str, Any]:
     api_key = data.get("ai_api_key") or data.get("gemini_api_key", "")
     provider = data.get("ai_provider", "openrouter")
     def_base, def_model = get_provider_defaults(provider)
+
+    from ..prompts import default_prompts
+
+    try:
+        temp_val = float(data.get("ai_temperature", default_prompts.DEFAULT_TEMPERATURE))
+    except (ValueError, TypeError):
+        temp_val = default_prompts.DEFAULT_TEMPERATURE
+
+    try:
+        max_tokens_val = int(data.get("ai_max_tokens", default_prompts.DEFAULT_MAX_TOKENS))
+    except (ValueError, TypeError):
+        max_tokens_val = default_prompts.DEFAULT_MAX_TOKENS
+
     return {
         "bot_token": data.get("telegram_bot_token", ""),
         "group_id": data.get("telegram_group_id", ""),
@@ -171,10 +184,26 @@ def get_all_bot_settings(db: Session) -> Dict[str, Any]:
         "ai_api_key": api_key,
         "ai_base_url": data.get("ai_base_url") or def_base,
         "ai_model": data.get("ai_model") or def_model,
+        "ai_system_prompt": data.get("ai_system_prompt") or default_prompts.DEFAULT_SYSTEM_PROMPT,
+        "ai_persona_anchor": data.get("ai_persona_anchor") or default_prompts.DEFAULT_PERSONA_ANCHOR,
+        "ai_followup_anchor": data.get("ai_followup_anchor") or default_prompts.DEFAULT_FOLLOWUP_ANCHOR,
+        "ai_temperature": temp_val,
+        "ai_max_tokens": max_tokens_val,
         "bot_enabled": data.get("telegram_bot_enabled", "true").lower() in ("true", "1", "yes"),
         "has_token": bool(data.get("telegram_bot_token")),
         "has_ai": bool(api_key),
     }
+
+
+def reset_bot_prompts(db: Session) -> Dict[str, Any]:
+    """Reset AI system prompt and anchors back to default prompts."""
+    from ..prompts import default_prompts
+    set_bot_setting(db, "ai_system_prompt", default_prompts.DEFAULT_SYSTEM_PROMPT)
+    set_bot_setting(db, "ai_persona_anchor", default_prompts.DEFAULT_PERSONA_ANCHOR)
+    set_bot_setting(db, "ai_followup_anchor", default_prompts.DEFAULT_FOLLOWUP_ANCHOR)
+    set_bot_setting(db, "ai_temperature", str(default_prompts.DEFAULT_TEMPERATURE))
+    set_bot_setting(db, "ai_max_tokens", str(default_prompts.DEFAULT_MAX_TOKENS))
+    return get_all_bot_settings(db)
 
 
 def generate_user_link_token(db: Session, user: models.User) -> str:

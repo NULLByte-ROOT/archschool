@@ -774,3 +774,90 @@ export function getWebSocketUrl(room: string): string {
   url.searchParams.set("room", room);
   return url.toString();
 }
+
+// ---------- Telegram & AI Prompt Management ----------
+export interface BotSettings {
+  bot_token: string;
+  group_id: string;
+  ai_provider: string;
+  ai_api_key: string;
+  ai_base_url: string;
+  ai_model: string;
+  ai_system_prompt: string;
+  ai_persona_anchor: string;
+  ai_followup_anchor: string;
+  ai_temperature: number;
+  ai_max_tokens: number;
+  bot_enabled: boolean;
+  has_token: boolean;
+  has_ai: boolean;
+}
+
+export interface BotSettingsUpdatePayload {
+  bot_token?: string;
+  group_id?: string;
+  ai_provider?: string;
+  ai_api_key?: string;
+  ai_base_url?: string;
+  ai_model?: string;
+  bot_enabled?: boolean;
+  ai_system_prompt?: string;
+  ai_persona_anchor?: string;
+  ai_followup_anchor?: string;
+  ai_temperature?: number;
+  ai_max_tokens?: number;
+}
+
+export interface ModelItem {
+  id: string;
+  name?: string;
+}
+
+export async function getBotSettings(): Promise<BotSettings> {
+  return request<BotSettings>("telegram/settings");
+}
+
+export async function updateBotSettings(
+  payload: BotSettingsUpdatePayload
+): Promise<{ ok: boolean; settings: BotSettings }> {
+  return request<{ ok: boolean; settings: BotSettings }>("telegram/settings", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function resetBotPrompts(): Promise<{ ok: boolean; settings: BotSettings }> {
+  return request<{ ok: boolean; settings: BotSettings }>("telegram/reset-prompt", {
+    method: "POST",
+  });
+}
+
+export async function fetchBotAvailableModels(
+  provider: string,
+  apiKey: string,
+  baseUrl: string
+): Promise<{ models: ModelItem[] }> {
+  const params = new URLSearchParams({
+    provider,
+    api_key: apiKey,
+    base_url: baseUrl,
+  });
+  return request<{ models: ModelItem[] }>(`telegram/models?${params.toString()}`);
+}
+
+export async function testBotIntegration(message?: string): Promise<{
+  ok: boolean;
+  identity: { id: number; username: string };
+  ai_status: string;
+  group_sent: boolean;
+}> {
+  return request<{
+    ok: boolean;
+    identity: { id: number; username: string };
+    ai_status: string;
+    group_sent: boolean;
+  }>("telegram/test", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
