@@ -175,7 +175,7 @@ OPENAI_TOOLS = [
         "type": "function",
         "function": {
             "name": "render_visual_card",
-            "description": "رندر و تولید اسکرین‌شات گرافیکی بسیار زیبا و تمیز از کارت‌ها و نمودارهای اپلیکیشن (شامل: کارنامه و نمودار پیشرفت تحصیلی دانش‌آموز، چارت جدول لیدربورد و سکوی قهرمانی، چارت برنامه هفتگی و زنگ‌ها، یا کارت تکالیف فعال). هر زمان کاربر درخواست دیدن نمودار، کارنامه، عکس برنامه، وضعیت تصویری کرد، یا خود مدل صلاح دید برای درک بصری بهتر عکس ارسال کند، حتماً این ابزار را صدا بزن.",
+            "description": "رندر و تولید اسکرین‌شات گرافیکی بسیار زیبا و تمیز از کارت‌ها و نمودارهای اپلیکیشن (شامل: کارنامه و نمودار پیشرفت تحصیلی دانش‌آموز، چارت جدول لیدربورد و سکوی قهرمانی، چارت برنامه هفتگی و زنگ‌ها، یا کارت تکالیف فعال). هر زمان کاربر گفت 'نمودار درست کن'، 'نمودار'، 'چارت'، 'کارنامه' یا خواستار دیدن نمودار یا تصویر وضعیت شد، باید بلافاصله این ابزار را فراخوانی کنی.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -766,6 +766,37 @@ def _format_friendly_ai_error(status_code: int, raw_text: str = "") -> str:
     return "⚠️ در برقراری ارتباط با مدل هوش مصنوعی خطایی رخ داد. لطفاً تنظیمات کلید و نام مدل را در پنل مدرسه بررسی کنید."
 
 
+def _handle_ai_error(
+    status_code: int,
+    raw_text: str,
+    current_user: Optional[models.User],
+    endpoint_url: str,
+    model_name: str,
+) -> str:
+    """Dispatches full raw error details to Owner PV and returns full log if current user is Owner."""
+    from . import telegram_bot
+    telegram_bot.dispatch_background_owner_error(
+        exc=f"AI Provider HTTP {status_code}: {(raw_text or '')[:300]}",
+        endpoint=f"POST {endpoint_url} (model: {model_name})",
+        user_info=f"{current_user.username} (ID: {current_user.id})" if current_user else "سیستم / ناشناس",
+        raw_response=raw_text,
+        status_code=status_code,
+    )
+    if current_user and models.is_owner(current_user):
+        clean_raw = (raw_text or "").strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:1500]
+        now_str = (datetime.utcnow() + timedelta(hours=3.5)).strftime("%H:%M:%S")
+        return (
+            f"🚨 <b>لاگ کامل خطای سرویس هوش مصنوعی (Owner Debug Log)</b>\n\n"
+            f"📍 <b>سرویس و مدل:</b> <code>{model_name}</code>\n"
+            f"🌐 <b>اندپوینت:</b> <code>{endpoint_url}</code>\n"
+            f"⚠️ <b>کد وضعیت:</b> <code>HTTP {status_code}</code> ({now_str})\n\n"
+            f"📄 <b>پاسخ خام سرویس‌دهنده (Raw Response):</b>\n"
+            f"<pre><code class=\"language-json\">{clean_raw}</code></pre>\n\n"
+            f"💡 <i>به دلیل دسترسی مدیریت ارشد (Owner)، لاگ فنی کامل به جای متن ساده برای شما ارسال شد.</i>"
+        )
+    return _format_friendly_ai_error(status_code, raw_text)
+
+
 
 def build_live_school_context(db: Session, current_user: Optional[models.User] = None) -> str:
     """Build rich in-memory context containing teachers, schedule, live leaderboard, and active assignments."""
@@ -813,6 +844,10 @@ def build_live_school_context(db: Session, current_user: Optional[models.User] =
                 lines.append(f"- {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem}")
         else:
             lines.append("\n📝 لیست تکالیف: در حال حاضر هیچ تکلیف فعالی در سامانه ثبت نشده است.")
+
+        lines.append(
+            "\n🎨 دستور حیاتی نمودارها و گرافیک: هر زمان کاربر خواستار دیدن نمودار، کارنامه تصویری، چارت پیشرفت، عکس برنامه یا گفت «نمودار درست کن»، موظف هستی بلافاصله ابزار render_visual_card را فراخوانی کنی."
+        )
     except Exception as exc:
         logger.warning("Could not build assignments context: %s", exc)
 
@@ -942,7 +977,7 @@ async def ask_universal_ai_agent(
 
         if not resp or resp.status_code != 200:
             logger.error("AI provider error %s after retries from %s: %s", last_status, endpoint_url, last_text)
-            return (_format_friendly_ai_error(last_status, last_text), meta)
+            return (_handle_ai_error(last_status, last_text, current_user, endpoint_url, clean_model), meta)
 
         data = resp.json()
         choices = data.get("choices", [])
@@ -1060,21 +1095,27 @@ async def ask_universal_ai_agent(
                     final_content = followup_choices[0].get("message", {}).get("content", "")
                     return (final_content or "انجام شد.", meta)
             elif followup_resp:
-                return (_format_friendly_ai_error(followup_resp.status_code, followup_resp.text), meta)
+                return (_handle_ai_error(followup_resp.status_code, followup_resp.text, current_user, endpoint_url, clean_model), meta)
 
         # Normal text content
         content = choice_message.get("content", "")
         import re
         if content and "[" in content and "]" in content:
-            bracket_match = re.search(r"\[(get_[a-zA-Z0-9_]+|open_add_homework_wizard|toggle_[a-zA-Z0-9_]+)\]", content)
+            bracket_match = re.search(r"\[(get_[a-zA-Z0-9_]+|open_add_homework_wizard|toggle_[a-zA-Z0-9_]+|render_visual_card)\]", content)
             if bracket_match:
                 pseudo_fn = bracket_match.group(1)
                 logger.info("Executing text-bracketed tool fallback: %s", pseudo_fn)
-                res = execute_tool(pseudo_fn, {}, db, current_user)
+                res = execute_tool(pseudo_fn, {"card_type": "progress"} if pseudo_fn == "render_visual_card" else {}, db, current_user)
                 if pseudo_fn == "open_add_homework_wizard" and res.get("success"):
                     meta["open_wizard"] = True
                     return ("منوی افزودن تکلیف جدید باز شد. لطفاً نوع، موضوع و مهلت را از گزینه‌های زیر انتخاب کنید:", meta)
-                cleaned_content = re.sub(r"\[(get_[a-zA-Z0-9_]+|open_add_homework_wizard|toggle_[a-zA-Z0-9_]+)\]", "", content).strip()
+                if pseudo_fn == "render_visual_card" and res.get("success"):
+                    meta["visual_card"] = {
+                        "card_type": res.get("card_type"),
+                        "title": res.get("title"),
+                        "image_path": res.get("image_path"),
+                    }
+                cleaned_content = re.sub(r"\[(get_[a-zA-Z0-9_]+|open_add_homework_wizard|toggle_[a-zA-Z0-9_]+|render_visual_card)\]", "", content).strip()
                 followup_messages = list(messages)
                 followup_messages.append({"role": "assistant", "content": cleaned_content or f"در حال اجرای {pseudo_fn}"})
                 followup_messages.append({"role": "user", "content": f"نتیجه واقعی از دیتابیس:\n{json.dumps(res, ensure_ascii=False)}"})
@@ -1096,7 +1137,7 @@ async def ask_universal_ai_agent(
 
     except httpx.TimeoutException:
         logger.error("AI provider timeout to %s", endpoint_url)
-        return (_format_friendly_ai_error(504, "Timeout"), meta)
+        return (_handle_ai_error(504, "Connection timed out after 3 retries", current_user, endpoint_url, clean_model), meta)
     except Exception as exc:
-        logger.error("Universal AI agent exception: %s", exc)
-        return (_format_friendly_ai_error(500, str(exc)), meta)
+        logger.error("Universal AI agent exception: %s", exc, exc_info=True)
+        return (_handle_ai_error(500, f"{type(exc).__name__}: {str(exc)}", current_user, endpoint_url, clean_model), meta)

@@ -860,23 +860,36 @@ MAX_RECENT_ERRORS = 20
 
 
 def record_system_error(
-    exc: Exception,
+    exc: Any,
     endpoint: str = "",
     user_info: str = "",
     context: Optional[dict] = None,
+    raw_response: str = "",
+    status_code: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Store in-memory diagnostic error entry."""
-    tb = traceback.format_exc()
-    if not tb or tb == "NoneType: None\n":
-        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    """Store in-memory diagnostic error entry with full raw traceback and logs."""
+    if isinstance(exc, Exception):
+        tb = traceback.format_exc()
+        if not tb or tb == "NoneType: None\n":
+            tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        err_type = type(exc).__name__
+        err_msg = str(exc)
+    else:
+        tb = str((context or {}).get("traceback") or "") or traceback.format_exc()
+        if not tb or tb == "NoneType: None\n":
+            tb = "Traceback (most recent call last):\n  [Captured from Service Failure]\n"
+        err_type = f"HTTP {status_code}" if status_code else "ServiceError"
+        err_msg = str(exc)
 
     entry = {
         "timestamp": datetime.utcnow(),
-        "error_type": type(exc).__name__,
-        "error_msg": str(exc),
+        "error_type": err_type,
+        "error_msg": err_msg,
         "endpoint": endpoint,
         "user_info": user_info,
-        "traceback": tb[-1800:] if len(tb) > 1800 else tb,
+        "status_code": status_code,
+        "raw_response": raw_response,
+        "traceback": tb[-2500:] if len(tb) > 2500 else tb,
         "context": context or {},
     }
     RECENT_SYSTEM_ERRORS.append(entry)
@@ -906,10 +919,12 @@ def get_owner_chat_id(db: Session) -> Optional[int]:
 
 async def notify_owner_error(
     db: Session,
-    exc: Exception,
+    exc: Any,
     endpoint: str = "",
     user_info: str = "",
     context: Optional[dict] = None,
+    raw_response: str = "",
+    status_code: Optional[int] = None,
 ) -> bool:
     """Send a deeply detailed real-time crash report directly to Owner's Telegram PV."""
     token = get_bot_setting(db, "telegram_bot_token")
@@ -917,32 +932,42 @@ async def notify_owner_error(
     if not token or not owner_chat_id:
         return False
 
-    entry = record_system_error(exc, endpoint, user_info, context)
+    entry = record_system_error(exc, endpoint, user_info, context, raw_response, status_code)
     now_str = (entry["timestamp"] + timedelta(hours=3.5)).strftime("%Y-%m-%d %H:%M:%S")
 
     tb_code = entry["traceback"].strip()
     tb_escaped = tb_code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    raw_block = ""
+    if raw_response:
+        clean_raw = raw_response.strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:1200]
+        raw_block = f"\n📄 <b>پاسخ خام سرویس‌دهنده (Raw Response):</b>\n<pre><code class=\"language-json\">{clean_raw}</code></pre>\n"
+
+    status_tag = f" (HTTP {status_code})" if status_code else ""
+
     msg = (
-        f"🚨 <b>هشدار خطای سرور (System Crash Alert)</b> ⚠️\n\n"
+        f"🚨 <b>گزارش لاگ کامل خطای سیستم (Full Raw Error Log)</b> ⚠️\n\n"
         f"📍 <b>محل وقوع / اندپوینت:</b> <code>{endpoint or 'عملیات سرور'}</code>\n"
         f"👤 <b>کاربر مرتبط:</b> <code>{user_info or 'سیستم / ناشناس'}</code>\n"
         f"🕒 <b>زمان وقوع:</b> <code>{now_str} (ایران)</code>\n\n"
-        f"❌ <b>نوع خطا:</b> <code>{entry['error_type']}</code>\n"
-        f"💬 <b>پیام خطا:</b> <code>{entry['error_msg']}</code>\n\n"
-        f"💻 <b>استک تریس و خط کد مربوطه:</b>\n"
+        f"❌ <b>نوع و کد خطا:</b> <code>{entry['error_type']}{status_tag}</code>\n"
+        f"💬 <b>پیام خطا:</b> <code>{entry['error_msg']}</code>\n"
+        f"{raw_block}\n"
+        f"💻 <b>استک تریس و خطوط کد درگیر (Full Traceback):</b>\n"
         f"<pre><code class=\"language-python\">{tb_escaped}</code></pre>\n\n"
-        f"💡 <i>این گزارش دقیق همراه با خط کد خطا مستقیماً به پیوی شما ارسال شده است.</i>"
+        f"💡 <i>این لاگ کامل سیستمی مستقیماً در پیوی مدیریت ارشد ثبت و ارسال گردید.</i>"
     )
 
     return await send_telegram_message(token, owner_chat_id, msg)
 
 
 def dispatch_background_owner_error(
-    exc: Exception,
+    exc: Any,
     endpoint: str = "",
     client_ip: str = "",
     user_info: str = "",
+    raw_response: str = "",
+    status_code: Optional[int] = None,
 ) -> None:
     """Fire-and-forget helper to dispatch error notification to Owner."""
     try:
@@ -955,6 +980,8 @@ def dispatch_background_owner_error(
                         exc=exc,
                         endpoint=endpoint,
                         user_info=f"{user_info} (IP: {client_ip})" if client_ip else user_info,
+                        raw_response=raw_response,
+                        status_code=status_code,
                     ))
             except Exception as e:
                 logger.warning("Could not dispatch error to owner: %s", e)
@@ -994,17 +1021,24 @@ def build_owner_detailed_report(db: Session) -> str:
 
     now_iran = (datetime.utcnow() + timedelta(hours=3.5)).strftime("%Y-%m-%d %H:%M:%S")
 
-    # 4. Error Diagnostics
+    # 4. Error Diagnostics (Full Stacktrace & Logs)
     if RECENT_SYSTEM_ERRORS:
-        error_section = f"\n⚠️ <b>آخرین ارورهای ثبت‌شده ({len(RECENT_SYSTEM_ERRORS)} مورد اخیر):</b>\n"
+        error_section = f"\n⚠️ <b>لاگ کامل خطاهای اخیر سرور ({len(RECENT_SYSTEM_ERRORS)} مورد اخیر):</b>\n"
         for i, err in enumerate(reversed(RECENT_SYSTEM_ERRORS[-3:])):
             t_str = (err["timestamp"] + timedelta(hours=3.5)).strftime("%H:%M:%S")
-            tb_snippet = err["traceback"].strip().splitlines()[-4:]
-            tb_line = "\n".join(tb_snippet).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            full_tb = err["traceback"].strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            if len(full_tb) > 1400:
+                full_tb = full_tb[-1400:]
+            raw_box = ""
+            if err.get("raw_response"):
+                raw_clean = str(err["raw_response"]).strip().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")[:700]
+                raw_box = f"📄 <i>پاسخ خام سرور / API:</i>\n<pre><code class=\"language-json\">{raw_clean}</code></pre>\n"
             error_section += (
                 f"\n<b>{i+1}. {err['error_type']}</b> در <code>{err['endpoint']}</code> ({t_str}):\n"
-                f"<i>{err['error_msg']}</i>\n"
-                f"<pre><code class=\"language-python\">{tb_line}</code></pre>\n"
+                f"💬 <code>{err['error_msg']}</code>\n"
+                f"{raw_box}"
+                f"💻 <b>استک‌تریس و خطوط کد:</b>\n"
+                f"<pre><code class=\"language-python\">{full_tb}</code></pre>\n"
             )
     else:
         error_section = "\n✅ <b>وضعیت سلامت ارورها:</b> تمامی سرویس‌ها کاملاً سبز و پایدار هستند (هیچ خطایی ثبت نشده است)."

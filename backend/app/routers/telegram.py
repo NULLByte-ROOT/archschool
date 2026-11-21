@@ -308,6 +308,101 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
         await telegram_bot.send_telegram_message(token, chat_id, reply_text, reply_to_message_id=msg_id)
         return
 
+    # --- 4.6 Direct Chart & Visual Card Request Interceptor ("نمودار درست کن", "نمودار", "چارت", "عکس پیشرفت") ---
+    clean_p = text.lower().strip()
+    chart_patterns = (
+        "نمودار", "چارت", "عکس پیشرفت", "عکس لیدربورد", "عکس برنامه",
+        "عکس تکالیف", "کارت تصویری", "کارنامه تصویری", "کارنامه من"
+    )
+    is_chart_direct_req = any(p in clean_p for p in chart_patterns) or (
+        "کارنامه" in clean_p and any(w in clean_p for w in ("عکس", "تصویر", "بفرست", "بده", "نشون", "درست"))
+    )
+
+    if is_chart_direct_req:
+        from app.services import card_renderer
+        asyncio.create_task(telegram_bot.send_chat_action(token, chat_id, "upload_photo"))
+
+        if any(w in clean_p for w in ("لیدربورد", "رتبه", "سکوی", "نفرات برتر", "جدول")):
+            c_type = "leaderboard"
+        elif any(w in clean_p for w in ("برنامه", "زنگ", "ساعت کلاس")):
+            c_type = "schedule"
+        elif any(w in clean_p for w in ("تکالیف", "مشق", "لیست تکالیف")):
+            c_type = "assignments"
+        else:
+            c_type = "progress"
+
+        img_path, card_title, card_summary = card_renderer.generate_card(db, c_type, user=user)
+
+        # Get dynamic 2-3 lines of witty AI commentary if key is configured
+        ai_commentary = ""
+        if ai_key:
+            try:
+                comment_prompt = (
+                    f"کاربر درخواست نمودار تصویری '{card_title}' کرده است. "
+                    f"داده‌های لحظه‌ای: {json.dumps(card_summary, ensure_ascii=False)}. "
+                    f"دقیقاً در ۲ الی ۳ خط یک تحلیل کوتاه، بسیار جذاب، پرانرژی و رفاقتی درباره این وضعیت برای کاربر بنویس. "
+                    f"فقط متن خالص تحلیلی بنویس و هرگز نام فایل یا پسوند یا کلمات فنی ننویس."
+                )
+                c_reply, _ = await ai_agent.ask_universal_ai_agent(
+                    user_prompt=comment_prompt,
+                    api_key=ai_key,
+                    db=db,
+                    base_url=base_url,
+                    model_name=model_name,
+                    current_user=user,
+                    is_recent=False,
+                )
+                if c_reply:
+                    clean_c = re.sub(
+                        r'(?:[a-zA-Z0-9_\-\.\/\\]*app[/\\][a-zA-Z0-9_\-\.\/\\]+|\b\S+\.png\b|\b[a-zA-Z]:[/\\]\S+|cache/\S+)',
+                        '',
+                        c_reply
+                    ).strip()
+                    lines = [l.strip() for l in clean_c.splitlines() if l.strip() and not l.strip().startswith("//")]
+                    ai_commentary = "\n".join(lines[:3])
+            except Exception as e_comm:
+                logger.warning("Could not fetch AI commentary for direct card request: %s", e_comm)
+
+        if not ai_commentary:
+            if c_type == "progress":
+                ai_commentary = f"استریک شما {card_summary.get('current_streak', 0)} روز و درصد تکمیل تکالیف {card_summary.get('completion_percentage', 0)}٪ است. وضعیت کلی در سامانه به‌روزرسانی شد! 🔥⚡"
+            elif c_type == "leaderboard":
+                ai_commentary = f"رقابت سیزن دوره‌ای کلاس در جریان است و نفر اول با {card_summary.get('top1_pct', 0)}٪ پیشتاز است. رتبه‌بندی جدید ثبت شد! 🏆"
+            elif c_type == "schedule":
+                ai_commentary = f"برنامه درسی و وضعیت زنگ‌های مدرسه استعلام شد: {card_summary.get('bell_status', 'خارج از ساعات مدرسه')} 📚"
+            else:
+                ai_commentary = f"تعداد {card_summary.get('active_count', 0)} تکلیف فعال در صف بررسی و انجام قرار دارد. به ددلاین‌ها توجه کنید! 📝"
+
+        clean_title = re.sub(r'^[📊🏆📝📅\s]+', '', card_title).strip()
+        icons = {"progress": "📊", "leaderboard": "🏆", "assignments": "📝", "schedule": "📅"}
+        card_icon = icons.get(c_type, "📊")
+
+        formatted_caption = (
+            f"{card_icon} <b>{clean_title}</b>\n"
+            f"────────────────────\n"
+            f"{ai_commentary}\n"
+            f"────────────────────\n"
+            f"⚡ <i>سامانه هوشمند ArchSchool</i>"
+        )
+
+        t_uid = user.id if user else 0
+        photo_markup = {
+            "inline_keyboard": [
+                [{"text": "🔄 به‌روزرسانی نمودار", "callback_data": f"refresh_card:{c_type}:{t_uid}"}]
+            ]
+        }
+        sent = await telegram_bot.send_telegram_photo(
+            token=token,
+            chat_id=chat_id,
+            photo_path=img_path,
+            caption=formatted_caption,
+            parse_mode="HTML",
+            reply_to_message_id=msg_id,
+            reply_markup=photo_markup,
+        )
+        if sent:
+            return
+
     # --- 5. Process general prompt with Universal AI Agent ---
     if not ai_key:
         await telegram_bot.send_telegram_message(
