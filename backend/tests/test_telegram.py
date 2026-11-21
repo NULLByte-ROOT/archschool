@@ -418,4 +418,70 @@ def test_open_add_homework_wizard_tool_permissions(db_session):
     assert res_admin["action"] == "open_wizard"
 
 
+def test_owner_only_bot_settings_permission(client, db_session):
+    from app.security import create_access_token
+
+    # Create admin user and owner user
+    admin_u = models.User(username="regular_admin_test", code="ADM_TEST1", is_admin=True, role=models.ROLE_ADMIN)
+    owner_u = models.User(username="the_owner_test", code="OWN_TEST1", is_admin=True, role=models.ROLE_OWNER)
+    db_session.add_all([admin_u, owner_u])
+    db_session.commit()
+
+    admin_token = create_access_token({"sub": str(admin_u.id)})
+    owner_token = create_access_token({"sub": str(owner_u.id)})
+
+    # Admin should receive 403 Forbidden: Owner only
+    resp_admin = client.get("/api/v1/telegram/settings", headers={"Authorization": f"Bearer {admin_token}"})
+    assert resp_admin.status_code == 403
+    assert "Owner only" in resp_admin.text
+
+    # Owner should receive 200 OK
+    resp_owner = client.get("/api/v1/telegram/settings", headers={"Authorization": f"Bearer {owner_token}"})
+    assert resp_owner.status_code == 200
+
+
+def test_owner_diagnostic_report_and_error_recording(db_session):
+    from app.services import telegram_bot
+
+    owner = models.User(username="boss", code="BOSS1", is_admin=True, role=models.ROLE_OWNER, telegram_id=987654321)
+    db_session.add(owner)
+    db_session.commit()
+
+    # Simulate an error
+    try:
+        raise ValueError("تست خطای سرور برای پیوی اونر")
+    except Exception as exc:
+        err_entry = telegram_bot.record_system_error(exc, endpoint="POST /api/v1/test", user_info="boss (ID: 1)")
+        assert err_entry["error_type"] == "ValueError"
+        assert "تست خطای سرور" in err_entry["error_msg"]
+
+    # Build owner report
+    report = telegram_bot.build_owner_detailed_report(db_session)
+    assert "گزارش جامع وضعیت سرور" in report
+    assert "CPU" in report
+    assert "RAM" in report
+    assert "ValueError" in report
+
+
+def test_render_visual_card_tool(db_session):
+    from app.services import ai_agent, card_renderer
+    import os
+
+    student = models.User(username="ali", code="ALI01", role=models.ROLE_MEMBER)
+    db_session.add(student)
+    db_session.commit()
+
+    # Progress card
+    res = ai_agent.execute_tool("render_visual_card", {"card_type": "progress"}, db_session, student)
+    assert res["success"] is True
+    assert res["card_type"] == "progress"
+    assert os.path.exists(res["image_path"])
+
+    # Leaderboard card
+    res_lb = ai_agent.execute_tool("render_visual_card", {"card_type": "leaderboard"}, db_session, student)
+    assert res_lb["success"] is True
+    assert os.path.exists(res_lb["image_path"])
+
+
+
 

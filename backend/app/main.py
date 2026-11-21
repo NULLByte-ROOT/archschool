@@ -4,8 +4,9 @@ import os
 from contextlib import asynccontextmanager, contextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 from sqlalchemy import func, inspect, text
@@ -482,6 +483,25 @@ app.include_router(updates.router, prefix="/api/updates", tags=["updates"], incl
 app.include_router(telegram.router, prefix="/api/v1", tags=["telegram"])
 app.include_router(telegram.router, prefix="/api", tags=["telegram"], include_in_schema=False)
 app.include_router(ws.router, tags=["ws"])
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Notify Owner via Telegram PV with full stack trace and code for any uncaught 500 error."""
+    logger.exception("Unhandled server exception at %s %s: %s", request.method, request.url.path, exc)
+    try:
+        from .services import telegram_bot
+        telegram_bot.dispatch_background_owner_error(
+            exc=exc,
+            endpoint=f"{request.method} {request.url.path}",
+            client_ip=request.client.host if request.client else "unknown",
+        )
+    except Exception as notify_err:
+        logger.warning("Could not dispatch owner error notification: %s", notify_err)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "خطای غیرمنتظره سرور رخ داده است. گزارش دقیق این خطا به همراه کد برای مدیریت ارشد ارسال گردید."},
+    )
 
 
 class MediaStaticFiles(StaticFiles):

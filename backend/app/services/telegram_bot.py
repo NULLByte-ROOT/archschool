@@ -1,8 +1,11 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+import json
 import logging
+import os
 import re
 import secrets
+import traceback
 from typing import Any, Dict, List, Optional
 import httpx
 from sqlalchemy.orm import Session
@@ -755,3 +758,273 @@ async def broadcast_leaderboard_reset(
         f"📱 <i>مشاهده وضعیت سیزن جدید و تایمر معکوس در اپلیکیشن ArchSchool</i>"
     )
     return await send_telegram_message(token, group_id, text)
+
+
+# ---------------------------------------------------------------------------
+# Telegram Photo & Media Methods
+# ---------------------------------------------------------------------------
+
+async def send_telegram_photo(
+    token: str,
+    chat_id: str | int,
+    photo_path: str,
+    caption: Optional[str] = None,
+    parse_mode: str = "HTML",
+    reply_to_message_id: Optional[int] = None,
+    reply_markup: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Send photo with optional caption and inline keyboard markup."""
+    if not token or not chat_id or not os.path.exists(photo_path):
+        return False
+    url = f"{TELEGRAM_API_BASE.format(token=token)}/sendPhoto"
+    data: Dict[str, Any] = {"chat_id": chat_id}
+    if caption:
+        formatted = format_telegram_html(caption) if parse_mode == "HTML" else caption
+        if len(formatted) > 1024:
+            formatted = formatted[:1020] + "..."
+        data["caption"] = formatted
+        if parse_mode:
+            data["parse_mode"] = parse_mode
+    if reply_to_message_id:
+        data["reply_to_message_id"] = reply_to_message_id
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+
+    try:
+        from .ai_agent import get_shared_client
+        client = get_shared_client()
+        with open(photo_path, "rb") as f:
+            files = {"photo": (os.path.basename(photo_path), f.read(), "image/png")}
+            resp = await client.post(url, data=data, files=files, timeout=20.0)
+            if resp.status_code == 200:
+                return True
+            logger.warning("Telegram sendPhoto error: %s %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        logger.error("Failed to send Telegram photo: %s", exc)
+    return False
+
+
+async def edit_telegram_photo(
+    token: str,
+    chat_id: str | int,
+    message_id: int,
+    photo_path: str,
+    caption: Optional[str] = None,
+    parse_mode: str = "HTML",
+    reply_markup: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Update an existing photo message in Telegram with new rendered media."""
+    if not token or not chat_id or not message_id or not os.path.exists(photo_path):
+        return False
+    url = f"{TELEGRAM_API_BASE.format(token=token)}/editMessageMedia"
+    media_dict: Dict[str, Any] = {
+        "type": "photo",
+        "media": "attach://photo_file",
+    }
+    if caption:
+        formatted = format_telegram_html(caption) if parse_mode == "HTML" else caption
+        if len(formatted) > 1024:
+            formatted = formatted[:1020] + "..."
+        media_dict["caption"] = formatted
+        if parse_mode:
+            media_dict["parse_mode"] = parse_mode
+
+    data: Dict[str, Any] = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "media": json.dumps(media_dict),
+    }
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+
+    try:
+        from .ai_agent import get_shared_client
+        client = get_shared_client()
+        with open(photo_path, "rb") as f:
+            files = {"photo_file": (os.path.basename(photo_path), f.read(), "image/png")}
+            resp = await client.post(url, data=data, files=files, timeout=20.0)
+            if resp.status_code == 200:
+                return True
+            logger.warning("Telegram editMessageMedia error: %s %s", resp.status_code, resp.text[:200])
+    except Exception as exc:
+        logger.error("Failed to edit Telegram photo: %s", exc)
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Owner VIP Reporting & Diagnostics (Error Reports with Code)
+# ---------------------------------------------------------------------------
+
+RECENT_SYSTEM_ERRORS: List[Dict[str, Any]] = []
+MAX_RECENT_ERRORS = 20
+
+
+def record_system_error(
+    exc: Exception,
+    endpoint: str = "",
+    user_info: str = "",
+    context: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """Store in-memory diagnostic error entry."""
+    tb = traceback.format_exc()
+    if not tb or tb == "NoneType: None\n":
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+
+    entry = {
+        "timestamp": datetime.utcnow(),
+        "error_type": type(exc).__name__,
+        "error_msg": str(exc),
+        "endpoint": endpoint,
+        "user_info": user_info,
+        "traceback": tb[-1800:] if len(tb) > 1800 else tb,
+        "context": context or {},
+    }
+    RECENT_SYSTEM_ERRORS.append(entry)
+    if len(RECENT_SYSTEM_ERRORS) > MAX_RECENT_ERRORS:
+        RECENT_SYSTEM_ERRORS.pop(0)
+    return entry
+
+
+def get_owner_user(db: Session) -> Optional[models.User]:
+    """Retrieve system Owner account."""
+    return db.query(models.User).filter(
+        models.User.role == models.ROLE_OWNER,
+        models.User.is_active.is_(True),
+    ).first()
+
+
+def get_owner_chat_id(db: Session) -> Optional[int]:
+    """Resolve Owner's Telegram private chat ID from settings or user profile."""
+    explicit = get_bot_setting(db, "owner_telegram_chat_id")
+    if explicit and explicit.strip().lstrip("-").isdigit():
+        return int(explicit.strip())
+    owner = get_owner_user(db)
+    if owner and owner.telegram_id:
+        return int(owner.telegram_id)
+    return None
+
+
+async def notify_owner_error(
+    db: Session,
+    exc: Exception,
+    endpoint: str = "",
+    user_info: str = "",
+    context: Optional[dict] = None,
+) -> bool:
+    """Send a deeply detailed real-time crash report directly to Owner's Telegram PV."""
+    token = get_bot_setting(db, "telegram_bot_token")
+    owner_chat_id = get_owner_chat_id(db)
+    if not token or not owner_chat_id:
+        return False
+
+    entry = record_system_error(exc, endpoint, user_info, context)
+    now_str = (entry["timestamp"] + timedelta(hours=3.5)).strftime("%Y-%m-%d %H:%M:%S")
+
+    tb_code = entry["traceback"].strip()
+    tb_escaped = tb_code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    msg = (
+        f"🚨 <b>هشدار خطای سرور (System Crash Alert)</b> ⚠️\n\n"
+        f"📍 <b>محل وقوع / اندپوینت:</b> <code>{endpoint or 'عملیات سرور'}</code>\n"
+        f"👤 <b>کاربر مرتبط:</b> <code>{user_info or 'سیستم / ناشناس'}</code>\n"
+        f"🕒 <b>زمان وقوع:</b> <code>{now_str} (ایران)</code>\n\n"
+        f"❌ <b>نوع خطا:</b> <code>{entry['error_type']}</code>\n"
+        f"💬 <b>پیام خطا:</b> <code>{entry['error_msg']}</code>\n\n"
+        f"💻 <b>استک تریس و خط کد مربوطه:</b>\n"
+        f"<pre><code class=\"language-python\">{tb_escaped}</code></pre>\n\n"
+        f"💡 <i>این گزارش دقیق همراه با خط کد خطا مستقیماً به پیوی شما ارسال شده است.</i>"
+    )
+
+    return await send_telegram_message(token, owner_chat_id, msg)
+
+
+def dispatch_background_owner_error(
+    exc: Exception,
+    endpoint: str = "",
+    client_ip: str = "",
+    user_info: str = "",
+) -> None:
+    """Fire-and-forget helper to dispatch error notification to Owner."""
+    try:
+        from ..database import SessionLocal
+        def _runner():
+            try:
+                with SessionLocal() as db:
+                    asyncio.run(notify_owner_error(
+                        db=db,
+                        exc=exc,
+                        endpoint=endpoint,
+                        user_info=f"{user_info} (IP: {client_ip})" if client_ip else user_info,
+                    ))
+            except Exception as e:
+                logger.warning("Could not dispatch error to owner: %s", e)
+
+        import threading
+        threading.Thread(target=_runner, daemon=True).start()
+    except Exception as exc2:
+        logger.warning("Could not spawn error reporter thread: %s", exc2)
+
+
+def build_owner_detailed_report(db: Session) -> str:
+    """Generate high-detail system audit report for the Owner's private query."""
+    import psutil
+    from ..ws_manager import manager
+
+    # 1. System Resources
+    cpu = psutil.cpu_percent(interval=0.1)
+    mem = psutil.virtual_memory()
+    mem_used = round(mem.used / (1024 ** 3), 2)
+    mem_total = round(mem.total / (1024 ** 3), 2)
+    mem_pct = mem.percent
+
+    disk = psutil.disk_usage("/")
+    disk_used = round(disk.used / (1024 ** 3), 1)
+    disk_total = round(disk.total / (1024 ** 3), 1)
+
+    # 2. Database Stats
+    total_users = db.query(models.User).count()
+    active_users = db.query(models.User).filter(models.User.is_active.is_(True)).count()
+    total_assignments = db.query(models.Assignment).filter(models.Assignment.deleted_at.is_(None)).count()
+    ws_conns = len(getattr(manager, "_users", {}))
+
+    # 3. AI & Bot Integration
+    provider = get_bot_setting(db, "ai_provider", "openrouter")
+    model = get_bot_setting(db, "ai_model", "openai/gpt-4o-mini")
+    bot_user = get_bot_setting(db, "telegram_bot_username", "تنظیم‌نشده")
+
+    now_iran = (datetime.utcnow() + timedelta(hours=3.5)).strftime("%Y-%m-%d %H:%M:%S")
+
+    # 4. Error Diagnostics
+    if RECENT_SYSTEM_ERRORS:
+        error_section = f"\n⚠️ <b>آخرین ارورهای ثبت‌شده ({len(RECENT_SYSTEM_ERRORS)} مورد اخیر):</b>\n"
+        for i, err in enumerate(reversed(RECENT_SYSTEM_ERRORS[-3:])):
+            t_str = (err["timestamp"] + timedelta(hours=3.5)).strftime("%H:%M:%S")
+            tb_snippet = err["traceback"].strip().splitlines()[-4:]
+            tb_line = "\n".join(tb_snippet).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            error_section += (
+                f"\n<b>{i+1}. {err['error_type']}</b> در <code>{err['endpoint']}</code> ({t_str}):\n"
+                f"<i>{err['error_msg']}</i>\n"
+                f"<pre><code class=\"language-python\">{tb_line}</code></pre>\n"
+            )
+    else:
+        error_section = "\n✅ <b>وضعیت سلامت ارورها:</b> تمامی سرویس‌ها کاملاً سبز و پایدار هستند (هیچ خطایی ثبت نشده است)."
+
+    report = (
+        f"🛡️ <b>گزارش جامع وضعیت سرور و سیستم (Owner VIP Diagnostic)</b> 📊\n\n"
+        f"🕒 <b>زمان گزارش:</b> <code>{now_iran}</code>\n\n"
+        f"🖥️ <b>منابع سخت‌افزاری سرور:</b>\n"
+        f"▫️ مصرف پردازنده (CPU): <b>{cpu}%</b>\n"
+        f"▫️ حافظه رم (RAM): <b>{mem_used} GB</b> از {mem_total} GB ({mem_pct}%)\n"
+        f"▫️ فضای دیسک (Disk): <b>{disk_used} GB</b> از {disk_total} GB ({disk.percent}%)\n"
+        f"▫️ اتصالات لایو وب‌سوکت: <b>{ws_conns} کلاینت آنلاین</b>\n\n"
+        f"👥 <b>وضعیت دیتابیس و کاربران:</b>\n"
+        f"▫️ کل کاربران: <b>{total_users} نفر</b> (فعال: {active_users})\n"
+        f"▫️ تکالیف فعال کلاسی: <b>{total_assignments} تکلیف</b>\n\n"
+        f"🤖 <b>تنظیمات هوش مصنوعی و ربات:</b>\n"
+        f"▫️ یوزرنیم ربات: <b>@{bot_user}</b>\n"
+        f"▫️ سرویس‌دهنده AI: <code>{provider}</code>\n"
+        f"▫️ مدل فعال: <code>{model}</code>\n"
+        f"{error_section}\n\n"
+        f"📱 <i>گزارش به درخواست مدیریت ارشد صادر گردید.</i>"
+    )
+    return report

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..config import settings
 from ..database import SessionLocal, get_db
-from ..dependencies import get_current_admin, get_current_user
+from ..dependencies import get_current_admin, get_current_owner, get_current_user
 from ..services import ai_agent, telegram_bot
 
 logger = logging.getLogger("archschool.telegram_router")
@@ -109,6 +109,29 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
             )
             return
 
+        if cb_data.startswith("refresh_card:"):
+            from app.services import card_renderer
+            parts = cb_data.split(":")
+            c_type = parts[1] if len(parts) > 1 else "progress"
+            t_uid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() and int(parts[2]) > 0 else (cb_user.id if cb_user else None)
+            target_u = db.query(models.User).filter(models.User.id == t_uid).first() if t_uid else cb_user
+
+            await telegram_bot.answer_callback_query(token, cb_id, text="در حال به‌روزرسانی نمودار... 🔄")
+
+            new_img, c_title = card_renderer.generate_card(db, c_type, user=target_u)
+            now_iran = (datetime.utcnow() + timedelta(hours=3.5)).strftime("%H:%M:%S")
+            new_caption = f"📊 <b>{c_title}</b>\n<i>(به‌روزرسانی شده در {now_iran})</i>"
+
+            reply_kb = {
+                "inline_keyboard": [
+                    [{"text": "🔄 به‌روزرسانی نمودار", "callback_data": f"refresh_card:{c_type}:{t_uid or 0}"}]
+                ]
+            }
+            await telegram_bot.edit_telegram_photo(
+                token, cb_chat_id, cb_msg_id, new_img, caption=new_caption, reply_markup=reply_kb
+            )
+            return
+
         await telegram_bot.answer_callback_query(token, cb_id)
         return
 
@@ -140,11 +163,13 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
                 db, telegram_id=from_id, telegram_username=from_username, token=text
             )
             if linked_user:
+                if models.is_owner(linked_user):
+                    telegram_bot.set_bot_setting(db, "owner_telegram_chat_id", str(chat_id))
                 reply = (
                     f"🎉 <b>ایول! حسابت با موفقیت وصل شد!</b>\n\n"
                     f"سلام <b>{linked_user.username}</b> عزیز! 🦁👋\n"
                     f"از الان من کاملاً می‌شناسمت و می‌دونم تو سامانه چه کارهایی داری.\n"
-                    f"نقش کاربری شما: <b>{'مدیر مدرسه' if linked_user.is_admin else 'دانش‌آموز'}</b>\n\n"
+                    f"نقش کاربری شما: <b>{'مالک سیستم (Owner)' if models.is_owner(linked_user) else ('مدیر مدرسه' if linked_user.is_admin else 'دانش‌آموز')}</b>\n\n"
                     f"هر سوالی در مورد تکالیف، استریکت، یا رتبه‌بندی کلاس داشتی همینجا یا تو گروه ازم بپرس! 🔥⚡"
                 )
             else:
@@ -157,9 +182,10 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
 
         if text == "/start":
             if user:
+                owner_note = "\n\n💡 <i>به عنوان مدیر کل (Owner)، می‌توانید با ارسال دستور <code>/report</code> یا کلمه «گزارش» وضعیت لحظه‌ای منابع سرور و گزارش دقیق ارورها را دریافت کنید.</i>" if models.is_owner(user) else ""
                 reply = (
                     f"سلام <b>{user.username}</b> عزیز! 🚀\n"
-                    f"حساب شما متصل است. هر سوالی درباره درس‌ها، تکالیف و استریکت داری بپرس!"
+                    f"حساب شما متصل است. هر سوالی درباره درس‌ها، تکالیف و استریکت داری بپرس!{owner_note}"
                 )
             else:
                 reply = (
@@ -170,6 +196,14 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
                     "۳. کد رو همینجا برام بفرست تا حسابت فعال بشه! 🔥"
                 )
             await telegram_bot.send_telegram_message(token, chat_id, reply)
+            return
+
+        # Dedicated Owner VIP Command: Detailed System & Error Report
+        is_owner_user = user and models.is_owner(user)
+        is_report_req = any(k in text.lower() for k in ("/report", "/status", "/errors", "گزارش", "وضعیت سرور", "ارور", "ارورها", "خطاها"))
+        if is_owner_user and is_report_req:
+            report_msg = telegram_bot.build_owner_detailed_report(db)
+            await telegram_bot.send_telegram_message(token, chat_id, report_msg, reply_to_message_id=msg_id)
             return
 
     # --- 2. Handle Group Chat Mention / Reply Check ---
@@ -296,6 +330,28 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     telegram_bot.save_chat_history(db, chat_id, role="user", content=text, user_id=user.id if user else None)
     telegram_bot.save_chat_history(db, chat_id, role="assistant", content=ai_reply, user_id=user.id if user else None)
 
+    # Check if a visual screenshot card was rendered by the AI tool
+    visual_card = ai_meta.get("visual_card")
+    if visual_card and visual_card.get("image_path"):
+        c_type = visual_card.get("card_type", "progress")
+        t_uid = user.id if user else 0
+        photo_markup = {
+            "inline_keyboard": [
+                [{"text": "🔄 به‌روزرسانی نمودار", "callback_data": f"refresh_card:{c_type}:{t_uid}"}]
+            ]
+        }
+        sent_photo = await telegram_bot.send_telegram_photo(
+            token=token,
+            chat_id=chat_id,
+            photo_path=visual_card["image_path"],
+            caption=ai_reply,
+            parse_mode="HTML",
+            reply_to_message_id=msg_id,
+            reply_markup=photo_markup,
+        )
+        if sent_photo:
+            return
+
     # Attach interactive action button ONLY if the AI model invoked the add homework wizard tool
     reply_markup = None
     if ai_meta.get("open_wizard"):
@@ -335,15 +391,15 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
 
 
 # --------------------------------------------------------------------------
-# Admin & Settings Endpoints
+# Owner & Settings Endpoints (Owner only)
 # --------------------------------------------------------------------------
 
 @router.get("/settings")
 def get_settings(
     db: Session = Depends(get_db),
-    admin: models.User = Depends(get_current_admin),
+    owner: models.User = Depends(get_current_owner),
 ):
-    """Retrieve Telegram bot and AI configuration (Admin/Owner only)."""
+    """Retrieve Telegram bot and AI configuration (Owner only)."""
     return telegram_bot.get_all_bot_settings(db)
 
 
@@ -351,9 +407,9 @@ def get_settings(
 async def update_settings(
     payload: BotSettingsUpdate,
     db: Session = Depends(get_db),
-    admin: models.User = Depends(get_current_admin),
+    owner: models.User = Depends(get_current_owner),
 ):
-    """Update Telegram bot and AI configuration (Admin/Owner only)."""
+    """Update Telegram bot and AI configuration (Owner only)."""
     if payload.bot_token is not None:
         token = payload.bot_token.strip()
         telegram_bot.set_bot_setting(db, "telegram_bot_token", token)
@@ -418,9 +474,9 @@ async def update_settings(
 @router.post("/reset-prompt")
 def reset_prompt(
     db: Session = Depends(get_db),
-    admin: models.User = Depends(get_current_admin),
+    owner: models.User = Depends(get_current_owner),
 ):
-    """Reset AI system prompt and anchors back to default prompts (Admin/Owner only)."""
+    """Reset AI system prompt and anchors back to default prompts (Owner only)."""
     settings = telegram_bot.reset_bot_prompts(db)
     telegram_bot.clear_chat_history(db)
     from app.services import ai_agent
@@ -431,18 +487,18 @@ def reset_prompt(
 @router.post("/clear-history")
 def clear_bot_history(
     db: Session = Depends(get_db),
-    admin: models.User = Depends(get_current_admin),
+    owner: models.User = Depends(get_current_owner),
 ):
-    """Clear all Telegram bot conversation history (Admin/Owner only)."""
+    """Clear all Telegram bot conversation history (Owner only)."""
     deleted_count = telegram_bot.clear_chat_history(db)
     return {"ok": True, "deleted_count": deleted_count}
 
 
 @router.get("/default-prompts")
 def get_default_prompts(
-    admin: models.User = Depends(get_current_admin),
+    owner: models.User = Depends(get_current_owner),
 ):
-    """Retrieve default baseline prompts without altering database."""
+    """Retrieve default baseline prompts without altering database (Owner only)."""
     from ..prompts import default_prompts
     return {
         "ai_system_prompt": default_prompts.DEFAULT_SYSTEM_PROMPT,
@@ -457,9 +513,9 @@ def get_default_prompts(
 async def test_telegram(
     payload: BotTestRequest,
     db: Session = Depends(get_db),
-    admin: models.User = Depends(get_current_admin),
+    owner: models.User = Depends(get_current_owner),
 ):
-    """Send a test message to the configured group and verify bot & AI API."""
+    """Send a test message to the configured group and verify bot & AI API (Owner only)."""
     token = telegram_bot.get_bot_setting(db, "telegram_bot_token")
     group_id = telegram_bot.get_bot_setting(db, "telegram_group_id")
     ai_key = telegram_bot.get_bot_setting(db, "ai_api_key") or telegram_bot.get_bot_setting(db, "gemini_api_key")
@@ -485,7 +541,7 @@ async def test_telegram(
             db=db,
             base_url=base_url,
             model_name=model_name,
-            current_user=admin,
+            current_user=owner,
         )
         test_ai_str = str(test_ai or "")
         ai_status = "متصل و فعال" if not test_ai_str.startswith("⚠️") else f"خطا: {test_ai_str}"
@@ -497,7 +553,7 @@ async def test_telegram(
             f"🤖 <b>تست اتصال ربات تلگرام ArchSchool</b> ✨\n\n"
             f"ربات <b>@{identity.get('username')}</b> با موفقیت به سرور متصل شد!\n"
             f"ارائه‌دهنده هوش مصنوعی: <code>{model_name}</code> ({ai_status})\n"
-            f"ارسال شده توسط ادمین: <b>{admin.username}</b>"
+            f"ارسال شده توسط مالک سیستم: <b>{owner.username}</b>"
         )
         group_sent = await telegram_bot.send_telegram_message(token, group_id, test_msg)
 
@@ -514,7 +570,7 @@ async def test_telegram(
 async def get_available_models(
     payload: FetchModelsRequest,
     db: Session = Depends(get_db),
-    admin: models.User = Depends(get_current_admin),
+    owner: models.User = Depends(get_current_owner),
 ):
     """Dynamically query available chat models from the given provider's /models endpoint."""
     key = (

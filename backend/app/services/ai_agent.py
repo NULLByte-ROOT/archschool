@@ -171,6 +171,28 @@ OPENAI_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "render_visual_card",
+            "description": "رندر و تولید اسکرین‌شات گرافیکی بسیار زیبا و تمیز از کارت‌ها و نمودارهای اپلیکیشن (شامل: کارنامه و نمودار پیشرفت تحصیلی دانش‌آموز، چارت جدول لیدربورد و سکوی قهرمانی، چارت برنامه هفتگی و زنگ‌ها، یا کارت تکالیف فعال). هر زمان کاربر درخواست دیدن نمودار، کارنامه، عکس برنامه، وضعیت تصویری کرد، یا خود مدل صلاح دید برای درک بصری بهتر عکس ارسال کند، حتماً این ابزار را صدا بزن.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "card_type": {
+                        "type": "string",
+                        "enum": ["progress", "leaderboard", "schedule", "assignments"],
+                        "description": "نوع کارت تصویری: 'progress' (کارنامه و نمودار پیشرفت تحصیلی)، 'leaderboard' (سکوی قهرمانی و رتبه‌بندی)، 'schedule' (برنامه هفتگی و زنگ‌ها)، 'assignments' (تکالیف فعال و جاری)",
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "نام یا شناسه درس در صورت نیاز به فیلتر برنامه",
+                    },
+                },
+                "required": ["card_type"],
+            },
+        },
+    },
 ]
 
 
@@ -673,6 +695,22 @@ def execute_tool(
                 "message": "منوی افزودن تکلیف با موفقیت باز شد. کاربر اکنون می‌تواند نوع، درس و مهلت را از طریق دکمه‌ها انتخاب کند.",
             }
 
+        elif name == "render_visual_card":
+            from . import card_renderer
+            card_type = args.get("card_type", "progress")
+            subject = args.get("subject")
+            image_path, title = card_renderer.generate_card(
+                db, card_type=card_type, user=current_user, subject=subject
+            )
+            return {
+                "success": True,
+                "action": "visual_card",
+                "card_type": card_type,
+                "title": title,
+                "image_path": image_path,
+                "message": f"تصویر گرافیکی '{title}' با موفقیت تولید شد و به پیوست برای کاربر ارسال می‌شود.",
+            }
+
         return {"success": False, "error": f"ابزار ناشناخته: {name}"}
     except Exception as exc:
         logger.error("Error executing tool %s: %s", name, exc)
@@ -943,6 +981,12 @@ async def ask_universal_ai_agent(
 
                 if fn_name == "open_add_homework_wizard" and tool_output.get("success"):
                     meta["open_wizard"] = True
+                if fn_name == "render_visual_card" and tool_output.get("success"):
+                    meta["visual_card"] = {
+                        "card_type": tool_output.get("card_type"),
+                        "title": tool_output.get("title"),
+                        "image_path": tool_output.get("image_path"),
+                    }
 
                 messages.append({
                     "role": "tool",
