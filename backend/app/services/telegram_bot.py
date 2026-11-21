@@ -60,24 +60,28 @@ async def fetch_provider_models(api_key: str, base_url: str) -> List[Dict[str, s
     if clean_base.endswith("/chat/completions"):
         clean_base = clean_base[:-len("/chat/completions")]
 
-    # Route Google Gemini through host IPv6 gateway to bypass Contabo IPv4 blacklist
-    if "generativelanguage.googleapis.com" in clean_base:
+    # Target Google Gemini directly via Cloudflare WARP IPv6
+    is_gemini = "generativelanguage.googleapis.com" in clean_base or "googleapis.com" in clean_base
+    if "archschool.vidxsepehr.ir/gemini" in clean_base:
         clean_base = clean_base.replace(
-            "https://generativelanguage.googleapis.com",
             "https://archschool.vidxsepehr.ir/gemini",
+            "https://generativelanguage.googleapis.com",
         )
 
     models_url = f"{clean_base}/models"
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     }
     if "openrouter.ai" in clean_base:
         headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
         headers["X-Title"] = "ArchSchool Assistant"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        from .ai_agent import get_warp_proxy_url
+        proxy = get_warp_proxy_url() if is_gemini else None
+        async with httpx.AsyncClient(timeout=10.0, proxy=proxy) as client:
             resp = await client.get(models_url, headers=headers)
             if resp.status_code != 200:
                 logger.warning(

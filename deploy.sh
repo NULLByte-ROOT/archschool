@@ -92,6 +92,10 @@ IS_MANDATORY=0
 RUNTIME_VERSION=""
 MOBILE_DIR=""
 
+# Cloudflare WARP IPv6
+WARP_SUBCMD=""
+WARP_PORT="${WARP_PORT:-40000}"
+
 cd "${SCRIPT_DIR}"
 
 RED='\033[0;31m'
@@ -1469,6 +1473,13 @@ cmd_deploy() {
     fi
 
     ensure_edge || return 1
+
+    # Check Cloudflare WARP IPv6 bridge if installed
+    if command -v warp-cli >/dev/null 2>&1 && systemctl is-active warp-svc >/dev/null 2>&1; then
+        setup_warp_docker_bridge >/dev/null 2>&1 || true
+        success "Cloudflare WARP IPv6 bridge active for Gemini API."
+    fi
+
     resolve_probe_mode
     PROBE_PORT="${active_port:-${SLOT_BLUE_PORT}}"
 
@@ -2359,6 +2370,7 @@ Commands:
   stop        Stop every container (data is preserved)
   restart     Restart the active slot
   logs        Follow logs
+  warp        Cloudflare WARP IPv6 manager (status|setup|restart|test|stop)
   (no command) interactive menu
 
 Flags:
@@ -2462,6 +2474,209 @@ cmd_publish_mobile() {
     success "Mobile update published successfully!"
 }
 
+# =============================================================================
+#  Cloudflare WARP IPv6 Subsystem (Google Gemini API 403 Bypass)
+# =============================================================================
+
+setup_warp_docker_bridge() {
+    info "Configuring kernel & firewall bridge for Docker -> WARP SOCKS5..."
+    run_privileged sysctl -w net.ipv4.conf.all.route_localnet=1 >/dev/null 2>&1 || true
+    run_privileged sysctl -w net.ipv4.conf.default.route_localnet=1 >/dev/null 2>&1 || true
+
+    if [[ ! -f /etc/sysctl.d/99-warp-docker-bridge.conf ]]; then
+        echo "net.ipv4.conf.all.route_localnet=1" | run_privileged tee /etc/sysctl.d/99-warp-docker-bridge.conf >/dev/null 2>&1 || true
+    fi
+
+    if command -v iptables >/dev/null 2>&1; then
+        run_privileged iptables -t nat -C PREROUTING -p tcp --dport "${WARP_PORT}" -j DNAT --to-destination 127.0.0.1:"${WARP_PORT}" 2>/dev/null || \
+        run_privileged iptables -t nat -A PREROUTING -p tcp --dport "${WARP_PORT}" -j DNAT --to-destination 127.0.0.1:"${WARP_PORT}" 2>/dev/null || true
+    fi
+    success "Docker bridge configured: containers can reach socks5://host.docker.internal:${WARP_PORT}"
+}
+
+cmd_warp_status() {
+    echo "====================================================================="
+    echo " Cloudflare WARP Status & Google Gemini IPv6 Route Inspection"
+    echo "====================================================================="
+
+    if ! command -v warp-cli >/dev/null 2>&1; then
+        warn "Cloudflare WARP is NOT installed on this host."
+        info "Run './deploy.sh warp setup' to install and configure it in 1 click."
+        return 1
+    fi
+
+    local svc_active="inactive"
+    if systemctl is-active warp-svc >/dev/null 2>&1; then
+        svc_active="active (running)"
+    fi
+    echo "  Service (warp-svc): ${svc_active}"
+
+    local warp_stat
+    warp_stat="$(warp-cli --accept-tos status 2>/dev/null || warp-cli status 2>/dev/null || echo "unknown")"
+    echo "  WARP Client Status: ${warp_stat}"
+
+    info "Testing Cloudflare SOCKS5 Egress on 127.0.0.1:${WARP_PORT}..."
+    local trace
+    trace="$(curl -x socks5h://127.0.0.1:"${WARP_PORT}" -s --max-time 6 https://cloudflare.com/cdn-cgi/trace 2>/dev/null || true)"
+
+    if [[ "${trace}" =~ warp=(on|plus) ]]; then
+        local egress_ip warp_mode colo
+        egress_ip="$(echo "${trace}" | grep '^ip=' | cut -d= -f2)"
+        warp_mode="$(echo "${trace}" | grep '^warp=' | cut -d= -f2)"
+        colo="$(echo "${trace}" | grep '^colo=' | cut -d= -f2)"
+
+        success "Cloudflare WARP is CONNECTED and ACTIVE! (warp=${warp_mode})"
+        echo "  Cloudflare Datacenter (Colo): ${colo}"
+        echo "  Outbound Public IP: ${egress_ip}"
+        if [[ "${egress_ip}" =~ : ]]; then
+            success "Outbound IP is a valid Cloudflare IPv6 address! 🚀 (Bypasses Google IPv4 Ban)"
+        else
+            info "Outbound IP is Cloudflare IPv4 (${egress_ip})."
+        fi
+    else
+        warn "WARP SOCKS5 proxy did not respond on 127.0.0.1:${WARP_PORT}."
+        warn "Raw output: ${trace:-timeout / connection refused}"
+    fi
+
+    info "Testing Google Gemini API (generativelanguage.googleapis.com) over WARP..."
+    local gemini_code
+    gemini_code="$(curl -x socks5h://127.0.0.1:"${WARP_PORT}" -s -o /dev/null -w '%{http_code}' --max-time 8 "https://generativelanguage.googleapis.com/v1beta/openai/models" 2>/dev/null || echo "000")"
+
+    case "${gemini_code}" in
+        200|400|401)
+            success "Google Gemini API reached successfully through WARP! (HTTP ${gemini_code}) — NOT 403 Forbidden! 🎉"
+            ;;
+        403)
+            error "Google returned HTTP 403 Forbidden. Cloudflare WARP may need reconnect."
+            ;;
+        *)
+            warn "Google Gemini returned HTTP ${gemini_code}."
+            ;;
+    esac
+    echo "====================================================================="
+}
+
+cmd_warp_setup() {
+    info "Setting up Cloudflare WARP with IPv6 for Google Gemini..."
+    check_sudo
+
+    # 1. Prerequisites
+    info "Installing prerequisites (curl, gpg, lsb-release, iptables)..."
+    run_privileged apt-get update -y
+    run_privileged apt-get install -y curl gpg lsb-release iptables
+
+    # 2. Add Cloudflare repository
+    local codename
+    codename="$(lsb_release -cs 2>/dev/null || echo "jammy")"
+    info "Configuring Cloudflare package repository for ${codename}..."
+    run_privileged install -m 0755 -d /usr/share/keyrings
+    curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | run_privileged gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ ${codename} main" | run_privileged tee /etc/apt/sources.list.d/cloudflare-client.list
+
+    # 3. Install cloudflare-warp package
+    info "Installing cloudflare-warp package..."
+    run_privileged apt-get update -y
+    run_privileged apt-get install -y cloudflare-warp
+
+    # 4. Enable service
+    info "Enabling and starting warp-svc..."
+    run_privileged systemctl enable --now warp-svc
+    sleep 2
+
+    # 5. Registration
+    info "Registering WARP client with Cloudflare..."
+    run_privileged warp-cli --accept-tos registration new 2>/dev/null || \
+    run_privileged warp-cli --accept-tos register 2>/dev/null || \
+    run_privileged warp-cli registration new 2>/dev/null || true
+
+    # 6. Mode & Port
+    info "Setting mode to SOCKS5 Proxy on port ${WARP_PORT}..."
+    run_privileged warp-cli --accept-tos mode proxy 2>/dev/null || \
+    run_privileged warp-cli --accept-tos set-mode proxy 2>/dev/null || \
+    run_privileged warp-cli set-mode proxy 2>/dev/null || true
+
+    run_privileged warp-cli --accept-tos proxy port "${WARP_PORT}" 2>/dev/null || \
+    run_privileged warp-cli --accept-tos set-proxy-port "${WARP_PORT}" 2>/dev/null || \
+    run_privileged warp-cli set-proxy-port "${WARP_PORT}" 2>/dev/null || true
+
+    # 7. Connect
+    info "Connecting Cloudflare WARP..."
+    run_privileged warp-cli --accept-tos connect 2>/dev/null || \
+    run_privileged warp-cli connect 2>/dev/null || true
+    sleep 3
+
+    # 8. Setup Docker bridge
+    setup_warp_docker_bridge
+
+    # 9. Verify
+    cmd_warp_status
+}
+
+cmd_warp_restart() {
+    info "Restarting Cloudflare WARP service..."
+    check_sudo
+    run_privileged systemctl restart warp-svc
+    sleep 2
+    run_privileged warp-cli --accept-tos connect 2>/dev/null || run_privileged warp-cli connect 2>/dev/null || true
+    setup_warp_docker_bridge
+    sleep 2
+    success "WARP service restarted."
+    cmd_warp_status
+}
+
+cmd_warp_stop() {
+    info "Stopping Cloudflare WARP..."
+    check_sudo
+    run_privileged warp-cli --accept-tos disconnect 2>/dev/null || run_privileged warp-cli disconnect 2>/dev/null || true
+    run_privileged systemctl stop warp-svc
+    success "WARP stopped."
+}
+
+cmd_warp_test() {
+    cmd_warp_status
+}
+
+cmd_warp_menu() {
+    local w_choice
+    while true; do
+        clear 2>/dev/null || true
+        printf "${CYAN}${BOLD}"
+        echo "=========================================================="
+        echo "   Cloudflare WARP IPv6 Manager (Google Gemini Bypass)   "
+        echo "=========================================================="
+        printf "${NC}"
+        echo "  1) Check WARP Status & IPv6 Gemini Connection"
+        echo "  2) Install & Configure Cloudflare WARP (Auto-Setup)"
+        echo "  3) Restart WARP Service & Reconnect"
+        echo "  4) Stop WARP Service"
+        echo "  0) Return to Main Menu"
+        echo
+        read -r -p "Select an option [0-4]: " w_choice || true
+        case "${w_choice}" in
+            1) cmd_warp_status ;;
+            2) cmd_warp_setup ;;
+            3) cmd_warp_restart ;;
+            4) cmd_warp_stop ;;
+            0) return 0 ;;
+            *) warn "Invalid option: ${w_choice}" ;;
+        esac
+        echo
+        read -r -p "Press Enter to continue..." _ || true
+    done
+}
+
+cmd_warp() {
+    local subcmd="${1:-}"
+    case "${subcmd}" in
+        status)  cmd_warp_status ;;
+        setup|install) cmd_warp_setup ;;
+        restart) cmd_warp_restart ;;
+        stop)    cmd_warp_stop ;;
+        test)    cmd_warp_test ;;
+        *)       cmd_warp_menu ;;
+    esac
+}
+
 show_menu() {
     local active
     clear 2>/dev/null || true
@@ -2496,6 +2711,7 @@ EOF
     echo " 14) Set Owner Credentials (Username & Access Code)"
     echo " 15) Deploy to DEV/STAGING (dev.archschool.vidxsepehr.ir)"
     echo " 16) Publish Mobile Update (OTA Bundle & APK to self-hosted server)"
+    echo " 17) Cloudflare WARP IPv6 Manager (Gemini 403 bypass & status)"
     echo "  0) Exit"
     echo
 }
@@ -2505,7 +2721,7 @@ interactive_menu() {
     check_sudo
     while true; do
         show_menu
-        if ! read -r -p "Select an option [0-16]: " choice; then
+        if ! read -r -p "Select an option [0-17]: " choice; then
             echo
             exit 0
         fi
@@ -2535,6 +2751,7 @@ interactive_menu() {
             14) set_owner_credentials || warn "Owner credentials were not changed." ;;
             15) cmd_deploy_dev || warn "Dev deployment failed. Check the output above." ;;
             16) cmd_publish_mobile || warn "Publishing mobile update failed. Check output above." ;;
+            17) cmd_warp_menu || true ;;
             0) printf "${GREEN}Bye.${NC}\n"; exit 0 ;;
             *) warn "Invalid option: ${choice}" ;;
         esac
@@ -2577,6 +2794,19 @@ parse_args() {
             stop)            COMMAND="stop" ;;
             restart)         COMMAND="restart" ;;
             logs)            COMMAND="logs" ;;
+            warp|warp-status|warp-setup|warp-restart|warp-test)
+                COMMAND="warp"
+                WARP_SUBCMD="${1#warp-}"
+                [[ "${WARP_SUBCMD}" == "warp" ]] && WARP_SUBCMD=""
+                if [[ -z "${WARP_SUBCMD}" && $# -ge 2 && ! "$2" =~ ^- ]]; then
+                    WARP_SUBCMD="$2"
+                    shift
+                fi
+                ;;
+            warp-stop)
+                COMMAND="warp"
+                WARP_SUBCMD="stop"
+                ;;
             -*)  error "Unknown option: $1"; usage; exit 2 ;;
             *)
                 if [[ "${COMMAND}" == "restore" && -z "${RESTORE_FILE}" ]]; then
@@ -2616,6 +2846,7 @@ main() {
         stop)     cmd_stop ;;
         restart)  cmd_restart ;;
         logs)     show_logs ;;
+        warp)     cmd_warp "${WARP_SUBCMD}" ;;
         *)        usage; exit 2 ;;
     esac
 }

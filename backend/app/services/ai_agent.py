@@ -14,6 +14,7 @@ from . import school_knowledge
 logger = logging.getLogger("archschool.ai_agent")
 
 _shared_client: Optional[httpx.AsyncClient] = None
+_warp_client: Optional[httpx.AsyncClient] = None
 
 
 def get_shared_client() -> httpx.AsyncClient:
@@ -25,6 +26,26 @@ def get_shared_client() -> httpx.AsyncClient:
             limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0),
         )
     return _shared_client
+
+
+def get_warp_proxy_url() -> Optional[str]:
+    """Retrieve Cloudflare WARP SOCKS5 IPv6 proxy URL (e.g. socks5://host.docker.internal:40000)."""
+    import os
+    val = os.getenv("WARP_PROXY", "socks5://host.docker.internal:40000").strip()
+    return val if val and val.lower() not in ("none", "false", "0", "") else None
+
+
+def get_warp_client() -> httpx.AsyncClient:
+    """Persistent connection pool routed through Cloudflare WARP SOCKS5 IPv6 proxy for Google Gemini."""
+    global _warp_client
+    proxy_url = get_warp_proxy_url()
+    if _warp_client is None or _warp_client.is_closed:
+        _warp_client = httpx.AsyncClient(
+            timeout=30.0,
+            proxy=proxy_url,
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=50, keepalive_expiry=60.0),
+        )
+    return _warp_client
 
 _prompt_cache: Optional[Dict[str, Any]] = None
 def invalidate_prompt_cache() -> None:
@@ -886,11 +907,12 @@ async def ask_universal_ai_agent(
     else:
         endpoint_url = clean_base
 
-    # Route Google Gemini through host IPv6 gateway to bypass Contabo IPv4 blacklist
-    if "generativelanguage.googleapis.com" in endpoint_url:
+    # Target Google Gemini directly via Cloudflare WARP IPv6
+    is_gemini = "generativelanguage.googleapis.com" in endpoint_url or "googleapis.com" in endpoint_url or "gemini" in clean_model.lower()
+    if "archschool.vidxsepehr.ir/gemini" in endpoint_url:
         endpoint_url = endpoint_url.replace(
-            "https://generativelanguage.googleapis.com",
             "https://archschool.vidxsepehr.ir/gemini",
+            "https://generativelanguage.googleapis.com",
         )
 
     clean_model = model_name.strip() if model_name else "openai/gpt-4o-mini"
@@ -944,7 +966,8 @@ async def ask_universal_ai_agent(
     }
 
     try:
-        client = get_shared_client()
+        use_warp = is_gemini and (get_warp_proxy_url() is not None)
+        client = get_warp_client() if use_warp else get_shared_client()
         resp = None
         last_status = 200
         last_text = ""
@@ -964,6 +987,17 @@ async def ask_universal_ai_agent(
                     await asyncio.sleep(2.0)
                     continue
                 break
+            except (httpx.ProxyError, httpx.ConnectError, httpx.ConnectTimeout) as proxy_err:
+                if use_warp:
+                    logger.warning("Cloudflare WARP proxy unreachable (%s). Retrying direct...", proxy_err)
+                    use_warp = False
+                    client = get_shared_client()
+                    continue
+                logger.warning("AI provider connection error (attempt %d/3): %s", attempt, proxy_err)
+                if attempt < 3:
+                    await asyncio.sleep(2.0)
+                    continue
+                return (_format_friendly_ai_error(504, "Connection error"), meta)
             except (httpx.TimeoutException, httpx.NetworkError) as net_err:
                 logger.warning("AI provider network/timeout (attempt %d/3): %s", attempt, net_err)
                 if attempt < 3:
@@ -1088,6 +1122,12 @@ async def ask_universal_ai_agent(
                     if followup_resp.status_code == 200:
                         break
                     if f_attempt < 3 and _is_busy_error(followup_resp.status_code, followup_resp.text):
+                        await asyncio.sleep(2.0)
+                        continue
+                    break
+                except (httpx.ProxyError, httpx.ConnectError, httpx.ConnectTimeout):
+                    client = get_shared_client()
+                    if f_attempt < 3:
                         await asyncio.sleep(2.0)
                         continue
                     break
