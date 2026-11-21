@@ -722,10 +722,12 @@ def execute_tool(
 
 
 def _is_busy_error(status_code: int, raw_text: str = "") -> bool:
-    """Check if the response corresponds to server busy, rate limit or temporary overload."""
+    """Check if the response corresponds to server busy, rate limit, temporary WAF challenge or overload."""
     if status_code in (429, 500, 502, 503, 504):
         return True
-    lower = raw_text.lower()
+    lower = (raw_text or "").lower()
+    if status_code == 403 and any(k in lower for k in ("robot.png", "unusual traffic", "automated queries", "captcha", "forbidden")):
+        return True
     return any(k in lower for k in ("rate limit", "resource exhausted", "overloaded", "busy", "too many requests", "capacity", "retry"))
 
 
@@ -762,6 +764,12 @@ def _format_friendly_ai_error(status_code: int, raw_text: str = "") -> str:
     # 7. Server overloaded / busy
     if status_code in (500, 502, 503) or any(k in lower for k in ("overloaded", "busy", "capacity")):
         return "⚠️ سرور ارائه‌دهنده هوش مصنوعی موقتاً با ترافیک بالا مواجه است. لطفاً چند لحظه دیگر پیام دهید."
+
+    # 8. Google / Provider Anti-bot WAF block (403)
+    if status_code == 403:
+        if any(k in lower for k in ("robot.png", "automated queries", "unusual traffic")):
+            return "⚠️ سرویس گوگل موقتاً به دلیل ارسال سریع درخواست‌ها محدودیت اعمال کرده است (Google WAF 403). چند لحظه دیگر امتحان فرمایید."
+        return "⚠️ دسترسی به این سرویس یا مدل مجاز نیست (خطای ۴۰۳ Forbidden)."
 
     return "⚠️ در برقراری ارتباط با مدل هوش مصنوعی خطایی رخ داد. لطفاً تنظیمات کلید و نام مدل را در پنل مدرسه بررسی کنید."
 
@@ -920,6 +928,7 @@ async def ask_universal_ai_agent(
     headers = {
         "Authorization": f"Bearer {api_key.strip()}",
         "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     }
     if "openrouter.ai" in endpoint_url:
         headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
@@ -1063,8 +1072,8 @@ async def ask_universal_ai_agent(
             # Fast follow-up request for read-only queries (schedule, status, leaderboard)
             if prompts_cfg.get("followup_anchor"):
                 messages.append({
-                    "role": "system",
-                    "content": prompts_cfg["followup_anchor"],
+                    "role": "user",
+                    "content": f"[دستور لحن و تحلیل خروجی ابزار]\n{prompts_cfg['followup_anchor']}",
                 })
             followup_payload = {
                 "model": clean_model,
@@ -1094,7 +1103,29 @@ async def ask_universal_ai_agent(
                 if followup_choices:
                     final_content = followup_choices[0].get("message", {}).get("content", "")
                     return (final_content or "انجام شد.", meta)
-            elif followup_resp:
+
+            # --- Resilient Fallback for Successful Tools ---
+            # If the tool succeeded but turn 2 (AI commentary) failed due to rate-limit/WAF 403:
+            if last_tool_output.get("success"):
+                if last_fn_name == "render_visual_card":
+                    return ("گزارش و نمودار تحلیلی وضعیت شما با موفقیت آماده شد.", meta)
+                if last_fn_name == "get_my_status":
+                    u_name = current_user.username if current_user else "دانش‌آموز"
+                    pct = last_tool_output.get("completion_percentage", 0)
+                    st = last_tool_output.get("current_streak", 0)
+                    rk = last_tool_output.get("rank", "-")
+                    return (f"📊 <b>وضعیت تحصیلی {u_name}:</b>\n🔥 استریک: <b>{st} روز</b>\n📈 درصد تکمیل تکالیف: <b>{pct}٪</b>\n🏆 رتبه کلاسی: <b>رتبه {rk}</b>", meta)
+                if last_fn_name == "get_class_leaderboard":
+                    lb_list = last_tool_output.get("leaderboard", [])
+                    lb_lines = [f"{e.get('rank')}. <b>{e.get('username')}</b> ({e.get('completion_percentage', 0)}٪)" for e in lb_list[:5]]
+                    return ("🏆 <b>جدول رتبه‌بندی برتر کلاس:</b>\n" + ("\n".join(lb_lines) if lb_lines else "اطلاعاتی ثبت نشده است."), meta)
+                if last_fn_name == "get_weekly_schedule":
+                    sched_desc = last_tool_output.get("current_status", {}).get("status_text", "برنامه کلاسی هفتگی")
+                    return (f"📅 <b>برنامه کلاسی:</b> {sched_desc}", meta)
+                if last_fn_name == "toggle_assignment_completion":
+                    return (last_tool_output.get("message") or "تغییر وضعیت تکلیف با موفقیت انجام شد.", meta)
+
+            if followup_resp:
                 return (_handle_ai_error(followup_resp.status_code, followup_resp.text, current_user, endpoint_url, clean_model), meta)
 
         # Normal text content
