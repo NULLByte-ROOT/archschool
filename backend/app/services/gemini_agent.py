@@ -14,7 +14,7 @@ logger = logging.getLogger("archschool.gemini")
 GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
 
 SYSTEM_INSTRUCTION = """
-تو دستیار هوشمند، رفیق و همکلاسی پرانرژی بچه‌های مدرسه در سامانه ArchSchool هستی! 🚀
+تو دستیار هوشمند، رفیق و همکلاسی پرانرژی بچه‌های مدرسه در اپلیکیشن ArchSchool هستی! 🚀
 شخصیت و لحن تو:
 - فوق‌العاده باانرژی، صمیمی، خودمانی و رفاقتی هستی.
 - از ایموجی‌های جذاب (🔥, ⚡, 👑, 😎, 📚, 🦁, 🎯) زیاد و به‌جا استفاده می‌کنی.
@@ -222,7 +222,7 @@ def execute_tool(
                     "success": True,
                     "assignments": [],
                     "total_count": 0,
-                    "message": "در حال حاضر هیچ تکلیف فعالی با مهلت تحویل باز در سامانه وجود ندارد.",
+                    "message": "در حال حاضر هیچ تکلیف فعالی با مهلت تحویل باز در اپلیکیشن وجود ندارد.",
                 }
 
             return {
@@ -275,7 +275,7 @@ def execute_tool(
             if not current_user or not (current_user.is_admin or current_user.role in ("admin", "owner")):
                 return {
                     "success": False,
-                    "error": "عدم دسترسی! در سامانه ArchSchool فقط ادمین یا مالک مدرسه مجاز به ثبت تکلیف جدید هستند.",
+                    "error": "عدم دسترسی! در اپلیکیشن ArchSchool فقط ادمین یا مالک مدرسه مجاز به ثبت تکلیف جدید هستند.",
                 }
 
             title = args.get("title", "").strip()
@@ -308,7 +308,7 @@ def execute_tool(
 
             return {
                 "success": True,
-                "message": f"تکلیف '{title}' با موفقیت توسط {current_user.username} در سامانه ثبت شد!",
+                "message": f"تکلیف '{title}' با موفقیت توسط {current_user.username} در اپلیکیشن ثبت شد!",
                 "assignment_id": new_assignment.id,
             }
 

@@ -199,7 +199,7 @@ def build_step3_keyboard(subtype: str, subject_id: str, is_reminder: bool = Fals
     rem_text = "\n📌 <b>نوع: فقط جهت یادآوری (بدون امکان تیک زدن)</b>" if is_reminder else ""
 
     text = (
-        f"📋 <b>افزودن تکلیف جدید به سامانه</b>\n\n"
+        f"📋 <b>افزودن تکلیف جدید به اپلیکیشن</b>\n\n"
         f"موضوع: <b>{clean_sub}</b> ✅\n"
         f"درس: <b>{clean_subj}</b> (استاد {teacher}) ✅{rem_text}\n"
         f"عنوان پیش‌فرض: <b>{auto_title}</b>\n\n"
@@ -238,14 +238,14 @@ async def start_add_task_wizard(
     if not user or not (user.is_admin or user.role in ("admin", "owner")):
         msg = (
             "⚠️ <b>دسترسی مدیریتی لازم است</b>\n\n"
-            "فقط مدیران و مالک مدرسه (Admin / Owner) در سامانه ArchSchool مجاز به افزودن تکلیف هستند."
+            "فقط مدیران و مالک مدرسه (Admin / Owner) در اپلیکیشن ArchSchool مجاز به افزودن تکلیف هستند."
         )
         return await telegram_bot.send_telegram_message(
             token, chat_id, msg, reply_to_message_id=reply_to_message_id
         )
 
     text = (
-        "📋 <b>افزودن تکلیف جدید به سامانه</b>\n\n"
+        "📋 <b>افزودن تکلیف جدید به اپلیکیشن</b>\n\n"
         "<b>گام ۱ از ۳:</b> موضوع و نوع تکلیف را از گزینه‌های زیر انتخاب کنید:"
     )
     kb = build_step1_keyboard()
@@ -285,7 +285,7 @@ async def handle_wizard_callback(
             token, query_id, text="حالت فقط یادآوری روشن شد 🟢" if rem_val else "حالت فقط یادآوری خاموش شد ⚪"
         )
         text = (
-            "📋 <b>افزودن تکلیف جدید به سامانه</b>\n\n"
+            "📋 <b>افزودن تکلیف جدید به اپلیکیشن</b>\n\n"
             "<b>گام ۱ از ۳:</b> موضوع و نوع تکلیف را انتخاب کنید:"
         )
         return await telegram_bot.edit_telegram_message(
@@ -298,7 +298,7 @@ async def handle_wizard_callback(
         rem_val = parts[2] == "1" if len(parts) > 2 else False
         await telegram_bot.answer_callback_query(token, query_id)
         text = (
-            "📋 <b>افزودن تکلیف جدید به سامانه</b>\n\n"
+            "📋 <b>افزودن تکلیف جدید به اپلیکیشن</b>\n\n"
             "<b>گام ۱ از ۳:</b> موضوع و نوع تکلیف را انتخاب کنید:"
         )
         return await telegram_bot.edit_telegram_message(
@@ -314,7 +314,7 @@ async def handle_wizard_callback(
         sub_label = SUBTYPE_MAP.get(subtype, "تکلیف").split(" ", 1)[-1]
         rem_badge = " [📌 فقط جهت یادآوری]" if rem_val else ""
         text = (
-            f"📋 <b>افزودن تکلیف جدید به سامانه</b>\n"
+            f"📋 <b>افزودن تکلیف جدید به اپلیکیشن</b>\n"
             f"موضوع: <b>{sub_label}</b>{rem_badge} ✅\n\n"
             f"<b>گام ۲ از ۳:</b> درس مورد نظر را انتخاب کنید:"
         )
@@ -387,7 +387,7 @@ async def handle_wizard_callback(
 
         rem_badge = "📌 نوع: <b>فقط جهت یادآوری (بدون قابلیت تیک زدن)</b>\n" if is_reminder else ""
         confirm_msg = (
-            f"🎉 <b>تکلیف جدید با موفقیت در سامانه ثبت شد!</b>\n\n"
+            f"🎉 <b>تکلیف جدید با موفقیت در اپلیکیشن ثبت شد!</b>\n\n"
             f"📌 عنوان: <b>{auto_title}</b>\n"
             f"{rem_badge}"
             f"📚 درس: <b>{clean_subj}</b> (استاد {teacher})\n"

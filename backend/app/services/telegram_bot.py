@@ -695,7 +695,7 @@ async def broadcast_new_assignment(
         due_str = school_knowledge.format_iran_datetime(assignment.due_date)
 
     is_reminder = getattr(assignment, "is_reminder_only", False)
-    header = "📌 <b>یادآوری جدید کلاس ثبت شد!</b>" if is_reminder else "📢 <b>تکلیف جدید در سامانه ثبت شد!</b> 📚🔥"
+    header = "📌 <b>یادآوری جدید کلاس ثبت شد!</b>" if is_reminder else "📢 <b>تکلیف جدید در اپلیکیشن ثبت شد!</b> 📚🔥"
 
     text = (
         f"{header}\n\n"

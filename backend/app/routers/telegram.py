@@ -129,7 +129,7 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
                 f"────────────────────\n"
                 f"🔄 اطلاعات و نمودار در ساعت <b>{now_iran}</b> با موفقیت همگام‌سازی و به‌روزرسانی شد.\n"
                 f"────────────────────\n"
-                f"⚡ <i>سامانه هوشمند ArchSchool</i>"
+                f"⚡ <i>اپلیکیشن هوشمند ArchSchool</i>"
             )
 
             reply_kb = {
@@ -178,7 +178,7 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
                 reply = (
                     f"🎉 <b>ایول! حسابت با موفقیت وصل شد!</b>\n\n"
                     f"سلام <b>{linked_user.username}</b> عزیز! 🦁👋\n"
-                    f"از الان من کاملاً می‌شناسمت و می‌دونم تو سامانه چه کارهایی داری.\n"
+                    f"از الان من کاملاً می‌شناسمت و می‌دونم تو اپلیکیشن چه کارهایی داری.\n"
                     f"نقش کاربری شما: <b>{'مالک سیستم (Owner)' if models.is_owner(linked_user) else ('مدیر مدرسه' if linked_user.is_admin else 'دانش‌آموز')}</b>\n\n"
                     f"هر سوالی در مورد تکالیف، استریکت، یا رتبه‌بندی کلاس داشتی همینجا یا تو گروه ازم بپرس! 🔥⚡"
                 )
@@ -372,7 +372,7 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
             f"────────────────────\n"
             f"{ai_body}\n"
             f"────────────────────\n"
-            f"⚡ <i>سامانه هوشمند ArchSchool</i>"
+            f"⚡ <i>اپلیکیشن هوشمند ArchSchool</i>"
         )
 
         sent_photo = await telegram_bot.send_telegram_photo(

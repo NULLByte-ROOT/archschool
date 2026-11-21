@@ -303,7 +303,7 @@ def render_progress_card(db: Session, user: Optional[models.User]) -> Tuple[str,
 
     # --- RIGHT SIDE: 3 Summary Cards (<SummaryCard />) ---
     stat_cards = [
-        ("// COMPLETED", str(completed_count), "تکالیف تحویل داده شده", "انجام‌شده و تیک‌خورده در سامانه ✅", C_SUCCESS, C_SUCCESS_BG),
+        ("// COMPLETED", str(completed_count), "تکالیف تحویل داده شده", "انجام‌شده و تیک‌خورده در اپلیکیشن ✅", C_SUCCESS, C_SUCCESS_BG),
         ("// PENDING", str(pending_count), "تکالیف در انتظار انجام", "نیاز به بررسی و تحویل قبل از ددلاین ⏳", C_GOLD if pending_count else C_MUTED, C_GOLD_BG if pending_count else C_PANEL),
         ("// TOTAL TASKS", str(total_assignments), "کل تکالیف ثبت‌شده", "تکالیف ترم جاری برای این کلاس 📚", C_SKY, C_SKY_BG),
     ]

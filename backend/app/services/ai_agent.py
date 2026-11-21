@@ -300,7 +300,7 @@ def execute_tool(
             assignments = query.limit(limit).all()
 
             if not assignments:
-                msg = f"در حال حاضر هیچ تکلیف فعالی برای درس '{subject_filter}' وجود ندارد." if subject_filter else "در حال حاضر هیچ تکلیف فعالی با مهلت تحویل باز در سامانه وجود ندارد."
+                msg = f"در حال حاضر هیچ تکلیف فعالی برای درس '{subject_filter}' وجود ندارد." if subject_filter else "در حال حاضر هیچ تکلیف فعالی با مهلت تحویل باز در اپلیکیشن وجود ندارد."
                 return {
                     "success": True,
                     "assignments": [],
@@ -391,7 +391,7 @@ def execute_tool(
             if not current_user or not (current_user.is_admin or current_user.role in ("admin", "owner")):
                 return {
                     "success": False,
-                    "error": "عدم دسترسی! در سامانه ArchSchool فقط ادمین یا مالک مدرسه مجاز به ثبت تکلیف جدید هستند.",
+                    "error": "عدم دسترسی! در اپلیکیشن ArchSchool فقط ادمین یا مالک مدرسه مجاز به ثبت تکلیف جدید هستند.",
                 }
 
             title = args.get("title", "").strip()
@@ -437,7 +437,7 @@ def execute_tool(
 
             return {
                 "success": True,
-                "message": f"تکلیف '{title}' با موفقیت توسط {current_user.username} در سامانه ثبت شد و امتیاز فعالیت به شما تعلق گرفت!",
+                "message": f"تکلیف '{title}' با موفقیت توسط {current_user.username} در اپلیکیشن ثبت شد و امتیاز فعالیت به شما تعلق گرفت!",
                 "assignment_id": new_assignment.id,
             }
 
@@ -845,13 +845,13 @@ def build_live_school_context(db: Session, current_user: Optional[models.User] =
             .all()
         )
         if active_tasks:
-            lines.append("\n📝 لیست تکالیف فعال در سامانه:")
+            lines.append("\n📝 لیست تکالیف فعال در اپلیکیشن:")
             for t in active_tasks:
                 due_str = t.due_date.strftime("%Y-%m-%d %H:%M") if t.due_date else "بدون مهلت خاص"
                 rem = " [فقط جهت یادآوری]" if getattr(t, "is_reminder_only", False) else ""
                 lines.append(f"- {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem}")
         else:
-            lines.append("\n📝 لیست تکالیف: در حال حاضر هیچ تکلیف فعالی در سامانه ثبت نشده است.")
+            lines.append("\n📝 لیست تکالیف: در حال حاضر هیچ تکلیف فعالی در اپلیکیشن ثبت نشده است.")
 
         lines.append(
             "\n🎨 دستور حیاتی نمودارها و گرافیک: هر زمان کاربر خواستار دیدن نمودار، کارنامه تصویری، چارت پیشرفت، عکس برنامه یا گفت «نمودار درست کن»، موظف هستی بلافاصله ابزار render_visual_card را فراخوانی کنی."
