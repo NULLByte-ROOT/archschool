@@ -400,8 +400,15 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
             reply_to_message_id=msg_id,
             reply_markup=photo_markup,
         )
-        if sent:
-            return
+        if not sent:
+            await telegram_bot.send_telegram_message(
+                token,
+                chat_id,
+                f"{formatted_caption}\n\n<i>(تصویر در سرور تولید شد ولی در ارسال فایل عکس به تلگرام وقفه‌ای رخ داد)</i>",
+                parse_mode="HTML",
+                reply_to_message_id=msg_id,
+            )
+        return
 
     # --- 5. Process general prompt with Universal AI Agent ---
     if not ai_key:
@@ -476,8 +483,15 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
             reply_to_message_id=msg_id,
             reply_markup=photo_markup,
         )
-        if sent_photo:
-            return
+        if not sent_photo:
+            await telegram_bot.send_telegram_message(
+                token,
+                chat_id,
+                formatted_caption,
+                parse_mode="HTML",
+                reply_to_message_id=msg_id,
+            )
+        return
 
     # Attach interactive action button ONLY if the AI model invoked the add homework wizard tool
     reply_markup = None

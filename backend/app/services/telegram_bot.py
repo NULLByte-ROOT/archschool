@@ -794,11 +794,24 @@ async def send_telegram_photo(
         from .ai_agent import get_shared_client
         client = get_shared_client()
         with open(photo_path, "rb") as f:
-            files = {"photo": (os.path.basename(photo_path), f.read(), "image/png")}
-            resp = await client.post(url, data=data, files=files, timeout=20.0)
-            if resp.status_code == 200:
+            photo_bytes = f.read()
+
+        files = {"photo": (os.path.basename(photo_path), photo_bytes, "image/png")}
+        resp = await client.post(url, data=data, files=files, timeout=25.0)
+        if resp.status_code == 200:
+            return True
+        logger.warning("Telegram sendPhoto error: %s %s", resp.status_code, resp.text[:200])
+
+        # Resilient fallback: If Telegram rejected because of HTML tag parse error, retry plain text
+        if resp.status_code == 400 and ("entities" in resp.text.lower() or "parse" in resp.text.lower()):
+            clean_data = dict(data)
+            clean_data.pop("parse_mode", None)
+            clean_data["caption"] = re.sub(r'<[^>]+>', '', data.get("caption", ""))
+            files = {"photo": (os.path.basename(photo_path), photo_bytes, "image/png")}
+            resp2 = await client.post(url, data=clean_data, files=files, timeout=25.0)
+            if resp2.status_code == 200:
                 return True
-            logger.warning("Telegram sendPhoto error: %s %s", resp.status_code, resp.text[:200])
+            logger.warning("Telegram sendPhoto fallback 1 error: %s %s", resp2.status_code, resp2.text[:200])
     except Exception as exc:
         logger.error("Failed to send Telegram photo: %s", exc)
     return False
