@@ -118,9 +118,16 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
 
             await telegram_bot.answer_callback_query(token, cb_id, text="در حال به‌روزرسانی نمودار... 🔄")
 
-            new_img, c_title = card_renderer.generate_card(db, c_type, user=target_u)
+            new_img, c_title, _ = card_renderer.generate_card(db, c_type, user=target_u)
             now_iran = (datetime.utcnow() + timedelta(hours=3.5)).strftime("%H:%M:%S")
-            new_caption = f"📊 <b>{c_title}</b>\n<i>(به‌روزرسانی شده در {now_iran})</i>"
+            clean_title = re.sub(r'^[📊🏆📝📅\s]+', '', c_title).strip()
+            new_caption = (
+                f"📊 <b>{clean_title}</b>\n"
+                f"────────────────────\n"
+                f"🔄 اطلاعات و نمودار در ساعت <b>{now_iran}</b> با موفقیت همگام‌سازی و به‌روزرسانی شد.\n"
+                f"────────────────────\n"
+                f"⚡ <i>سامانه هوشمند ArchSchool</i>"
+            )
 
             reply_kb = {
                 "inline_keyboard": [
@@ -340,11 +347,36 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
                 [{"text": "🔄 به‌روزرسانی نمودار", "callback_data": f"refresh_card:{c_type}:{t_uid}"}]
             ]
         }
+
+        # Clean AI reply of any system paths, app/ prefixes or technical artifacts
+        clean_ai = re.sub(
+            r'(?:[a-zA-Z0-9_\-\.\/\\]*app[/\\][a-zA-Z0-9_\-\.\/\\]+|\b\S+\.png\b|\b[a-zA-Z]:[/\\]\S+|cache/\S+)',
+            '',
+            ai_reply
+        ).strip()
+        lines = [l.strip() for l in clean_ai.splitlines() if l.strip() and not l.strip().startswith("//")]
+        if not lines:
+            lines = ["گزارش و تحلیل لحظه‌ای عملکرد و تکالیف با موفقیت استعلام شد."]
+        ai_body = "\n".join(lines[:3])
+
+        card_title = visual_card.get("title") or "گزارش وضعیت"
+        clean_title = re.sub(r'^[📊🏆📝📅\s]+', '', card_title).strip()
+        icons = {"progress": "📊", "leaderboard": "🏆", "assignments": "📝", "schedule": "📅"}
+        card_icon = icons.get((c_type or "").lower(), "📊")
+
+        formatted_caption = (
+            f"{card_icon} <b>{clean_title}</b>\n"
+            f"────────────────────\n"
+            f"{ai_body}\n"
+            f"────────────────────\n"
+            f"⚡ <i>سامانه هوشمند ArchSchool</i>"
+        )
+
         sent_photo = await telegram_bot.send_telegram_photo(
             token=token,
             chat_id=chat_id,
             photo_path=visual_card["image_path"],
-            caption=ai_reply,
+            caption=formatted_caption,
             parse_mode="HTML",
             reply_to_message_id=msg_id,
             reply_markup=photo_markup,

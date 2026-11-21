@@ -699,7 +699,7 @@ def execute_tool(
             from . import card_renderer
             card_type = args.get("card_type", "progress")
             subject = args.get("subject")
-            image_path, title = card_renderer.generate_card(
+            image_path, title, summary_data = card_renderer.generate_card(
                 db, card_type=card_type, user=current_user, subject=subject
             )
             return {
@@ -708,7 +708,11 @@ def execute_tool(
                 "card_type": card_type,
                 "title": title,
                 "image_path": image_path,
-                "message": f"تصویر گرافیکی '{title}' با موفقیت تولید شد و به پیوست برای کاربر ارسال می‌شود.",
+                "data_summary": summary_data,
+                "message": (
+                    f"تصویر کارت گرافیکی '{title}' با موفقیت تولید و ارسال شد. اکنون یک تحلیل انگیزشی و خودمانی در ۲ الی ۳ خط "
+                    f"درباره این وضعیت بنویس. فقط متن خالص تحلیلی بنویس و هرگز نام فایل، پسوند .png یا مسیرهای فنی مثل app/ را ننویس."
+                ),
             }
 
         return {"success": False, "error": f"ابزار ناشناخته: {name}"}
@@ -988,10 +992,14 @@ async def ask_universal_ai_agent(
                         "image_path": tool_output.get("image_path"),
                     }
 
+                tool_for_llm = dict(tool_output)
+                if fn_name == "render_visual_card":
+                    tool_for_llm.pop("image_path", None)
+
                 messages.append({
                     "role": "tool",
                     "tool_call_id": str(call_id),
-                    "content": json.dumps(tool_output, ensure_ascii=False),
+                    "content": json.dumps(tool_for_llm, ensure_ascii=False),
                 })
 
             # Check if wizard tool was opened
