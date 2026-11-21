@@ -444,7 +444,10 @@ def create_assignment(
     db.commit()
     created = _get_or_404(db, obj.id)
     result = _serialize(created, current)
-    notifications.notify_new_assignment(db, created)
+    try:
+        notifications.notify_new_assignment(db, created)
+    except Exception as exc:
+        logger.warning("Could not dispatch assignment creation notifications: %s", exc)
     return result
 
 

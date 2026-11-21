@@ -709,6 +709,19 @@ async def broadcast_new_assignment(
     return await send_telegram_message(token, group_id, text)
 
 
+async def broadcast_new_assignment_by_id(assignment_id: int) -> bool:
+    """Send immediate new assignment alert using a freshly opened DB session."""
+    try:
+        from ..database import SessionLocal
+        with SessionLocal() as db:
+            asgn = db.query(models.Assignment).filter(models.Assignment.id == assignment_id).first()
+            if asgn:
+                return await broadcast_new_assignment(db, asgn)
+    except Exception as exc:
+        logger.warning("Failed to broadcast assignment by id %s: %s", assignment_id, exc)
+    return False
+
+
 async def broadcast_leaderboard_reset(
     db: Session,
     season_number: int,

@@ -49,7 +49,7 @@ class ConnectionManager:
 
     def _discard_user_socket(self, websocket: WebSocket) -> None:
         empty_users: list[int] = []
-        for user_id, sockets in self._users.items():
+        for user_id, sockets in list(self._users.items()):
             sockets.discard(websocket)
             if not sockets:
                 empty_users.append(user_id)
@@ -71,7 +71,7 @@ class ConnectionManager:
         await self.broadcast(room, {"type": "message", "data": message})
 
     def all_user_ids(self, *, exclude: int | None = None) -> list[int]:
-        return [user_id for user_id in self._users if user_id != exclude]
+        return [user_id for user_id in list(self._users.keys()) if user_id != exclude]
 
     async def notify_users(self, user_ids, payload: dict) -> None:
         dead: list[WebSocket] = []

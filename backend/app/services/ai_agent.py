@@ -81,7 +81,7 @@ OPENAI_TOOLS = [
         "type": "function",
         "function": {
             "name": "get_class_assignments",
-            "description": "دریافت لیست تکالیف فعال و جاری کلاس (تکالیفی که مهلت تحویل آن‌ها هنوز نگذشته است) با قابلیت فیلتر بر اساس درس",
+            "description": "دریافت لیست تکالیف فعال و جاری کلاس (فقط تکالیفی که مهلت تحویل آن‌ها معتبر است و منقضی نشده‌اند)",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -92,10 +92,6 @@ OPENAI_TOOLS = [
                     "limit": {
                         "type": "integer",
                         "description": "تعداد تکالیف برای نمایش (پیش‌فرض ۵)",
-                    },
-                    "include_expired": {
-                        "type": "boolean",
-                        "description": "آیا تکالیف قدیمی و منقضی‌شده قبلی هم آورده شوند؟ پیش‌فرض false است و فقط تکالیف معتبر و فعال می‌آیند.",
                     },
                 },
             },
@@ -248,11 +244,16 @@ def execute_tool(
 
         elif name == "get_class_assignments":
             limit = args.get("limit", 5)
-            include_expired = args.get("include_expired", False)
             subject_filter = args.get("subject", "").strip()
             now = datetime.utcnow()
 
-            query = db.query(models.Assignment).filter(models.Assignment.deleted_at.is_(None))
+            query = db.query(models.Assignment).filter(
+                models.Assignment.deleted_at.is_(None),
+                or_(
+                    models.Assignment.due_date.is_(None),
+                    models.Assignment.due_date >= now,
+                ),
+            )
 
             # Apply subject filter if specified
             if subject_filter:
@@ -269,20 +270,10 @@ def execute_tool(
                     )
                 )
 
-            if not include_expired:
-                # ONLY active assignments whose deadline has not passed (or have no deadline)
-                query = query.filter(
-                    or_(
-                        models.Assignment.due_date.is_(None),
-                        models.Assignment.due_date >= now,
-                    )
-                )
-                query = query.order_by(
-                    models.Assignment.due_date.asc().nulls_last(),
-                    models.Assignment.created_at.desc(),
-                )
-            else:
-                query = query.order_by(models.Assignment.created_at.desc())
+            query = query.order_by(
+                models.Assignment.due_date.asc().nulls_last(),
+                models.Assignment.created_at.desc(),
+            )
 
             assignments = query.limit(limit).all()
 
@@ -443,7 +434,13 @@ def execute_tool(
 
             target_assignments = []
             if scope == "single":
-                q = db.query(models.Assignment).filter(models.Assignment.deleted_at.is_(None))
+                q = db.query(models.Assignment).filter(
+                    models.Assignment.deleted_at.is_(None),
+                    or_(
+                        models.Assignment.due_date.is_(None),
+                        models.Assignment.due_date >= now,
+                    ),
+                )
                 clean_query = assignment_query.strip()
                 for stop_word in ["یک", "یه", "یکی", "تکلیف", "تکالیف", "تکلیفم", "تکلیفمو", "رو", "را"]:
                     clean_query = clean_query.replace(stop_word, "").strip()
@@ -479,7 +476,7 @@ def execute_tool(
                                 ~models.Assignment.id.in_(completed_ids),
                                 or_(
                                     models.Assignment.due_date.is_(None),
-                                    models.Assignment.due_date >= now - timedelta(days=1),
+                                    models.Assignment.due_date >= now,
                                 ),
                             )
                             .order_by(models.Assignment.due_date.asc().nulls_last())
@@ -522,7 +519,7 @@ def execute_tool(
                     models.Assignment.deleted_at.is_(None),
                     or_(
                         models.Assignment.due_date.is_(None),
-                        models.Assignment.due_date >= now - timedelta(days=2),
+                        models.Assignment.due_date >= now,
                     )
                 ).all()
 
@@ -753,10 +750,16 @@ def build_live_school_context(db: Session, current_user: Optional[models.User] =
 
     # Active Assignments injected into memory
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.utcnow()
         active_tasks = (
             db.query(models.Assignment)
-            .filter(models.Assignment.deleted_at.is_(None))
+            .filter(
+                models.Assignment.deleted_at.is_(None),
+                or_(
+                    models.Assignment.due_date.is_(None),
+                    models.Assignment.due_date >= now,
+                ),
+            )
             .order_by(models.Assignment.due_date.asc().nulls_last())
             .all()
         )

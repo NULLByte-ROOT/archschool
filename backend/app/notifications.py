@@ -164,66 +164,86 @@ def _mark_initial_thresholds(db: Session, assignment: models.Assignment) -> None
     the remaining time keeps later reminders honest (the 2-hour one still fires
     for a task created 20 hours ahead) without duplicating the creation push.
     """
-    if assignment.due_date is None:
-        return
-    remaining_hours = (
-        assignment.due_date - datetime.utcnow()
-    ).total_seconds() / 3600
-    if remaining_hours < 0:
-        return
-    for threshold in DEADLINE_THRESHOLDS:
-        if remaining_hours > threshold:
-            continue
-        db.add(
-            models.DeadlineNotification(
-                assignment_id=assignment.id, threshold_hours=threshold
-            )
-        )
     try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-    except Exception:  # pragma: no cover - reminder bookkeeping is best effort
-        db.rollback()
-        logger.warning("Could not reserve initial deadline thresholds", exc_info=True)
+        if assignment.due_date is None:
+            return
+        due = assignment.due_date
+        if hasattr(due, "tzinfo") and due.tzinfo is not None:
+            due = due.astimezone(timezone.utc).replace(tzinfo=None)
+        remaining_hours = (
+            due - datetime.utcnow()
+        ).total_seconds() / 3600
+        if remaining_hours < 0:
+            return
+        for threshold in DEADLINE_THRESHOLDS:
+            if remaining_hours > threshold:
+                continue
+            db.add(
+                models.DeadlineNotification(
+                    assignment_id=assignment.id, threshold_hours=threshold
+                )
+            )
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+        except Exception:  # pragma: no cover - reminder bookkeeping is best effort
+            db.rollback()
+            logger.warning("Could not reserve initial deadline thresholds", exc_info=True)
+    except Exception as exc:
+        logger.warning("Could not calculate initial deadline thresholds: %s", exc)
 
 
 def notify_new_assignment(db: Session, assignment: models.Assignment) -> None:
-    if not settings.PUSH_NOTIFICATIONS_ENABLED:
-        return
+    try:
+        if settings.PUSH_NOTIFICATIONS_ENABLED:
+            recipients = _active_user_ids(db)
+            tokens = tokens_for_users(db, recipients, channel="assignments")
 
-    recipients = _active_user_ids(db)
-    tokens = tokens_for_users(db, recipients, channel="assignments")
+            parts = [assignment.title]
+            if assignment.course:
+                parts.append(assignment.course)
+            body = " · ".join(part for part in parts if part)
 
-    parts = [assignment.title]
-    if assignment.course:
-        parts.append(assignment.course)
-    body = " · ".join(part for part in parts if part)
+            if tokens:
+                dispatch_push(
+                    tokens,
+                    ASSIGNMENT_TITLE,
+                    body,
+                    {
+                        "type": "assignment",
+                        "assignment_id": assignment.id,
+                        "room": f"assignment:{assignment.id}",
+                    },
+                    channel_id="assignments",
+                    sound="default",
+                )
+    except Exception as exc:
+        logger.warning("Could not send assignment push notification: %s", exc)
 
-    if tokens:
-        dispatch_push(
-            tokens,
-            ASSIGNMENT_TITLE,
-            body,
-            {
-                "type": "assignment",
-                "assignment_id": assignment.id,
-                "room": f"assignment:{assignment.id}",
-            },
-            channel_id="assignments",
-            sound="default",
-        )
     _mark_initial_thresholds(db, assignment)
 
     # Automatically broadcast new assignment to Telegram supergroup
     try:
         from .services import telegram_bot
+        asgn_id = assignment.id
+
+        def _bg_broadcast():
+            try:
+                from .database import SessionLocal
+                with SessionLocal() as s:
+                    asgn = s.query(models.Assignment).filter(models.Assignment.id == asgn_id).first()
+                    if asgn:
+                        asyncio.run(telegram_bot.broadcast_new_assignment(s, asgn))
+            except Exception as e:
+                logger.warning("Background telegram assignment broadcast error: %s", e)
+
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(telegram_bot.broadcast_new_assignment(db, assignment))
+            loop.create_task(telegram_bot.broadcast_new_assignment_by_id(asgn_id))
         except RuntimeError:
             threading.Thread(
-                target=lambda: asyncio.run(telegram_bot.broadcast_new_assignment(db, assignment)),
+                target=_bg_broadcast,
                 daemon=True,
             ).start()
     except Exception as exc:

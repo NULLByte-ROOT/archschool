@@ -477,20 +477,28 @@ async def create_message(
     db.commit()
     db.refresh(message)
 
-    await manager.broadcast_message(room, chat.message_payload(message))
-    await manager.notify_message_pulses(chat.message_payload(message))
+    try:
+        payload = chat.message_payload(message)
+        await manager.broadcast_message(room, payload)
+        await manager.notify_message_pulses(payload)
+    except Exception as exc:
+        pass
 
-    notifications.notify_chat_message(
-        db,
-        sender_id=current.id,
-        sender_username=current.username,
-        receiver_id=message.receiver_id,
-        assignment_id=message.assignment_id,
-        content=message.content,
-        has_file=bool(message.file_url),
-        message_id=message.id,
-        assignment_title=message.assignment_title,
-    )
+    try:
+        notifications.notify_chat_message(
+            db,
+            sender_id=current.id,
+            sender_username=current.username,
+            receiver_id=message.receiver_id,
+            assignment_id=message.assignment_id,
+            content=message.content,
+            has_file=bool(message.file_url),
+            message_id=message.id,
+            assignment_title=message.assignment_title,
+        )
+    except Exception as exc:
+        pass
+
     return message
 
 
