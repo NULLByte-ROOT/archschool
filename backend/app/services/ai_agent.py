@@ -683,16 +683,48 @@ def execute_tool(
 
 
 def _is_busy_error(status_code: int, raw_text: str = "") -> bool:
-    """Check if the response corresponds to server busy, rate limit, quota exhaustion or temporary overload."""
+    """Check if the response corresponds to server busy, rate limit or temporary overload."""
     if status_code in (429, 500, 502, 503, 504):
         return True
     lower = raw_text.lower()
-    return any(k in lower for k in ("rate limit", "resource exhausted", "overloaded", "busy", "quota", "too many requests", "capacity", "retry"))
+    return any(k in lower for k in ("rate limit", "resource exhausted", "overloaded", "busy", "too many requests", "capacity", "retry"))
 
 
-def _format_friendly_ai_error(status_code: int, raw_text: str) -> str:
-    """Generate friendly Persian error messages without exposing technical codes or raw HTML/JSON."""
-    return "در ارتباط با هوش مصنوعی مشکلی پیش آمد. لطفاً ۱ دقیقه دیگر دوباره تلاش کنید."
+def _format_friendly_ai_error(status_code: int, raw_text: str = "") -> str:
+    """Generate clear, precise Persian error messages explaining exactly what happened."""
+    lower = (raw_text or "").lower()
+
+    # 1. Invalid API Key
+    if status_code == 401 or any(k in lower for k in ("invalid api key", "unauthorized", "invalid_api_key", "incorrect api key")):
+        return "⚠️ کلید دسترسی (API Key) هوش مصنوعی نامعتبر است یا منقضی شده است. لطفاً کلید API را در تب تنظیمات هوش مصنوعی بررسی کنید."
+
+    # 2. Payment Required / Depleted Credits / Quota
+    if status_code == 402 or any(k in lower for k in ("insufficient_quota", "credit", "payment required", "out of credits", "insufficient credits")):
+        return "⚠️ اعتبار مالی (Credit) حساب هوش مصنوعی شما در سرویس‌دهنده به پایان رسیده است. لطفاً موجودی حساب خود را در سایت ارائه‌دهنده شارژ کنید."
+
+    # 3. Model not found
+    if status_code == 404 or any(k in lower for k in ("model_not_found", "does not exist", "not found")):
+        return "⚠️ مدل هوش مصنوعی انتخاب‌شده در این سرویس پیدا نشد یا نام آن اشتباه است. لطفاً نام مدل را در پنل بررسی کنید."
+
+    # 4. Rate limit
+    if status_code == 429 or any(k in lower for k in ("rate limit", "too many requests")):
+        return "⚠️ محدودیت تعداد درخواست در دقیقه (Rate Limit) برای این مدل پر شده است. لطفاً چند لحظه صبر کرده و دوباره پیام دهید."
+
+    # 5. Unsupported tools / Bad Request
+    if status_code == 400:
+        if any(k in lower for k in ("tool", "function", "tool_choice")):
+            return "⚠️ این مدل هوش مصنوعی از ابزارهای پیشرفته (Tools) پشتیبانی نمی‌کند. لطفاً مدلی هوشمندتر مانند gpt-4o-mini انتخاب کنید."
+        return "⚠️ پارامترهای ارسالی به مدل هوش مصنوعی نامعتبر است (خطای ۴۰۰)."
+
+    # 6. Timeout
+    if status_code == 504 or "timeout" in lower:
+        return "⚠️ مهلت ارتباط با سرور هوش مصنوعی به پایان رسید (Timeout). لطفاً مجدداً امتحان کنید."
+
+    # 7. Server overloaded / busy
+    if status_code in (500, 502, 503) or any(k in lower for k in ("overloaded", "busy", "capacity")):
+        return "⚠️ سرور ارائه‌دهنده هوش مصنوعی موقتاً با ترافیک بالا مواجه است. لطفاً چند لحظه دیگر پیام دهید."
+
+    return "⚠️ در برقراری ارتباط با مدل هوش مصنوعی خطایی رخ داد. لطفاً تنظیمات کلید و نام مدل را در پنل مدرسه بررسی کنید."
 
 
 
@@ -849,6 +881,19 @@ async def ask_universal_ai_agent(
                     await asyncio.sleep(2.0)
                     continue
                 return (_format_friendly_ai_error(504, "Network timeout"), meta)
+
+        # Automatic fallback for models that don't support tools/function calling (HTTP 400)
+        if resp is not None and resp.status_code == 400 and "tools" in payload:
+            lower_err = (resp.text or "").lower()
+            if any(k in lower_err for k in ("tool", "function", "unsupported", "unexpected argument", "additional properties")):
+                logger.warning("Model '%s' does not support tools parameter. Retrying as plain completion...", clean_model)
+                payload_no_tools = {k: v for k, v in payload.items() if k not in ("tools", "tool_choice")}
+                try:
+                    resp = await client.post(endpoint_url, json=payload_no_tools, headers=headers)
+                    if resp.status_code == 200:
+                        last_status = 200
+                except Exception as fb_err:
+                    logger.warning("Fallback without tools failed: %s", fb_err)
 
         if not resp or resp.status_code != 200:
             logger.error("AI provider error %s after retries from %s: %s", last_status, endpoint_url, last_text)
