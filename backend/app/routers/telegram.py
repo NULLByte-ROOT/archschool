@@ -230,6 +230,10 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
 
     # --- 2. Handle Group Chat Mention / Reply Check ---
     elif chat_type in ("group", "supergroup"):
+        # Auto-learn group_id if not configured
+        if not telegram_bot.get_bot_setting(db, "telegram_group_id"):
+            telegram_bot.set_bot_setting(db, "telegram_group_id", str(chat_id))
+
         # Check if the bot was mentioned or replied to
         is_reply_to_bot = (
             message.get("reply_to_message", {}).get("from", {}).get("is_bot") is True

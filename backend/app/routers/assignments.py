@@ -297,10 +297,17 @@ def list_assignments(
                 )
     if course:
         q = q.filter(models.Assignment.course == course)
-    return [
+    items = [
         _serialize(obj, current)
         for obj in q.order_by(models.Assignment.created_at.desc()).all()
     ]
+    if (completed is False or not include_overdue) and not include_overdue:
+        from ..services import school_knowledge
+        items = [
+            r for r in items
+            if not school_knowledge.is_assignment_overdue(r.due_date, r.subject_id)
+        ]
+    return items
 
 
 @router.get("/overdue", response_model=List[schemas.AssignmentOut])

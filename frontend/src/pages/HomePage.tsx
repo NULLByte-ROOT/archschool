@@ -139,7 +139,7 @@ export default function HomePage() {
       Number.POSITIVE_INFINITY;
     const urgent = pending.filter((item) => {
       const countdown = dueCountdown(item.due_date, now, bells, item.subject_id);
-      return Boolean(countdown && (countdown.urgent || countdown.overdue));
+      return Boolean(countdown && countdown.urgent && !countdown.overdue);
     }).length;
     const next = [...pending]
       .filter((item) => item.due_date)

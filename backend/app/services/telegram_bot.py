@@ -793,21 +793,25 @@ async def process_overdue_assignments(db: Session) -> int:
     if not pv_enabled and not group_enabled:
         return 0
 
-    now = datetime.utcnow()
-    overdue_assignments = (
+    from . import ai_agent, school_knowledge
+
+    candidates = (
         db.query(models.Assignment)
         .filter(
             models.Assignment.deleted_at.is_(None),
             models.Assignment.is_reminder_only.is_(False),
             models.Assignment.due_date.isnot(None),
-            models.Assignment.due_date < now,
         )
         .order_by(models.Assignment.due_date.asc())
         .all()
     )
 
+    overdue_assignments = [
+        asgn for asgn in candidates
+        if school_knowledge.is_assignment_overdue(asgn.due_date, asgn.subject_id)
+    ]
+
     processed_count = 0
-    from . import ai_agent, school_knowledge
 
     for asgn in overdue_assignments:
         existing = (
@@ -853,7 +857,10 @@ async def process_overdue_assignments(db: Session) -> int:
         # 1. Private chat follow-up to each incomplete student
         if pv_enabled:
             for u in uncompleted_users:
-                if not u.telegram_id:
+                target_chat_id = u.telegram_id
+                if not target_chat_id and u.telegram_username:
+                    target_chat_id = f"@{u.telegram_username.lstrip('@')}"
+                if not target_chat_id:
                     continue
                 pv_context = {
                     "event": "overdue_pv",
@@ -870,7 +877,7 @@ async def process_overdue_assignments(db: Session) -> int:
                         f"آیا این تکلیف را انجام دادی یا به مشکلی خوردی؟ لطفاً وضعیتت را مشخص کن تا درصد و استریکت آسیب نبیند! ⚡"
                     )
                 try:
-                    await send_telegram_message(token, u.telegram_id, ai_msg)
+                    await send_telegram_message(token, target_chat_id, ai_msg)
                     logger.info("Sent automated overdue PV follow-up to user %s for assignment %s", u.username, asgn.id)
                 except Exception as pv_err:
                     logger.warning("Failed to send overdue PV message to user %s: %s", u.id, pv_err)
@@ -882,8 +889,14 @@ async def process_overdue_assignments(db: Session) -> int:
                 if u.telegram_id:
                     if u.telegram_link_token and not u.telegram_link_token.startswith("arch_"):
                         user_mentions.append(f"@{u.telegram_link_token}")
+                    elif u.telegram_username:
+                        user_mentions.append(f"@{u.telegram_username.lstrip('@')}")
                     else:
                         user_mentions.append(f'<a href="tg://user?id={u.telegram_id}">{u.username}</a>')
+                elif u.telegram_username:
+                    user_mentions.append(f"@{u.telegram_username.lstrip('@')}")
+                else:
+                    user_mentions.append(f"<b>{u.username}</b>")
 
             tags_str = " ".join(user_mentions) if user_mentions else "بچه‌هایی که انجام ندادید"
             group_context = {
@@ -919,7 +932,7 @@ async def telegram_automation_daemon(poll_seconds: int = 45) -> None:
     Runs continuously throughout application lifespan.
     """
     logger.info("Starting ArchSchool Telegram Automation Daemon (poll interval: %ds)...", poll_seconds)
-    await asyncio.sleep(15)
+    await asyncio.sleep(2)
 
     from ..database import SessionLocal
 

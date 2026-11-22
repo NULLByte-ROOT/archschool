@@ -3,9 +3,10 @@
 Generates sleek, dark-themed visual cards inspired directly by the ArchSchool mobile app UI:
 - True pitch-black surfaces (#060608 / #0E0F14)
 - Cyber corner ticks (<Corners />)
-- Mono labels with double slashes (// ARCHSCHOOL, // MY STREAK, // LEADERBOARD)
+- Mono labels with double slashes (// ARCHSCHOOL, // MY STREAK, // LEADERBOARD, // ACTIVITY)
 - Role badges (OWNER, ADMIN, MEMBER)
-- Glowing flame glyphs, progress bars, podium medals and period chips
+- Procedural vector flames, glowing medals, progress bars, and authentic 7-day activity bar charts.
+- Zero raw emoji glyphs to prevent PIL missing-glyph boxes / tofu.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import arabic_reshaper
 from bidi.algorithm import get_display
 from PIL import Image, ImageDraw, ImageFont
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -73,7 +74,9 @@ def fa(text: str) -> str:
     if not text:
         return ""
     try:
-        reshaped = arabic_reshaper.reshape(str(text))
+        # Strip raw emoji characters that break RTL shaping or produce tofu
+        cleaned = "".join(ch for ch in str(text) if ord(ch) < 0x1F000 and ord(ch) not in (0x23F0, 0x23F3, 0x2705, 0x274C, 0x26A0, 0x26BD))
+        reshaped = arabic_reshaper.reshape(cleaned.strip())
         return get_display(reshaped)
     except Exception:
         return str(text)
@@ -90,10 +93,10 @@ def _load_font(path: str, size: int) -> ImageFont.FreeTypeFont | ImageFont.Image
 
 def _get_fonts() -> Dict[str, Any]:
     return {
-        "hero_num": _load_font(FONT_BOLD_PATH, 52),
-        "stat_val": _load_font(FONT_BOLD_PATH, 34),
-        "stat_val_sm": _load_font(FONT_BOLD_PATH, 24),
-        "title": _load_font(FONT_BOLD_PATH, 22),
+        "hero_num": _load_font(FONT_BOLD_PATH, 50),
+        "stat_val": _load_font(FONT_BOLD_PATH, 32),
+        "stat_val_sm": _load_font(FONT_BOLD_PATH, 22),
+        "title": _load_font(FONT_BOLD_PATH, 21),
         "subtitle": _load_font(FONT_MEDIUM_PATH, 15),
         "body_bold": _load_font(FONT_BOLD_PATH, 15),
         "body": _load_font(FONT_MEDIUM_PATH, 14),
@@ -102,6 +105,18 @@ def _get_fonts() -> Dict[str, Any]:
         "tag": _load_font(FONT_MEDIUM_PATH, 11),
         "small": _load_font(FONT_MEDIUM_PATH, 12),
     }
+
+
+def _truncate_text(draw: ImageDraw.ImageDraw, text: str, font: Any, max_width: int) -> str:
+    """Truncate Persian text cleanly with ellipsis if wider than max_width."""
+    if not text:
+        return ""
+    if draw.textlength(fa(text), font=font) <= max_width:
+        return text
+    cur = text
+    while cur and draw.textlength(fa(cur + "…"), font=font) > max_width:
+        cur = cur[:-1]
+    return cur + "…"
 
 
 def _draw_corners(draw: ImageDraw.ImageDraw, box: Tuple[int, int, int, int], tone: Tuple[int, int, int] = C_CORNERS) -> None:
@@ -138,6 +153,41 @@ def _draw_panel(
         _draw_corners(draw, box, corner_tone)
 
 
+def _draw_vector_flame(draw: ImageDraw.ImageDraw, cx: int, cy: int, size: int = 36) -> None:
+    """Draw a vibrant cyber flame with outer orange and inner golden core without emojis."""
+    draw.ellipse((cx - size - 8, cy - size - 8, cx + size + 8, cy + size + 8), fill=C_FLAME_BG)
+    s = size / 24.0
+    outer_pts = [
+        (cx, cy - int(24 * s)),
+        (cx + int(10 * s), cy - int(8 * s)),
+        (cx + int(16 * s), cy + int(6 * s)),
+        (cx + int(14 * s), cy + int(18 * s)),
+        (cx + int(6 * s), cy + int(24 * s)),
+        (cx - int(6 * s), cy + int(24 * s)),
+        (cx - int(14 * s), cy + int(18 * s)),
+        (cx - int(16 * s), cy + int(6 * s)),
+        (cx - int(10 * s), cy - int(8 * s)),
+    ]
+    draw.polygon(outer_pts, fill=C_FLAME)
+    inner_pts = [
+        (cx, cy - int(10 * s)),
+        (cx + int(6 * s), cy + int(2 * s)),
+        (cx + int(4 * s), cy + int(16 * s)),
+        (cx - int(4 * s), cy + int(16 * s)),
+        (cx - int(6 * s), cy + int(2 * s)),
+    ]
+    draw.polygon(inner_pts, fill=C_GOLD)
+
+
+def _draw_medal_badge(draw: ImageDraw.ImageDraw, cx: int, cy: int, rank: int, col: Tuple[int, int, int], bg: Tuple[int, int, int], font: Any) -> None:
+    """Draws a crisp geometric medallion with #1, #2, #3 inside."""
+    r = 22
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=bg, outline=col, width=2)
+    txt = f"#{rank}"
+    tw = draw.textlength(txt, font=font)
+    draw.text((cx - tw // 2, cy - 8), txt, font=font, fill=col)
+
+
 def _draw_mobile_header(
     draw: ImageDraw.ImageDraw,
     title: str,
@@ -145,19 +195,16 @@ def _draw_mobile_header(
     user: Optional[models.User] = None,
     width: int = 960,
 ) -> None:
-    """Draws the top bar exactly like ArchSchool mobile home header."""
+    """Draws the top bar matching ArchSchool mobile app header."""
     fonts = _get_fonts()
 
-    # 1. Top Right Pill: // ARCHSCHOOL SYSTEM with glowing PulseDot
+    # 1. Top Right Pill: // ARCHSCHOOL with Green Pulse Dot
     pill_box = (width - 240, 24, width - 32, 54)
     draw.rounded_rectangle(pill_box, radius=15, fill=(18, 20, 28), outline=C_LINE, width=1)
-    # Green pulse dot
     draw.ellipse((width - 52, 36, width - 44, 44), fill=C_SUCCESS)
-    # English mono text
     draw.text((width - 224, 33), "// ARCHSCHOOL", font=fonts["mono"], fill=C_TEXT_SOFT)
 
     # 2. Top Center: Date Pill
-    now_iran = datetime.utcnow() + timedelta(hours=3.5)
     now_fa = school_knowledge.format_iran_datetime(datetime.utcnow())
     date_pill_box = (width // 2 - 130, 24, width // 2 + 130, 54)
     draw.rounded_rectangle(date_pill_box, radius=15, fill=(14, 16, 22), outline=C_LINE, width=1)
@@ -169,16 +216,13 @@ def _draw_mobile_header(
     if user:
         u_box = (32, 24, 250, 54)
         draw.rounded_rectangle(u_box, radius=15, fill=(18, 20, 28), outline=C_LINE, width=1)
-        # Avatar circle
         draw.ellipse((42, 30, 66, 50), fill=(40, 44, 60), outline=C_LINE_STRONG, width=1)
         initial = (user.username[:1] if user.username else "U").upper()
         draw.text((50, 31), initial, font=fonts["badge"], fill=C_TEXT)
 
-        # Username
         u_name = user.username or "کاربر"
         draw.text((76, 33), u_name[:12], font=fonts["mono"], fill=C_TEXT)
 
-        # Role Badge matching mobile ROLE_BADGE
         role = getattr(user, "role", "member") or "member"
         is_owner = models.is_owner(user)
         badge_txt = "OWNER" if is_owner else ("ADMIN" if user.is_admin or role == "admin" else "MEMBER")
@@ -216,11 +260,62 @@ def _draw_progress_bar(
         draw.rounded_rectangle((x, y, x + fill_w, y + h), radius=h // 2, fill=fill_col)
 
 
+def _draw_weekly_activity_bars(
+    draw: ImageDraw.ImageDraw,
+    box: Tuple[int, int, int, int],
+    activity_counts: List[int],
+    today_index: int,
+    fonts: Dict[str, Any],
+) -> None:
+    """Draws a sleek 7-day bar chart showing daily activity matching mobile app charts."""
+    x1, y1, x2, y2 = box
+    draw.rounded_rectangle(box, radius=14, fill=C_PANEL_ELEVATED, outline=C_LINE, width=1)
+
+    chart_title = fa("نمودار فعالیت ۷ روز اخیر (شنبه تا جمعه)")
+    draw.text((x2 - 16 - draw.textlength(chart_title, font=fonts["tag"]), y1 + 12), chart_title, font=fonts["tag"], fill=C_MUTED)
+    draw.text((x1 + 16, y1 + 12), "// ACTIVITY METRICS", font=fonts["mono"], fill=C_FAINT)
+
+    days_labels = ["ش", "ی", "د", "س", "چ", "پ", "ج"]
+    chart_h = y2 - y1 - 60
+    col_w = (x2 - x1 - 32) // 7
+    max_count = max(activity_counts + [4])
+
+    for i, (day_lbl, count) in enumerate(zip(days_labels, activity_counts)):
+        bx = x1 + 16 + i * col_w + 8
+        bw = col_w - 16
+        is_today = (i == today_index)
+        bar_fill = C_FLAME if is_today else (C_SUCCESS if count > 0 else (36, 40, 52))
+
+        # Vertical Track
+        track_y1 = y1 + 42
+        track_y2 = y2 - 28
+        draw.rounded_rectangle((bx, track_y1, bx + bw, track_y2), radius=6, fill=(16, 18, 24))
+
+        # Filled bar from bottom
+        bar_h = int((count / max_count) * (chart_h - 10))
+        if bar_h > 0 or count > 0:
+            actual_h = max(bar_h, 8)
+            by1 = track_y2 - actual_h
+            draw.rounded_rectangle((bx, by1, bx + bw, track_y2), radius=6, fill=bar_fill)
+
+        # Count on top if > 0
+        if count > 0:
+            cnt_str = str(count)
+            cw = draw.textlength(cnt_str, font=fonts["tag"])
+            draw.text((bx + (bw - cw) // 2, track_y2 - max(bar_h, 8) - 16), cnt_str, font=fonts["tag"], fill=C_TEXT)
+
+        # Day label at bottom
+        dl_fa = fa(day_lbl)
+        dw = draw.textlength(dl_fa, font=fonts["mono"])
+        col_lbl = C_FLAME if is_today else (C_TEXT_SOFT if count > 0 else C_FAINT)
+        draw.text((bx + (bw - dw) // 2, y2 - 22), dl_fa, font=fonts["mono"], fill=col_lbl)
+
+
 # ---------------------------------------------------------------------------
-# 1. Progress Card (کارنامه و پیشرفت تحصیلی دانش‌آموز)
+# 1. Progress & Activity Card (کارنامه تحصیلی، استریک و نمودار فعالیت)
 # ---------------------------------------------------------------------------
 def render_progress_card(db: Session, user: Optional[models.User]) -> Tuple[str, str, Dict[str, Any]]:
-    width, height = 960, 550
+    width, height = 960, 560
     img = Image.new("RGB", (width, height), color=C_BG)
     draw = ImageDraw.Draw(img)
     fonts = _get_fonts()
@@ -228,8 +323,8 @@ def render_progress_card(db: Session, user: Optional[models.User]) -> Tuple[str,
     u_name = user.username if user else "دانش‌آموز"
     _draw_mobile_header(
         draw,
-        title=f"کارنامه تحصیلی و استریک ({u_name})",
-        mono_label="// MY STREAK & PROGRESS",
+        title=f"کارنامه تحصیلی و نمودار استریک ({u_name})",
+        mono_label="// MY STREAK & ACTIVITY CHART",
         user=user,
         width=width,
     )
@@ -242,6 +337,8 @@ def render_progress_card(db: Session, user: Optional[models.User]) -> Tuple[str,
 
     completed_count = 0
     streak = 0
+    activity_counts = [0] * 7
+
     if user:
         completed_count = db.query(models.AssignmentCompletion).filter(
             models.AssignmentCompletion.user_id == user.id
@@ -250,74 +347,82 @@ def render_progress_card(db: Session, user: Optional[models.User]) -> Tuple[str,
         if stats:
             streak = int(stats.get("current_streak", 0))
 
+        # Query weekly activity counts for the 7 days (Saturday to Friday)
+        now_iran = school_knowledge.get_iran_now()
+        cur_py_wday = now_iran.weekday()
+        # Saturday is index 0 in Iran week
+        cur_iran_wday = (cur_py_wday + 2) % 7
+        sat_date = now_iran.date() - timedelta(days=cur_iran_wday)
+
+        for d_idx in range(7):
+            day_target = sat_date + timedelta(days=d_idx)
+            act_row = db.query(models.DailyActivity).filter(
+                models.DailyActivity.user_id == user.id,
+                models.DailyActivity.activity_date == day_target,
+            ).first()
+            if act_row and act_row.completions:
+                activity_counts[d_idx] = act_row.completions
+    else:
+        now_iran = school_knowledge.get_iran_now()
+        cur_iran_wday = (now_iran.weekday() + 2) % 7
+
     pct = round((completed_count / total_assignments * 100), 1) if total_assignments > 0 else 100.0
     pending_count = max(0, total_assignments - completed_count)
 
-    # --- LEFT / MAIN HERO: StreakHero (<StreakHero />) ---
-    hero_box = (32, 134, 480, 516)
+    # --- LEFT SIDE: Streak Hero Panel ---
+    hero_box = (32, 134, 460, 526)
     _draw_panel(draw, hero_box, radius=18, fill=C_PANEL, outline=C_LINE, corners=True, corner_tone=C_CORNERS)
 
-    # Ambient glow around flame
-    draw.ellipse((54, 156, 174, 276), fill=C_FLAME_BG)
-    # Flame Emoji Icon Box
-    draw.rounded_rectangle((70, 172, 158, 260), radius=20, fill=(35, 20, 12), outline=C_FLAME, width=1)
-    flame_txt = "🔥"
-    draw.text((98, 192), flame_txt, font=fonts["title"], fill=C_FLAME)
+    # Procedural Vector Flame (NO tofu emojis)
+    _draw_vector_flame(draw, cx=104, cy=208, size=32)
 
     # Hero Mono Label
-    draw.text((184, 154), "// MY STREAK", font=fonts["mono"], fill=C_FAINT)
-    # Streak Verified badge
-    draw.rounded_rectangle((hero_box[2] - 120, 148, hero_box[2] - 20, 174), radius=10, fill=C_SUCCESS_BG, outline=C_SUCCESS, width=1)
-    tag_fa = fa("ثبت فعال ✅")
-    draw.text((hero_box[2] - 110, 152), tag_fa, font=fonts["tag"], fill=C_SUCCESS)
+    draw.text((164, 154), "// MY STREAK", font=fonts["mono"], fill=C_FAINT)
+    # Status Badge
+    draw.rounded_rectangle((hero_box[2] - 130, 148, hero_box[2] - 20, 176), radius=10, fill=C_SUCCESS_BG, outline=C_SUCCESS, width=1)
+    tag_fa = fa("ثبت فعال [OK]")
+    draw.text((hero_box[2] - 120, 153), tag_fa, font=fonts["tag"], fill=C_SUCCESS)
 
     # Big Streak Number + "روز متوالی"
     streak_s = str(streak)
-    draw.text((184, 180), streak_s, font=fonts["hero_num"], fill=C_FLAME)
+    draw.text((164, 178), streak_s, font=fonts["hero_num"], fill=C_FLAME)
     num_w = draw.textlength(streak_s, font=fonts["hero_num"])
     lbl_fa = fa("روز متوالی")
-    draw.text((184 + int(num_w) + 14, 214), lbl_fa, font=fonts["body_bold"], fill=C_TEXT_SOFT)
+    draw.text((164 + int(num_w) + 14, 212), lbl_fa, font=fonts["body_bold"], fill=C_TEXT_SOFT)
 
     # Subtitle
-    sub_txt = "استریکت را حفظ کردی — همین‌طور پرقدرت ادامه بده 🔥" if streak > 0 else "امروز می‌تواند شروع یک استریک آتشین جدید باشد ✨"
+    sub_txt = "استریکت را حفظ کردی — همین‌طور پرقدرت ادامه بده" if streak > 0 else "امروز می‌تواند شروع یک استریک آتشین جدید باشد"
     sub_fa = fa(sub_txt)
-    draw.text((hero_box[2] - 24 - draw.textlength(sub_fa, font=fonts["small"]), 280), sub_fa, font=fonts["small"], fill=C_MUTED)
+    draw.text((hero_box[2] - 24 - draw.textlength(sub_fa, font=fonts["small"]), 270), sub_fa, font=fonts["small"], fill=C_MUTED)
 
-    # Inner Progress Bar within Hero
-    draw.text((hero_box[2] - 24 - draw.textlength(fa("نرخ تکمیل کل تکالیف"), font=fonts["tag"]), 324), fa("نرخ تکمیل کل تکالیف"), font=fonts["tag"], fill=C_FAINT)
+    # Inner Progress Bar
+    draw.text((hero_box[2] - 24 - draw.textlength(fa("نرخ تکمیل کل تکالیف"), font=fonts["tag"]), 310), fa("نرخ تکمیل کل تکالیف"), font=fonts["tag"], fill=C_FAINT)
     pct_str = f"{pct}%"
     pct_col = C_SUCCESS if pct >= 75 else (C_GOLD if pct >= 50 else C_DANGER)
-    draw.text((54, 320), pct_str, font=fonts["stat_val_sm"], fill=pct_col)
-    _draw_progress_bar(draw, 54, 356, hero_box[2] - hero_box[0] - 48, 14, pct, pct_col)
+    draw.text((54, 306), pct_str, font=fonts["stat_val_sm"], fill=pct_col)
+    _draw_progress_bar(draw, 54, 340, hero_box[2] - hero_box[0] - 44, 12, pct, pct_col)
 
-    # Mini record pills inside Hero Bottom
-    pill1_box = (54, 400, 240, 480)
-    _draw_panel(draw, pill1_box, radius=12, fill=C_PANEL_ELEVATED, outline=C_LINE, corners=False)
-    draw.text((68, 412), "// TEAM RECORD", font=fonts["mono"], fill=C_FAINT)
-    draw.text((68, 436), fa("رکورد کلاس: ۱۵ روز"), font=fonts["small"], fill=C_GOLD)
+    # 7-Day Activity Bar Chart inside Hero Bottom
+    chart_box = (50, 372, hero_box[2] - 20, 508)
+    _draw_weekly_activity_bars(draw, chart_box, activity_counts, cur_iran_wday, fonts)
 
-    pill2_box = (256, 400, 458, 480)
-    _draw_panel(draw, pill2_box, radius=12, fill=C_PANEL_ELEVATED, outline=C_LINE, corners=False)
-    draw.text((270, 412), "// PERSONAL BEST", font=fonts["mono"], fill=C_FAINT)
-    draw.text((270, 436), fa(f"بهترین تو: {max(streak, 10)} روز"), font=fonts["small"], fill=C_SKY)
-
-    # --- RIGHT SIDE: 3 Summary Cards (<SummaryCard />) ---
+    # --- RIGHT SIDE: 3 Clean Summary Stat Cards ---
     stat_cards = [
-        ("// COMPLETED", str(completed_count), "تکالیف تحویل داده شده", "انجام‌شده و تیک‌خورده در اپلیکیشن ✅", C_SUCCESS, C_SUCCESS_BG),
-        ("// PENDING", str(pending_count), "تکالیف در انتظار انجام", "نیاز به بررسی و تحویل قبل از ددلاین ⏳", C_GOLD if pending_count else C_MUTED, C_GOLD_BG if pending_count else C_PANEL),
-        ("// TOTAL TASKS", str(total_assignments), "کل تکالیف ثبت‌شده", "تکالیف ترم جاری برای این کلاس 📚", C_SKY, C_SKY_BG),
+        ("// COMPLETED", str(completed_count), "تکالیف تحویل داده شده", "انجام‌شده و تیک‌خورده در اپلیکیشن", C_SUCCESS, C_SUCCESS_BG),
+        ("// PENDING", str(pending_count), "تکالیف در انتظار انجام", "نیاز به بررسی و تحویل قبل از موعد", C_GOLD if pending_count else C_MUTED, C_GOLD_BG if pending_count else C_PANEL),
+        ("// TOTAL TASKS", str(total_assignments), "کل تکالیف ثبت‌شده", "تکالیف ترم جاری برای این کلاس", C_SKY, C_SKY_BG),
     ]
 
     card_h = 118
     for idx, (m_lbl, val, title_fa, hint_fa, tone_col, tone_bg) in enumerate(stat_cards):
-        sy = 134 + idx * (card_h + 14)
-        c_box = (504, sy, width - 32, sy + card_h)
+        sy = 134 + idx * (card_h + 16)
+        c_box = (484, sy, width - 32, sy + card_h)
         _draw_panel(draw, c_box, radius=16, fill=C_PANEL, outline=C_LINE, corners=True, corner_tone=C_CORNERS)
 
         # Mono Label
-        draw.text((524, sy + 16), m_lbl, font=fonts["mono"], fill=C_FAINT)
+        draw.text((504, sy + 16), m_lbl, font=fonts["mono"], fill=C_FAINT)
         # Big Stat Value on Left
-        draw.text((524, sy + 44), val, font=fonts["stat_val"], fill=tone_col)
+        draw.text((504, sy + 44), val, font=fonts["stat_val"], fill=tone_col)
 
         # Persian Title & Hint on Right
         t_fa = fa(title_fa)
@@ -335,8 +440,9 @@ def render_progress_card(db: Session, user: Optional[models.User]) -> Tuple[str,
         "completed": completed_count,
         "pending": pending_count,
         "total": total_assignments,
+        "weekly_activity": activity_counts,
     }
-    return out_file, f"کارنامه تحصیلی ({u_name})", summary_data
+    return out_file, f"کارنامه و نمودار پیشرفت ({u_name})", summary_data
 
 
 # ---------------------------------------------------------------------------
@@ -359,19 +465,19 @@ def render_leaderboard_card(db: Session) -> Tuple[str, str, Dict[str, Any]]:
     from .telegram_bot import build_leaderboard
     entries, _ = build_leaderboard(db)
 
-    # Top Reset Countdown Banner (<SeasonCountdownCard />)
+    # Top Reset Countdown Banner
     banner_box = (32, 126, width - 32, 174)
     _draw_panel(draw, banner_box, radius=12, fill=C_PANEL, outline=C_LINE, corners=False)
     draw.text((48, 142), "// BI-WEEKLY RESET", font=fonts["mono"], fill=C_FLAME)
     draw.text((width // 2 - 80, 140), fa("ریست دوره‌ای امتیازات:"), font=fonts["tag"], fill=C_MUTED)
     draw.text((width // 2 + 60, 138), "08d : 14h : 22m", font=fonts["mono"], fill=C_TEXT)
-    draw.text((width - 240, 140), fa("سیزن رقابت دوهفته‌ای 🏆"), font=fonts["tag"], fill=C_GOLD)
+    draw.text((width - 240, 140), fa("سیزن رقابت دوهفته‌ای"), font=fonts["tag"], fill=C_GOLD)
 
     # Podium Ranks Config (1st, 2nd, 3rd)
     podium_configs = [
-        {"rank": 1, "label": "🥇 رتبه اول کلاس", "col": C_GOLD, "bg": C_GOLD_BG, "x": 352, "w": 256, "h": 220, "badge": "GOLD"},
-        {"rank": 2, "label": "🥈 رتبه دوم کلاس", "col": C_SILVER, "bg": C_SILVER_BG, "x": 32, "w": 296, "h": 204, "badge": "SILVER"},
-        {"rank": 3, "label": "🥉 رتبه سوم کلاس", "col": C_BRONZE, "bg": C_BRONZE_BG, "x": 632, "w": 296, "h": 204, "badge": "BRONZE"},
+        {"rank": 1, "label": "رتبه اول کلاس", "col": C_GOLD, "bg": C_GOLD_BG, "x": 352, "w": 256, "h": 224},
+        {"rank": 2, "label": "رتبه دوم کلاس", "col": C_SILVER, "bg": C_SILVER_BG, "x": 32, "w": 296, "h": 208},
+        {"rank": 3, "label": "رتبه سوم کلاس", "col": C_BRONZE, "bg": C_BRONZE_BG, "x": 632, "w": 296, "h": 208},
     ]
 
     for p in podium_configs:
@@ -382,9 +488,12 @@ def render_leaderboard_card(db: Session) -> Tuple[str, str, Dict[str, Any]]:
         border_col = p["col"] if p["rank"] == 1 else C_LINE
         _draw_panel(draw, p_box, radius=16, fill=C_PANEL, outline=border_col, corners=True, corner_tone=p["col"])
 
-        # Medal Header
+        # Medallion Icon on top
+        _draw_medal_badge(draw, px + pw // 2, py + 34, p["rank"], p["col"], p["bg"], fonts["badge"])
+
+        # Medal Header Title
         m_fa = fa(p["label"])
-        draw.text((px + pw // 2 - draw.textlength(m_fa, font=fonts["body_bold"]) // 2, py + 16), m_fa, font=fonts["body_bold"], fill=p["col"])
+        draw.text((px + pw // 2 - draw.textlength(m_fa, font=fonts["tag"]) // 2, py + 62), m_fa, font=fonts["tag"], fill=p["col"])
 
         if idx < len(entries):
             e = entries[idx]
@@ -392,30 +501,24 @@ def render_leaderboard_card(db: Session) -> Tuple[str, str, Dict[str, Any]]:
             pct = round(e.get("completion_percentage", 0), 1)
             streak = e.get("current_streak", 0)
 
-            # Avatar Circle with Initial
-            av_x = px + pw // 2
-            av_y = py + 62
-            draw.ellipse((av_x - 20, av_y - 20, av_x + 20, av_y + 20), fill=p["bg"], outline=p["col"], width=1)
-            draw.text((av_x - 6, av_y - 10), u_name[:1].upper(), font=fonts["badge"], fill=C_TEXT)
-
             # Username
             u_fa = fa(u_name)
             draw.text((px + pw // 2 - draw.textlength(u_fa, font=fonts["title"]) // 2, py + 92), u_fa, font=fonts["title"], fill=C_TEXT)
 
-            # Percentage & Bar
+            # Percentage & Progress Bar
             pct_s = f"{pct}%"
             draw.text((px + pw // 2 - draw.textlength(pct_s, font=fonts["stat_val_sm"]) // 2, py + 128), pct_s, font=fonts["stat_val_sm"], fill=p["col"])
-            _draw_progress_bar(draw, px + 24, py + 164, pw - 48, 8, pct, p["col"])
+            _draw_progress_bar(draw, px + 24, py + 162, pw - 48, 8, pct, p["col"])
 
-            # Streak
-            st_fa = fa(f"🔥 استریک: {streak} روز")
+            # Streak Text
+            st_fa = fa(f"استریک: {streak} روز")
             draw.text((px + pw // 2 - draw.textlength(st_fa, font=fonts["tag"]) // 2, py + 180), st_fa, font=fonts["tag"], fill=C_MUTED)
         else:
             empty_fa = fa("جایگاه خالی در سیزن")
-            draw.text((px + pw // 2 - draw.textlength(empty_fa, font=fonts["small"]) // 2, py + 90), empty_fa, font=fonts["small"], fill=C_FAINT)
+            draw.text((px + pw // 2 - draw.textlength(empty_fa, font=fonts["small"]) // 2, py + 110), empty_fa, font=fonts["small"], fill=C_FAINT)
 
-    # Bottom Row: Ranks 4 to 6 (<LeaderboardRow />)
-    bot_box = (32, 436, width - 32, 526)
+    # Bottom Row: Ranks 4 to 6
+    bot_box = (32, 440, width - 32, 526)
     _draw_panel(draw, bot_box, radius=14, fill=C_PANEL, outline=C_LINE, corners=True, corner_tone=C_CORNERS)
     draw.text((48, 452), "// OTHER RANKS", font=fonts["mono"], fill=C_FAINT)
 
@@ -423,10 +526,13 @@ def render_leaderboard_card(db: Session) -> Tuple[str, str, Dict[str, Any]]:
         step_w = (width - 96) // 3
         for j, e in enumerate(entries[3:6]):
             rx = 48 + j * step_w
-            rk_str = fa(f"#{j+4} {e['user'].username} ({round(e.get('completion_percentage', 0))}% · 🔥{e.get('current_streak', 0)}d)")
+            u_str = e["user"].username
+            pct_num = round(e.get("completion_percentage", 0))
+            st_num = e.get("current_streak", 0)
+            rk_str = fa(f"رتبه {j+4}: {u_str} ({pct_num}% - استریک: {st_num})")
             draw.text((rx, 480), rk_str, font=fonts["body"], fill=C_TEXT_SOFT)
     else:
-        inf_fa = fa("سایر دانش‌آموزان به زودی با تکمیل تکالیف به جدول لیدربورد اضافه می‌شوند 🚀")
+        inf_fa = fa("سایر دانش‌آموزان به زودی با تکمیل تکالیف به جدول لیدربورد اضافه می‌شوند")
         draw.text((width // 2 - draw.textlength(inf_fa, font=fonts["small"]) // 2, 474), inf_fa, font=fonts["small"], fill=C_MUTED)
 
     out_file = str(CACHE_DIR / "card_leaderboard.png")
@@ -436,7 +542,7 @@ def render_leaderboard_card(db: Session) -> Tuple[str, str, Dict[str, Any]]:
         "top1_pct": round(entries[0].get("completion_percentage", 0), 1) if len(entries) > 0 else 0,
         "total_ranked": len(entries),
     }
-    return out_file, "جدول لیدربورد کلاس 🏆", summary_data
+    return out_file, "جدول لیدربورد کلاس", summary_data
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +584,7 @@ def render_schedule_card(db: Session, target_day: Optional[str] = None) -> Tuple
     if not periods:
         empty_box = (32, 190, width - 32, 516)
         _draw_panel(draw, empty_box, radius=16, fill=C_PANEL, outline=C_LINE, corners=True, corner_tone=C_CORNERS)
-        no_fa = fa(f"برای {day_name} کلاسی برگزار نمی‌شود و تعطیل است 🏖️")
+        no_fa = fa(f"برای {day_name} کلاسی برگزار نمی‌شود و تعطیل است")
         draw.text((width // 2 - draw.textlength(no_fa, font=fonts["title"]) // 2, 310), no_fa, font=fonts["title"], fill=C_SKY)
         sub_fa = fa("فرصت عالی برای جبران تکالیف عقب‌افتاده و استراحت!")
         draw.text((width // 2 - draw.textlength(sub_fa, font=fonts["small"]) // 2, 350), sub_fa, font=fonts["small"], fill=C_MUTED)
@@ -500,9 +606,10 @@ def render_schedule_card(db: Session, target_day: Optional[str] = None) -> Tuple
             time_str = f"{p.get('start', '')} - {p.get('end', '')}"
             draw.text((px + card_w // 2 - draw.textlength(time_str, font=fonts["mono"]) // 2, 246), time_str, font=fonts["mono"], fill=C_FAINT)
 
-            # Subject Icon tile placeholder
-            draw.rounded_rectangle((px + card_w // 2 - 24, 280, px + card_w // 2 + 24, 328), radius=12, fill=C_PANEL_ELEVATED, outline=C_LINE, width=1)
-            draw.text((px + card_w // 2 - 10, 292), "📖", font=fonts["body"], fill=C_TEXT)
+            # Subject Badge placeholder
+            draw.rounded_rectangle((px + card_w // 2 - 28, 280, px + card_w // 2 + 28, 328), radius=12, fill=C_PANEL_ELEVATED, outline=C_LINE, width=1)
+            b_txt = f"P{idx+1}"
+            draw.text((px + card_w // 2 - draw.textlength(b_txt, font=fonts["badge"]) // 2, 296), b_txt, font=fonts["badge"], fill=C_GOLD if is_active else C_SKY)
 
             # Subject Name
             s_name = fa(p.get("subject_name", ""))
@@ -514,7 +621,7 @@ def render_schedule_card(db: Session, target_day: Optional[str] = None) -> Tuple
 
             # Status pill
             if is_active:
-                act_fa = fa("🔴 زنگ جاری")
+                act_fa = fa("[زنگ جاری]")
                 draw.rounded_rectangle((px + 20, 444, px + card_w - 20, 484), radius=10, fill=C_GOLD_BG, outline=C_GOLD, width=1)
                 draw.text((px + card_w // 2 - draw.textlength(act_fa, font=fonts["badge"]) // 2, 454), act_fa, font=fonts["badge"], fill=C_GOLD)
             else:
@@ -528,7 +635,7 @@ def render_schedule_card(db: Session, target_day: Optional[str] = None) -> Tuple
         "bell_status": b_stat,
         "period_count": len(periods),
     }
-    return out_file, f"برنامه درسی ({day_name}) 📚", summary_data
+    return out_file, f"برنامه درسی ({day_name})", summary_data
 
 
 # ---------------------------------------------------------------------------
@@ -559,6 +666,7 @@ def render_assignments_card(
             db.query(models.Assignment)
             .filter(
                 models.Assignment.deleted_at.is_(None),
+                models.Assignment.is_reminder_only.is_(False),
                 or_(
                     and_(
                         models.Assignment.due_date.isnot(None),
@@ -584,19 +692,20 @@ def render_assignments_card(
         day_label = "روزهای جاری"
         summary_pill_text = "تکالیف اولویت‌دار کلاسی"
 
-        tasks = (
+        all_candidates = (
             db.query(models.Assignment)
             .filter(
                 models.Assignment.deleted_at.is_(None),
-                or_(
-                    models.Assignment.due_date.is_(None),
-                    models.Assignment.due_date >= now,
-                ),
+                models.Assignment.is_reminder_only.is_(False),
             )
             .order_by(models.Assignment.due_date.asc().nulls_last())
-            .limit(4)
             .all()
         )
+        # Strictly exclude overdue tasks from active list
+        tasks = [
+            t for t in all_candidates
+            if not school_knowledge.is_assignment_overdue(t.due_date, t.subject_id)
+        ][:4]
 
     _draw_mobile_header(
         draw,
@@ -615,7 +724,7 @@ def render_assignments_card(
     if not tasks:
         empty_box = (32, 184, width - 32, 516)
         _draw_panel(draw, empty_box, radius=16, fill=C_PANEL, outline=C_LINE, corners=True, corner_tone=C_CORNERS)
-        no_fa = fa(f"برای {day_label} هیچ تکلیفی ثبت نشده است ✨")
+        no_fa = fa(f"برای {day_label} هیچ تکلیفی ثبت نشده است")
         draw.text((width // 2 - draw.textlength(no_fa, font=fonts["title"]) // 2, 320), no_fa, font=fonts["title"], fill=C_SUCCESS)
         sub_fa = fa("تمامی موارد انجام شده یا تکلیفی برای این موعد در سیستم وجود ندارد.")
         draw.text((width // 2 - draw.textlength(sub_fa, font=fonts["small"]) // 2, 360), sub_fa, font=fonts["small"], fill=C_MUTED)
@@ -631,7 +740,7 @@ def render_assignments_card(
             cb_y = ty + row_h // 2
             draw.ellipse((cb_x - 12, cb_y - 12, cb_x + 12, cb_y + 12), fill=C_PANEL_ELEVATED, outline=C_LINE_STRONG, width=1)
 
-            # Subject Pill (Sky / Purple / Emerald)
+            # Subject Pill on Right
             subj_title = t.course or t.subject_id or "عمومی"
             s_fa = fa(subj_title)
             s_w = draw.textlength(s_fa, font=fonts["tag"])
@@ -641,30 +750,33 @@ def render_assignments_card(
             draw.rounded_rectangle((pill_x1, ty + 22, pill_x2, ty + 54), radius=8, fill=C_SKY_BG, outline=C_SKY, width=1)
             draw.text((pill_x1 + (pill_w - s_w) // 2, ty + 28), s_fa, font=fonts["tag"], fill=C_SKY)
 
-            # Assignment Title in Bold
-            t_fa = fa(t.title)
-            draw.text((pill_x1 - 20 - draw.textlength(t_fa, font=fonts["body_bold"]), ty + 26), t_fa, font=fonts["body_bold"], fill=C_TEXT)
-
-            # Due Date / Urgent chip on Left
+            # Due Date / Status chip on Left
             if t.due_date:
                 hours_left = (t.due_date - now).total_seconds() / 3600.0
-                if hours_left < 0:
-                    time_lbl = fa("⌛ مهلت به پایان رسیده")
+                if school_knowledge.is_assignment_overdue(t.due_date, t.subject_id):
+                    time_lbl = fa("[منقضی شده]")
                     t_col = C_DANGER
                 elif hours_left <= 6:
-                    time_lbl = fa(f"🚨 فوری ({int(max(1, hours_left))} ساعت مانده)")
+                    time_lbl = fa(f"[فوری: {int(max(1, hours_left))} ساعت]")
                     t_col = C_DANGER
                 elif hours_left <= 24:
-                    time_lbl = fa(f"⚠️ کمتر از ۱ روز مانده")
+                    time_lbl = fa("[کمتر از ۱ روز]")
                     t_col = C_GOLD
                 else:
-                    time_lbl = fa(f"📅 مهلت: {int(hours_left // 24)} روز دیگر")
+                    time_lbl = fa(f"[{int(hours_left // 24)} روز دیگر]")
                     t_col = C_SUCCESS
             else:
-                time_lbl = fa("بدون ددلاین مشخص")
+                time_lbl = fa("[بدون ددلاین]")
                 t_col = C_MUTED
 
             draw.text((54, ty + 28), time_lbl, font=fonts["small"], fill=t_col)
+            time_w = draw.textlength(time_lbl, font=fonts["small"])
+
+            # Safely truncate assignment title so it NEVER overlaps with due badge or subject pill
+            max_title_w = pill_x1 - 54 - int(time_w) - 40
+            safe_title = _truncate_text(draw, t.title, fonts["body_bold"], max_title_w)
+            t_fa = fa(safe_title)
+            draw.text((pill_x1 - 20 - draw.textlength(t_fa, font=fonts["body_bold"]), ty + 26), t_fa, font=fonts["body_bold"], fill=C_TEXT)
 
     cache_key = f"card_assignments_{target_day or 'default'}.png".replace(" ", "_")
     out_file = str(CACHE_DIR / cache_key)
@@ -674,7 +786,7 @@ def render_assignments_card(
         "target_day": day_label,
         "nearest_task": tasks[0].title if tasks else "بدون تکلیف",
     }
-    return out_file, f"{card_title} 📝", summary_data
+    return out_file, f"{card_title}", summary_data
 
 
 # ---------------------------------------------------------------------------
@@ -689,11 +801,12 @@ def generate_card(
 ) -> Tuple[str, str, Dict[str, Any]]:
     """Generates the requested visual card and returns (file_path, card_title, data_summary)."""
     ctype = (card_type or "progress").lower().strip()
-    if ctype in ("leaderboard", "ranks", "لیدربورد", "رتبه"):
+    if ctype in ("leaderboard", "ranks", "لیدربورد", "رتبه", "سکوی"):
         return render_leaderboard_card(db)
     elif ctype in ("schedule", "timetable", "برنامه", "زنگ"):
         return render_schedule_card(db, target_day=target_day)
     elif ctype in ("assignments", "tasks", "مشق", "تکالیف"):
         return render_assignments_card(db, user, target_day=target_day)
     else:
+        # progress / chart / default
         return render_progress_card(db, user)

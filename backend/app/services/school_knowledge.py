@@ -217,6 +217,32 @@ def format_due_date_relative(due_utc: Optional[datetime], now_iran: Optional[dat
     return rel
 
 
+def is_assignment_overdue(due_utc: Optional[datetime], subject_id: Optional[str] = None) -> bool:
+    """Check if an assignment deadline has passed in Iran school context.
+
+    An assignment is considered overdue if:
+    1. Its UTC timestamp is strictly in the past (due_utc < utcnow()), OR
+    2. In Iran time (+03:30), its calendar due date is before today, OR
+    3. In Iran time, its calendar due date is today AND the school day has ended (after 14:00 Iran time).
+    """
+    if not due_utc:
+        return False
+    now_utc = datetime.utcnow()
+    if due_utc < now_utc:
+        return True
+
+    iran_now = get_iran_now()
+    due_iran = due_utc + timedelta(hours=3.5)
+
+    if due_iran.date() < iran_now.date():
+        return True
+    elif due_iran.date() == iran_now.date():
+        # If today in Iran, check whether the school day has concluded (after 14:00)
+        if iran_now.hour >= 14:
+            return True
+    return False
+
+
 def resolve_target_day_bounds(
     target_day: Optional[str] = None,
 ) -> Tuple[datetime, datetime, str, str]:

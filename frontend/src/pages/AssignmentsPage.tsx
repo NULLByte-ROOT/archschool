@@ -667,9 +667,10 @@ export default function AssignmentsPage() {
         continue;
       }
       const cd = dueCountdown(item.due_date, now, bells, item.subject_id);
+      if (cd && cd.overdue) continue;
       if (!cd) {
         later.push(item);
-      } else if (cd.urgent || cd.overdue) {
+      } else if (cd.urgent && !cd.overdue) {
         urgent.push(item);
       } else {
         later.push(item);
