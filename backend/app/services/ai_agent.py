@@ -440,6 +440,7 @@ def execute_tool(
                 pending_list.append({
                     "id": a.id,
                     "title": a.title,
+                    "description": a.description or "",
                     "subject": subj_name,
                     "teacher": teacher_name,
                     "due_date_relative": rel_due,
@@ -1055,14 +1056,16 @@ def build_live_school_context(db: Session, current_user: Optional[models.User] =
                 for t in pending_tasks:
                     due_str = school_knowledge.format_due_date_relative(t.due_date) if t.due_date else "بدون مهلت خاص"
                     rem = " [فقط جهت یادآوری]" if getattr(t, "is_reminder_only", False) else ""
-                    lines.append(f"  ▫️ [شناسه: {t.id}] {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem}")
+                    desc = f" | موضوع و قضیه تکلیف: {t.description.strip()}" if t.description and t.description.strip() else ""
+                    lines.append(f"  ▫️ [شناسه: {t.id}] {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem}{desc}")
             else:
                 lines.append("⏳ تکالیف باقی‌مانده: کاربر تمام تکالیف جاری را تیک زده و هیچ تکلیف باقی‌مانده‌ای ندارد! 🎉")
 
             if done_tasks:
                 lines.append("✅ تکالیف جاری انجام‌شده کاربر (تیک‌خورده / حل شده):")
                 for t in done_tasks:
-                    lines.append(f"  ▫️ [شناسه: {t.id}] {t.title} ({t.course or 'عمومی'}) [انجام شد]")
+                    desc = f" | موضوع و قضیه تکلیف: {t.description.strip()}" if t.description and t.description.strip() else ""
+                    lines.append(f"  ▫️ [شناسه: {t.id}] {t.title} ({t.course or 'عمومی'}) [انجام شد]{desc}")
         else:
             if active_tasks:
                 lines.append("\n📝 لیست تکالیف جاری و فعال کلاس:")
@@ -1070,13 +1073,16 @@ def build_live_school_context(db: Session, current_user: Optional[models.User] =
                     due_str = school_knowledge.format_due_date_relative(t.due_date) if t.due_date else "بدون مهلت خاص"
                     rem = " [فقط جهت یادآوری]" if getattr(t, "is_reminder_only", False) else ""
                     comp_count = db.query(models.AssignmentCompletion).filter(models.AssignmentCompletion.assignment_id == t.id).count()
-                    lines.append(f"  ▫️ [شناسه: {t.id}] {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem} (انجام داده: {comp_count} نفر)")
+                    desc = f" | موضوع و قضیه تکلیف: {t.description.strip()}" if t.description and t.description.strip() else ""
+                    lines.append(f"  ▫️ [شناسه: {t.id}] {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem} (انجام داده: {comp_count} نفر){desc}")
             else:
                 lines.append("\n📝 لیست تکالیف: در حال حاضر هیچ تکلیف فعال و جاری در کلاس ثبت نشده است.")
 
         lines.append(
-            "\n⛔ قانون حیاتی عدم اشاره به تکالیف منقضی‌شده:\n"
-            "تکالیفی که مهلت آن‌ها سپری شده است (Overdue)، کاملاً از دسترس شما خارج شده‌اند و نباید به عنوان تکلیف جاری شناخته شوند. هرگز در پاسخ‌های خود به تکالیف گذشته یا منقضی‌شده اشاره نکن. فقط تکالیفی که در بالا لیست شده‌اند تکالیف جاری و فعال هستند."
+            "\n📌 رویکرد نسبت به تکالیف (صرفاً جهت اطلاع‌رسانی و آگاهی):\n"
+            "۱. آگاهی شما از تکالیف و توضیحات آن‌ها صرفاً جهت اطلاع‌رسانی، دانستن موضوع و قضیه درس‌ها، و پاسخ‌گویی دقیق به سوالات بچه‌هاست.\n"
+            "۲. در گپ‌ها و مکالمات عادی به‌هیچ‌وجه به کاربر گیر نده، موعظه نکن و مثل ناظم رفتار نکن. فقط اگر خود کاربر درباره تکالیف، مهلت‌ها، کیا انجام دادند یا موضوع تکلیف پرسید، دوستانه و دقیق اطلاع‌رسانی کن.\n"
+            "۳. تکالیف منقضی‌شده و گذشته (Overdue) اصلاً تکلیف جاری محسوب نمی‌شوند و هرگز نباید به آن‌ها به عنوان تکلیف فعال اشاره کنی."
         )
 
         lines.append(
