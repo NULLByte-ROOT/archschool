@@ -272,7 +272,7 @@ def _toggle_completion(
 def list_assignments(
     completed: Optional[bool] = Query(None),
     course: Optional[str] = Query(None),
-    include_overdue: bool = Query(True),
+    include_overdue: bool = Query(False),
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
@@ -301,7 +301,7 @@ def list_assignments(
         _serialize(obj, current)
         for obj in q.order_by(models.Assignment.created_at.desc()).all()
     ]
-    if (completed is False or not include_overdue) and not include_overdue:
+    if not include_overdue:
         from ..services import school_knowledge
         items = [
             r for r in items
@@ -320,12 +320,10 @@ def list_overdue_assignments(
     Declared before ``/{assignment_id}`` so FastAPI does not try to parse
     "overdue" as an integer path parameter.
     """
-    now = datetime.utcnow()
     q = (
         _base_query(db)
         .filter(
             models.Assignment.due_date.isnot(None),
-            models.Assignment.due_date < now,
         )
     )
     if current.created_at:
@@ -337,7 +335,13 @@ def list_overdue_assignments(
             )
         )
     q = q.order_by(models.Assignment.due_date.desc())
-    return [_serialize(obj, current) for obj in q.all()]
+    from ..services import school_knowledge
+    items = [
+        _serialize(obj, current)
+        for obj in q.all()
+        if school_knowledge.is_assignment_overdue(obj.due_date, obj.subject_id)
+    ]
+    return items
 
 
 @router.get("/{assignment_id}", response_model=schemas.AssignmentOut)

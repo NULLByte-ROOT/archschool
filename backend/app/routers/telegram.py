@@ -177,6 +177,31 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     # Find if sender is an authenticated ArchSchool user
     user = db.query(models.User).filter(models.User.telegram_id == from_id).first()
 
+    # Auto-link user by telegram username or app username if not previously linked
+    if not user and from_username:
+        from sqlalchemy import func, or_
+        matched = (
+            db.query(models.User)
+            .filter(
+                or_(
+                    func.lower(models.User.username) == from_username.lower(),
+                    func.lower(models.User.telegram_username) == from_username.lower(),
+                )
+            )
+            .first()
+        )
+        if matched and (not matched.telegram_id or matched.telegram_id == from_id):
+            matched.telegram_id = from_id
+            matched.telegram_username = from_username
+            try:
+                db.commit()
+                user = matched
+            except Exception:
+                db.rollback()
+
+    if user and models.is_owner(user) and chat_type == "private":
+        telegram_bot.set_bot_setting(db, "owner_telegram_chat_id", str(chat_id))
+
     # --- 1. Handle Private Chat Linking & Commands ---
     if chat_type == "private":
         # Handle link token
@@ -226,6 +251,16 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
         if is_owner_user and is_report_req:
             report_msg = telegram_bot.build_owner_detailed_report(db)
             await telegram_bot.send_telegram_message(token, chat_id, report_msg, reply_to_message_id=msg_id)
+            return
+
+        # Dedicated Owner/Admin Command: Trigger Overdue Check
+        if (is_owner_user or (user and user.is_admin)) and any(k in text.lower() for k in ("/check_overdue", "بررسی تکالیف", "چک تکالیف")):
+            cnt = await telegram_bot.process_overdue_assignments(db, force=True)
+            await telegram_bot.send_telegram_message(
+                token, chat_id,
+                f"🔄 بررسی تکالیف منقضی‌شده انجام شد. تعداد {cnt} تکلیف پیگیری و اعلام شد.",
+                reply_to_message_id=msg_id
+            )
             return
 
     # --- 2. Handle Group Chat Mention / Reply Check ---

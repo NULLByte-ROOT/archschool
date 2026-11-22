@@ -194,6 +194,36 @@ def _backfill_daily_activity() -> None:
         db.commit()
 
 
+def _reset_recent_overdue_markers() -> None:
+    """Reset overdue followup markers for recent assignments (last 7 days).
+    Ensures that after connecting/verifying Telegram group and bot credentials,
+    any missed overdue notifications are dispatched immediately by the daemon.
+    """
+    try:
+        from .database import SessionLocal
+        from . import models
+        from datetime import datetime, timedelta
+        cutoff = datetime.utcnow() - timedelta(days=7)
+        with SessionLocal() as db:
+            recent_ids = [
+                row[0]
+                for row in db.query(models.Assignment.id)
+                .filter(models.Assignment.due_date >= cutoff)
+                .all()
+            ]
+            if recent_ids:
+                deleted = (
+                    db.query(models.OverdueFollowupNotification)
+                    .filter(models.OverdueFollowupNotification.assignment_id.in_(recent_ids))
+                    .delete(synchronize_session=False)
+                )
+                if deleted:
+                    db.commit()
+                    logger.info("Reset %d recent overdue followup markers for redelivery", deleted)
+    except Exception as exc:
+        logger.warning("Could not reset recent overdue markers: %s", exc)
+
+
 def _run_boot_migrations() -> None:
     with _migration_lock():
         Base.metadata.create_all(bind=engine)
@@ -203,6 +233,7 @@ def _run_boot_migrations() -> None:
         _seed_school_schedule()
         _sync_manifest_updates()
         _ensure_owner_account()
+        _reset_recent_overdue_markers()
 
 
 def _ensure_owner_account() -> None:

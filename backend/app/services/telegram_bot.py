@@ -777,12 +777,14 @@ async def broadcast_new_assignment(
     return await send_telegram_message(token, group_id, text)
 
 
-async def process_overdue_assignments(db: Session) -> int:
+async def process_overdue_assignments(db: Session, force: bool = False) -> int:
     """Find newly expired assignments and send automated private follow-up messages
     to incomplete students, and tag them in the school Telegram group.
     """
     token = get_bot_setting(db, "telegram_bot_token")
     group_id = get_bot_setting(db, "telegram_group_id")
+    owner_chat_id = get_bot_setting(db, "owner_telegram_chat_id")
+    target_group = group_id or owner_chat_id
     enabled = get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
     if not token or not enabled:
         return 0
@@ -794,12 +796,16 @@ async def process_overdue_assignments(db: Session) -> int:
         return 0
 
     from . import ai_agent, school_knowledge
+    from sqlalchemy import or_
 
     candidates = (
         db.query(models.Assignment)
         .filter(
             models.Assignment.deleted_at.is_(None),
-            models.Assignment.is_reminder_only.is_(False),
+            or_(
+                models.Assignment.is_reminder_only.is_(False),
+                models.Assignment.is_reminder_only.is_(None),
+            ),
             models.Assignment.due_date.isnot(None),
         )
         .order_by(models.Assignment.due_date.asc())
@@ -819,18 +825,7 @@ async def process_overdue_assignments(db: Session) -> int:
             .filter(models.OverdueFollowupNotification.assignment_id == asgn.id)
             .first()
         )
-        if existing:
-            continue
-
-        marker = models.OverdueFollowupNotification(assignment_id=asgn.id)
-        db.add(marker)
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            continue
-        except Exception:
-            db.rollback()
+        if existing and not force:
             continue
 
         completed_user_ids = {
@@ -840,28 +835,36 @@ async def process_overdue_assignments(db: Session) -> int:
             .all()
         }
 
-        uncompleted_users = (
-            db.query(models.User)
-            .filter(
-                models.User.is_active.is_(True),
-                ~models.User.id.in_(completed_user_ids),
-            )
-            .all()
-        )
+        q_users = db.query(models.User).filter(models.User.is_active.is_(True))
+        if completed_user_ids:
+            q_users = q_users.filter(~models.User.id.in_(completed_user_ids))
+        uncompleted_users = q_users.all()
+
+        if not uncompleted_users:
+            continue
 
         subj_info = school_knowledge.resolve_subject(asgn.subject_id or asgn.course or "")
         teacher = f" (استاد {subj_info['teacher']})" if subj_info else ""
         subj_name = subj_info["name"] if subj_info else (asgn.subject_id or "عمومی")
         due_str = school_knowledge.format_iran_datetime(asgn.due_date) if asgn.due_date else "گذشته"
 
+        sent_any = False
+
         # 1. Private chat follow-up to each incomplete student
         if pv_enabled:
             for u in uncompleted_users:
                 target_chat_id = u.telegram_id
-                if not target_chat_id and u.telegram_username:
-                    target_chat_id = f"@{u.telegram_username.lstrip('@')}"
+                if not target_chat_id and (models.is_owner(u) or u.id == 1) and owner_chat_id:
+                    target_chat_id = owner_chat_id
+                    try:
+                        u.telegram_id = int(owner_chat_id)
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+
                 if not target_chat_id:
                     continue
+
                 pv_context = {
                     "event": "overdue_pv",
                     "student_name": u.username,
@@ -877,22 +880,18 @@ async def process_overdue_assignments(db: Session) -> int:
                         f"آیا این تکلیف را انجام دادی یا به مشکلی خوردی؟ لطفاً وضعیتت را مشخص کن تا درصد و استریکت آسیب نبیند! ⚡"
                     )
                 try:
-                    await send_telegram_message(token, target_chat_id, ai_msg)
-                    logger.info("Sent automated overdue PV follow-up to user %s for assignment %s", u.username, asgn.id)
+                    if await send_telegram_message(token, target_chat_id, ai_msg):
+                        sent_any = True
+                        logger.info("Sent automated overdue PV follow-up to user %s for assignment %s", u.username, asgn.id)
                 except Exception as pv_err:
                     logger.warning("Failed to send overdue PV message to user %s: %s", u.id, pv_err)
 
         # 2. Group callout tagging incomplete students
-        if group_enabled and group_id and uncompleted_users:
+        if group_enabled and target_group and uncompleted_users:
             user_mentions = []
             for u in uncompleted_users:
                 if u.telegram_id:
-                    if u.telegram_link_token and not u.telegram_link_token.startswith("arch_"):
-                        user_mentions.append(f"@{u.telegram_link_token}")
-                    elif u.telegram_username:
-                        user_mentions.append(f"@{u.telegram_username.lstrip('@')}")
-                    else:
-                        user_mentions.append(f'<a href="tg://user?id={u.telegram_id}">{u.username}</a>')
+                    user_mentions.append(f'<a href="tg://user?id={u.telegram_id}">{u.username}</a>')
                 elif u.telegram_username:
                     user_mentions.append(f"@{u.telegram_username.lstrip('@')}")
                 else:
@@ -916,12 +915,22 @@ async def process_overdue_assignments(db: Session) -> int:
                     f"بچه‌ها سریعاً بیاید پیوی ربات کارتون دارم! وضعیت تکلیفتون رو سریع‌تر مشخص کنید تا استریک‌هاتون صفر نشه! ⚠️🔥"
                 )
             try:
-                await send_telegram_message(token, group_id, ai_group_msg)
-                logger.info("Broadcasted automated overdue group callout for assignment %s with %d users tagged", asgn.id, len(user_mentions))
+                if await send_telegram_message(token, target_group, ai_group_msg):
+                    sent_any = True
+                    logger.info("Broadcasted automated overdue group callout for assignment %s with %d users tagged", asgn.id, len(user_mentions))
             except Exception as grp_err:
                 logger.warning("Failed to send overdue group callout for assignment %s: %s", asgn.id, grp_err)
 
-        processed_count += 1
+        if sent_any and not existing:
+            marker = models.OverdueFollowupNotification(assignment_id=asgn.id)
+            db.add(marker)
+            try:
+                db.commit()
+            except Exception:
+                db.rollback()
+
+        if sent_any:
+            processed_count += 1
 
     return processed_count
 

@@ -58,7 +58,6 @@ import {
   categoryItemLabel,
   formatDue,
   parseDue,
-  parseDueTs,
   subjectName,
 } from "../lib/assignments";
 import {
@@ -604,8 +603,24 @@ export default function AssignmentsPage() {
     []
   );
 
+  const isOverdue = useCallback((item: Assignment): boolean => {
+    if (!item.due_date) return false;
+    const due = parseDue(item.due_date);
+    if (!due) return false;
+    if (due.getTime() <= now) return true;
+    const cd = dueCountdown(item.due_date, now, bells, item.subject_id);
+    if (cd && cd.overdue) return true;
+    const dueDate = new Date(due.getTime());
+    const nowDate = new Date(now);
+    const dueDayNum = dueDate.getFullYear() * 10000 + (dueDate.getMonth() + 1) * 100 + dueDate.getDate();
+    const nowDayNum = nowDate.getFullYear() * 10000 + (nowDate.getMonth() + 1) * 100 + nowDate.getDate();
+    if (dueDayNum < nowDayNum) return true;
+    if (dueDayNum === nowDayNum && nowDate.getHours() >= 14) return true;
+    return false;
+  }, [now, bells]);
+
   const displayed = useMemo(() => {
-    let list = items;
+    let list = items.filter((a) => !isOverdue(a));
     if (categoryFilter === "project") list = list.filter((a) => a.subtype === "practical");
     else if (categoryFilter) list = list.filter((a) => a.category === categoryFilter);
     if (subjectFilter) list = list.filter((a) => a.subject_id === subjectFilter);
@@ -622,7 +637,7 @@ export default function AssignmentsPage() {
         direction * (parseDue(a.created_at).getTime() - parseDue(b.created_at).getTime())
     );
     return sorted;
-  }, [items, categoryFilter, subjectFilter, sort, now, bells]);
+  }, [items, isOverdue, categoryFilter, subjectFilter, sort, now, bells]);
 
   const upcoming = useMemo(
     () =>
@@ -632,12 +647,12 @@ export default function AssignmentsPage() {
             !item.is_completed_by_me &&
             item.due_date &&
             // مهلت‌گذشته‌ها فقط در صفحهٔ اختصاصی دیده می‌شوند
-            parseDueTs(item.due_date) >= now
+            !isOverdue(item)
         ),
         now,
         bells
       ).slice(0, 5),
-    [items, now, bells]
+    [items, isOverdue, now, bells]
   );
 
   const completedCount = useMemo(
@@ -657,7 +672,7 @@ export default function AssignmentsPage() {
     const completed: Assignment[] = [];
     for (const item of displayed) {
       // مهلت گذشته → فقط در صفحهٔ «تکالیف مهلت گذشته» (حتی اگر انجام شده باشد)
-      if (item.due_date && parseDueTs(item.due_date) < now) continue;
+      if (isOverdue(item)) continue;
       if (item.is_completed_by_me) {
         completed.push(item);
         continue;
