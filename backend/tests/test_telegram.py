@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timedelta
 from app import models
 from app.services import ai_agent, telegram_bot
 
@@ -581,6 +582,93 @@ async def test_mirror_pv_to_owner(db_session, monkeypatch):
     )
     assert res_group is False
     assert len(sent_messages) == 0
+
+
+def test_check_who_completed_assignment(db_session):
+    from app.services import ai_agent
+
+    # 1. Create users
+    u1 = models.User(username="ali_comp", code="ALI_C1", role=models.ROLE_MEMBER, is_active=True)
+    u2 = models.User(username="reza_comp", code="REZ_C1", role=models.ROLE_MEMBER, is_active=True)
+    u3 = models.User(username="sara_comp", code="SAR_C1", role=models.ROLE_MEMBER, is_active=True)
+    db_session.add_all([u1, u2, u3])
+    db_session.commit()
+
+    # 2. Create an assignment
+    asgn = models.Assignment(
+        title="تمرین هندسه تحلیلی",
+        course="ریاضی",
+        subject_id="math",
+        due_date=datetime.utcnow() + timedelta(days=2),
+    )
+    db_session.add(asgn)
+    db_session.commit()
+
+    # 3. u1 and u2 mark it completed; u3 has not
+    c1 = models.AssignmentCompletion(user_id=u1.id, assignment_id=asgn.id)
+    c2 = models.AssignmentCompletion(user_id=u2.id, assignment_id=asgn.id)
+    db_session.add_all([c1, c2])
+    db_session.commit()
+
+    # 4. Check completions with natural language query
+    data = ai_agent.execute_check_assignment_completions(db_session, "کیا هندسه تحلیلی رو انجام دادن")
+    assert data["success"] is True
+    assert data["assignment_id"] == asgn.id
+    assert data["completed_count"] == 2
+    assert "ali_comp" in data["completed_students"]
+    assert "reza_comp" in data["completed_students"]
+    assert "sara_comp" in data["pending_students"]
+
+    # 5. Test HTML formatter
+    html_msg = ai_agent.format_assignment_completions_html(data)
+    assert "گزارش وضعیت انجام تکلیف کلاسی" in html_msg
+    assert "تمرین هندسه تحلیلی" in html_msg
+    assert "ali_comp" in html_msg
+    assert "sara_comp" in html_msg
+    assert "تیک زده و انجام داده‌اند (2 نفر)" in html_msg
+
+
+def test_live_context_strictly_excludes_overdue_and_segregates_realtime(db_session):
+    from app.services import ai_agent
+
+    user = models.User(username="sepehr_live", code="SEP_L1", role=models.ROLE_MEMBER, is_active=True)
+    db_session.add(user)
+    db_session.commit()
+
+    # Task 1: Overdue task (past due date)
+    overdue_task = models.Assignment(
+        title="تکلیف قدیمی شیمی",
+        course="شیمی",
+        due_date=datetime.utcnow() - timedelta(days=3),
+    )
+    # Task 2: Active task
+    active_task = models.Assignment(
+        title="پروژه طراحی وب",
+        course="طراحی وب",
+        due_date=datetime.utcnow() + timedelta(days=2),
+    )
+    db_session.add_all([overdue_task, active_task])
+    db_session.commit()
+
+    # Before user ticks the active task
+    ctx1 = ai_agent.build_live_school_context(db_session, current_user=user)
+    # Overdue task MUST NOT be in live context!
+    assert "تکلیف قدیمی شیمی" not in ctx1
+    # Active task MUST be present under pending
+    assert "پروژه طراحی وب" in ctx1
+    assert "تکالیف جاری باقی‌مانده" in ctx1
+
+    # Now user completes the active task
+    comp = models.AssignmentCompletion(user_id=user.id, assignment_id=active_task.id)
+    db_session.add(comp)
+    db_session.commit()
+
+    # Next call must instantly reflect the update in real-time memory!
+    ctx2 = ai_agent.build_live_school_context(db_session, current_user=user)
+    assert "تکلیف قدیمی شیمی" not in ctx2
+    assert "تکالیف جاری انجام‌شده کاربر" in ctx2
+    assert "پروژه طراحی وب" in ctx2
+
 
 
 

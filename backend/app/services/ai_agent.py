@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 import httpx
@@ -184,6 +185,23 @@ OPENAI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "check_assignment_completions",
+            "description": "استعلام و بررسی دقیق این‌که چه کسانی یک تکلیف یا درس خاص را انجام داده و تیک زده‌اند و چه کسانی هنوز انجام نداده‌اند. هر زمان هر کاربری پرسید «کیا فلان تکلیف رو انجام دادن»، «کی‌ها تیک زدن»، «کیا فرستادن/کامل کردن»، یا آمار انجام و تحویل یک تکلیف را خواست، حتماً این ابزار را فراخوانی کن.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "assignment_query": {
+                        "type": "string",
+                        "description": "نام یا کلمات کلیدی تکلیف یا درس (مثلاً: ریاضی، شیمی، تمرین صفحه ۲۰، طراحی وب)",
+                    },
+                },
+                "required": ["assignment_query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "open_add_homework_wizard",
             "description": "باز کردن و ارسال منوی تعاملی و دکمه‌ای هوشمند برای افزودن یا ثبت تکلیف، مشق، امتحان، پروژه یا یادآوری جدید در مدرسه. هر زمان کاربر تمایل به ایجاد، ثبت، تعریف، یا افزودن تکلیف یا یادآوری جدید داشت، این ابزار را فراخوانی کن.",
             "parameters": {
@@ -221,12 +239,166 @@ OPENAI_TOOLS = [
 ]
 
 
+def execute_check_assignment_completions(db: Session, query_str: str) -> Dict[str, Any]:
+    """Check who has completed (ticked) a specific assignment and who has not."""
+    clean_q = (query_str or "").strip()
+    # Normalize common Persian prefixes/fillers
+    fillers = (
+        "کیا", "کی‌ها", "کی ها", "چه کسانی", "کدوم بچه‌ها", "کدام بچه‌ها", "رو", "را",
+        "تکلیف", "مشق", "درس", "انجام دادن", "انجام داده", "انجام دادند", "تیک زدن",
+        "تیک زده", "تیک زدند", "تیک زدنش", "حل کردن", "حل کرده", "نوشتن", "نوشته",
+        "کامل کردن", "کامل کرده", "فرستادن", "فرستاده", "کامل شد", "وضعیت", "چک کن", "ببین"
+    )
+    for w in fillers:
+        clean_q = re.sub(rf'\b{re.escape(w)}\b', ' ', clean_q)
+        clean_q = clean_q.replace(w, ' ')
+    clean_q = re.sub(r'[\?\!؟،,]+', ' ', clean_q)
+    clean_q = re.sub(r'\s+', ' ', clean_q).strip()
+
+    base_q = db.query(models.Assignment).filter(models.Assignment.deleted_at.is_(None))
+    candidates: List[models.Assignment] = []
+
+    if clean_q:
+        candidates = base_q.filter(
+            or_(
+                models.Assignment.title.ilike(f"%{clean_q}%"),
+                models.Assignment.course.ilike(f"%{clean_q}%"),
+                models.Assignment.subject_id.ilike(f"%{clean_q}%"),
+                models.Assignment.description.ilike(f"%{clean_q}%"),
+            )
+        ).all()
+
+        if not candidates and " " in clean_q:
+            for word in clean_q.split():
+                if len(word) >= 2:
+                    sub_c = base_q.filter(
+                        or_(
+                            models.Assignment.title.ilike(f"%{word}%"),
+                            models.Assignment.course.ilike(f"%{word}%"),
+                            models.Assignment.subject_id.ilike(f"%{word}%"),
+                        )
+                    ).all()
+                    if sub_c:
+                        candidates.extend(sub_c)
+            seen = set()
+            dedup = []
+            for c in candidates:
+                if c.id not in seen:
+                    seen.add(c.id)
+                    dedup.append(c)
+            candidates = dedup
+
+    if not candidates and not clean_q:
+        candidates = base_q.order_by(models.Assignment.due_date.asc().nulls_last()).all()
+
+    if not candidates:
+        return {
+            "success": False,
+            "message": f"تکلیفی متناسب با «{query_str}» در سیستم پیدا نشد. لطفاً نام درس یا عنوان تکلیف را مشخص‌تر بفرمایید.",
+        }
+
+    # Sort candidates: active (non-overdue) first, then nearest due date or newest created
+    candidates.sort(
+        key=lambda a: (
+            1 if school_knowledge.is_assignment_overdue(a.due_date, a.subject_id) else 0,
+            a.due_date or datetime.max,
+        )
+    )
+    target = candidates[0]
+
+    completions = (
+        db.query(models.AssignmentCompletion)
+        .filter(models.AssignmentCompletion.assignment_id == target.id)
+        .all()
+    )
+    completed_user_ids = {c.user_id for c in completions}
+
+    all_users = (
+        db.query(models.User)
+        .filter(models.User.is_active.is_(True))
+        .order_by(models.User.username.asc())
+        .all()
+    )
+
+    def format_name(u: models.User) -> str:
+        fn = getattr(u, "full_name", None)
+        return f"{fn} ({u.username})" if fn and fn.strip() else u.username
+
+    completed_list = [format_name(u) for u in all_users if u.id in completed_user_ids]
+    pending_list = [format_name(u) for u in all_users if u.id not in completed_user_ids]
+
+    total_count = len(all_users)
+    done_count = len(completed_list)
+    pending_count = len(pending_list)
+    pct = round((done_count / total_count * 100), 1) if total_count > 0 else 0.0
+    rel_due = school_knowledge.format_due_date_relative(target.due_date) if target.due_date else "بدون مهلت خاص"
+
+    return {
+        "success": True,
+        "assignment_id": target.id,
+        "title": target.title,
+        "course": target.course or "عمومی",
+        "due_date_relative": rel_due,
+        "is_overdue": school_knowledge.is_assignment_overdue(target.due_date, target.subject_id),
+        "total_students": total_count,
+        "completed_count": done_count,
+        "pending_count": pending_count,
+        "completion_percentage": pct,
+        "completed_students": completed_list,
+        "pending_students": pending_list,
+        "summary": f"{done_count} نفر از {total_count} نفر ({pct}٪) تکلیف «{target.title}» را انجام داده و تیک زده‌اند.",
+    }
+
+
+def format_assignment_completions_html(data: Dict[str, Any]) -> str:
+    """Format check_assignment_completions output for Telegram HTML."""
+    if not data.get("success"):
+        return f"⚠️ {data.get('message', 'تکلیف مورد نظر پیدا نشد.')}"
+
+    title = data["title"]
+    course = data.get("course") or "عمومی"
+    rel_due = data.get("due_date_relative", "")
+    comp_list = data.get("completed_students", [])
+    pend_list = data.get("pending_students", [])
+    done_cnt = data.get("completed_count", 0)
+    pend_cnt = data.get("pending_count", 0)
+    total_cnt = data.get("total_students", 0)
+    pct = data.get("completion_percentage", 0.0)
+
+    if comp_list:
+        comp_str = "\n".join([f"🔹 {name}" for name in comp_list])
+    else:
+        comp_str = "<i>هنوز هیچ‌یک از دانش‌آموزان این تکلیف را تیک نزده‌اند.</i>"
+
+    if pend_list:
+        pend_str = "\n".join([f"▫️ {name}" for name in pend_list])
+    else:
+        pend_str = "<i>آفرین به همه! تمام دانش‌آموزان این تکلیف را کامل کرده‌اند! 👏🔥</i>"
+
+    return (
+        f"📋 <b>گزارش وضعیت انجام تکلیف کلاسی</b>\n\n"
+        f"📌 <b>تکلیف:</b> <b>{title}</b> ({course})\n"
+        f"📅 <b>مهلت تحویل:</b> {rel_due}\n"
+        f"────────────────────\n"
+        f"✅ <b>تیک زده و انجام داده‌اند ({done_cnt} نفر):</b>\n"
+        f"{comp_str}\n\n"
+        f"⏳ <b>هنوز انجام نداده‌اند ({pend_cnt} نفر):</b>\n"
+        f"{pend_str}\n"
+        f"────────────────────\n"
+        f"📊 <b>پیشرفت کلاس:</b> <b>{pct}٪</b> ({done_cnt} از {total_cnt} نفر)"
+    )
+
+
 def execute_tool(
     name: str, args: Dict[str, Any], db: Session, current_user: Optional[models.User]
 ) -> Dict[str, Any]:
     """Execute python functions corresponding to function calls."""
     try:
-        if name == "get_my_status":
+        if name == "check_assignment_completions":
+            q_text = (args.get("assignment_query") or "").strip()
+            return execute_check_assignment_completions(db, q_text)
+
+        elif name == "get_my_status":
             if not current_user:
                 return {
                     "success": False,
@@ -237,28 +409,27 @@ def execute_tool(
             user_entry = next((e for e in entries if e["user"].id == current_user.id), None)
             now = datetime.utcnow()
 
-            # Find uncompleted assignments that are currently ACTIVE (deadline not expired or no deadline)
+            # Find uncompleted assignments that are currently ACTIVE (deadline strictly not expired)
             completed_ids = (
                 select(models.AssignmentCompletion.assignment_id)
                 .filter(models.AssignmentCompletion.user_id == current_user.id)
             )
-            pending = (
+            raw_pending = (
                 db.query(models.Assignment)
                 .filter(
                     models.Assignment.deleted_at.is_(None),
                     ~models.Assignment.id.in_(completed_ids),
-                    or_(
-                        models.Assignment.due_date.is_(None),
-                        models.Assignment.due_date >= now,
-                    ),
                 )
                 .order_by(
                     models.Assignment.due_date.asc().nulls_last(),
                     models.Assignment.created_at.desc(),
                 )
-                .limit(5)
                 .all()
             )
+            pending = [
+                a for a in raw_pending
+                if not school_knowledge.is_assignment_overdue(a.due_date, a.subject_id)
+            ][:5]
 
             pending_list = []
             for a in pending:
@@ -296,10 +467,6 @@ def execute_tool(
 
             query = db.query(models.Assignment).filter(
                 models.Assignment.deleted_at.is_(None),
-                or_(
-                    models.Assignment.due_date.is_(None),
-                    models.Assignment.due_date >= now,
-                ),
             )
 
             # Apply subject filter if specified
@@ -322,7 +489,12 @@ def execute_tool(
                 models.Assignment.created_at.desc(),
             )
 
-            assignments = query.limit(limit).all()
+            assignments_raw = query.all()
+            # Strictly filter out any overdue assignments
+            assignments = [
+                a for a in assignments_raw
+                if not school_knowledge.is_assignment_overdue(a.due_date, a.subject_id)
+            ][:limit]
 
             if not assignments:
                 msg = f"در حال حاضر هیچ تکلیف فعالی برای درس '{subject_filter}' وجود ندارد." if subject_filter else "در حال حاضر هیچ تکلیف فعالی با مهلت تحویل باز در اپلیکیشن وجود ندارد."
@@ -347,7 +519,7 @@ def execute_tool(
                     "teacher": teacher_name,
                     "due_date_relative": rel_due,
                     "due_date": a.due_date.strftime("%Y-%m-%d %H:%M") if a.due_date else "بدون مهلت خاص",
-                    "is_expired": bool(a.due_date and a.due_date < now),
+                    "is_expired": False,
                 })
 
             return {
@@ -855,29 +1027,57 @@ def build_live_school_context(db: Session, current_user: Optional[models.User] =
     except Exception as exc:
         logger.warning("Could not build leaderboard context: %s", exc)
 
-    # Active Assignments injected into memory
+    # Active & Current Assignments injected into memory (Strictly non-overdue)
     try:
-        now = datetime.utcnow()
-        active_tasks = (
+        raw_tasks = (
             db.query(models.Assignment)
-            .filter(
-                models.Assignment.deleted_at.is_(None),
-                or_(
-                    models.Assignment.due_date.is_(None),
-                    models.Assignment.due_date >= now,
-                ),
-            )
+            .filter(models.Assignment.deleted_at.is_(None))
             .order_by(models.Assignment.due_date.asc().nulls_last())
             .all()
         )
-        if active_tasks:
-            lines.append("\n📝 لیست تکالیف فعال در اپلیکیشن:")
-            for t in active_tasks:
-                due_str = t.due_date.strftime("%Y-%m-%d %H:%M") if t.due_date else "بدون مهلت خاص"
-                rem = " [فقط جهت یادآوری]" if getattr(t, "is_reminder_only", False) else ""
-                lines.append(f"- {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem}")
+        active_tasks = [
+            t for t in raw_tasks
+            if not school_knowledge.is_assignment_overdue(t.due_date, t.subject_id)
+        ]
+
+        if current_user:
+            completed_ids = set(
+                r[0] for r in db.query(models.AssignmentCompletion.assignment_id)
+                .filter(models.AssignmentCompletion.user_id == current_user.id)
+                .all()
+            )
+            done_tasks = [t for t in active_tasks if t.id in completed_ids]
+            pending_tasks = [t for t in active_tasks if t.id not in completed_ids]
+
+            lines.append(f"\n📝 وضعیت لحظه‌ای تکالیف جاری کاربر ({current_user.username}):")
+            if pending_tasks:
+                lines.append("⏳ تکالیف جاری باقی‌مانده (تیک‌نخورده / هنوز انجام نشده):")
+                for t in pending_tasks:
+                    due_str = school_knowledge.format_due_date_relative(t.due_date) if t.due_date else "بدون مهلت خاص"
+                    rem = " [فقط جهت یادآوری]" if getattr(t, "is_reminder_only", False) else ""
+                    lines.append(f"  ▫️ [شناسه: {t.id}] {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem}")
+            else:
+                lines.append("⏳ تکالیف باقی‌مانده: کاربر تمام تکالیف جاری را تیک زده و هیچ تکلیف باقی‌مانده‌ای ندارد! 🎉")
+
+            if done_tasks:
+                lines.append("✅ تکالیف جاری انجام‌شده کاربر (تیک‌خورده / حل شده):")
+                for t in done_tasks:
+                    lines.append(f"  ▫️ [شناسه: {t.id}] {t.title} ({t.course or 'عمومی'}) [انجام شد]")
         else:
-            lines.append("\n📝 لیست تکالیف: در حال حاضر هیچ تکلیف فعالی در اپلیکیشن ثبت نشده است.")
+            if active_tasks:
+                lines.append("\n📝 لیست تکالیف جاری و فعال کلاس:")
+                for t in active_tasks:
+                    due_str = school_knowledge.format_due_date_relative(t.due_date) if t.due_date else "بدون مهلت خاص"
+                    rem = " [فقط جهت یادآوری]" if getattr(t, "is_reminder_only", False) else ""
+                    comp_count = db.query(models.AssignmentCompletion).filter(models.AssignmentCompletion.assignment_id == t.id).count()
+                    lines.append(f"  ▫️ [شناسه: {t.id}] {t.title} ({t.course or 'عمومی'}) - مهلت: {due_str}{rem} (انجام داده: {comp_count} نفر)")
+            else:
+                lines.append("\n📝 لیست تکالیف: در حال حاضر هیچ تکلیف فعال و جاری در کلاس ثبت نشده است.")
+
+        lines.append(
+            "\n⛔ قانون حیاتی عدم اشاره به تکالیف منقضی‌شده:\n"
+            "تکالیفی که مهلت آن‌ها سپری شده است (Overdue)، کاملاً از دسترس شما خارج شده‌اند و نباید به عنوان تکلیف جاری شناخته شوند. هرگز در پاسخ‌های خود به تکالیف گذشته یا منقضی‌شده اشاره نکن. فقط تکالیفی که در بالا لیست شده‌اند تکالیف جاری و فعال هستند."
+        )
 
         lines.append(
             "\n🎨 دستور حیاتی نمودارها و گرافیک: هر زمان کاربر خواستار دیدن نمودار، کارنامه تصویری، چارت پیشرفت، عکس برنامه یا گفت «نمودار درست کن»، موظف هستی بلافاصله ابزار render_visual_card را فراخوانی کنی."

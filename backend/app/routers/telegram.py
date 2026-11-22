@@ -406,6 +406,17 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
         await telegram_bot.send_telegram_message(token, chat_id, reply_text, reply_to_message_id=msg_id)
         return
 
+    # --- 4.5 Direct 'Who Completed Assignment' Interceptor (100% immune to LLM hallucination) ---
+    is_who_completed_q = (
+        any(w in text for w in ("کیا", "کی‌ها", "کی ها", "چه کسانی", "کدوم بچه‌ها", "کدام بچه‌ها"))
+        and any(w in text for w in ("انجام دادن", "انجام داده", "انجام دادند", "تیک زدن", "تیک زده", "تیک زدند", "تیک زدنش", "حل کردن", "حل کرده", "نوشتن", "نوشته", "کامل کردن", "کامل کرده", "فرستادن", "فرستاده", "کامل شد"))
+    ) or text.startswith(("/who", "/completions", "/check_task"))
+    if is_who_completed_q:
+        data = ai_agent.execute_check_assignment_completions(db, text)
+        reply_text = ai_agent.format_assignment_completions_html(data)
+        await telegram_bot.send_telegram_message(token, chat_id, reply_text, reply_to_message_id=msg_id)
+        return
+
     # --- 5. Process prompt with Universal AI Agent (Handles queries, homework wizard, and visual cards dynamically) ---
     if not ai_key:
         await telegram_bot.send_telegram_message(
