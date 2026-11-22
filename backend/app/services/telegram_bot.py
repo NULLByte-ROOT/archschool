@@ -6,7 +6,7 @@ import os
 import re
 import secrets
 import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import httpx
 from sqlalchemy.orm import Session
 
@@ -439,6 +439,124 @@ def format_telegram_html(text: str) -> str:
     return "".join(parts).strip()
 
 
+def is_private_telegram_chat(chat_id: Any) -> bool:
+    """Check if chat_id represents a Telegram private chat (positive integer)."""
+    if not chat_id:
+        return False
+    try:
+        s = str(chat_id).strip()
+        if s.startswith("-"):
+            return False
+        return int(s) > 0
+    except (ValueError, TypeError):
+        return False
+
+
+async def mirror_pv_to_owner(
+    telegram_id: Any,
+    telegram_username: Optional[str] = None,
+    user_info: Optional[str] = None,
+    text: str = "",
+    direction: str = "inbound",  # "inbound" | "outbound" | "action"
+    token: Optional[str] = None,
+    db: Optional[Session] = None,
+) -> bool:
+    """Mirror any private chat message or action between a user and the bot to the Owner's PV."""
+    if not is_private_telegram_chat(telegram_id):
+        return False
+
+    session_to_close = None
+    if db is None:
+        from ..database import SessionLocal
+        session_to_close = SessionLocal()
+        session = session_to_close
+    else:
+        session = db
+
+    try:
+        owner_chat_id = get_owner_chat_id(session)
+        if not owner_chat_id:
+            return False
+
+        # Crucial safeguard: Never mirror owner's own interactions to the owner
+        if str(telegram_id).strip() == str(owner_chat_id).strip():
+            return False
+
+        # Look up user if user_info not fully resolved
+        if not user_info:
+            try:
+                t_id_int = int(str(telegram_id).strip())
+                u = session.query(models.User).filter(models.User.telegram_id == t_id_int).first()
+                if u:
+                    if models.is_owner(u):
+                        return False  # Owner account
+                    role_fa = "مدیر مدرسه" if u.is_admin else "دانش‌آموز"
+                    fname = getattr(u, "full_name", None)
+                    display_name = f"{fname} ({u.username})" if fname else u.username
+                    user_info = f"<b>{display_name}</b> [{role_fa}]"
+                    if not telegram_username and u.telegram_username:
+                        telegram_username = u.telegram_username
+            except Exception:
+                pass
+
+        if not user_info:
+            user_info = "<i>متصل‌نشده به حساب اپ</i>"
+
+        if not token:
+            token = get_bot_setting(session, "telegram_bot_token")
+    finally:
+        if session_to_close:
+            session_to_close.close()
+
+    if not token or not owner_chat_id:
+        return False
+
+    # Choose icon & direction header
+    if direction == "inbound":
+        header_title = "📩 <b>پیام دریافتی از کاربر در پیوی</b>"
+    elif direction == "outbound":
+        header_title = "🤖 <b>پاسخ ارسالی ربات به کاربر در پیوی</b>"
+    elif direction == "action":
+        header_title = "🔘 <b>عملیات کاربر در پیوی</b>"
+    else:
+        header_title = "💬 <b>مکالمه در پیوی</b>"
+
+    tg_user_str = f" (@{telegram_username})" if telegram_username else ""
+
+    clean_body = (text or "").strip()
+    if len(clean_body) > 3500:
+        clean_body = clean_body[:3450] + "\n... [متن طولانی کوتاه شد]"
+
+    mirror_msg = (
+        f"{header_title}\n"
+        f"👤 <b>کاربر در اپ:</b> {user_info}\n"
+        f"🆔 <b>آیدی تلگرام:</b> <code>{telegram_id}</code>{tg_user_str}\n"
+        f"────────────────────\n"
+        f"{clean_body}"
+    )
+
+    return await send_telegram_message(
+        token=token,
+        chat_id=owner_chat_id,
+        text=mirror_msg,
+        parse_mode="HTML",
+        mirror_pv=False,
+    )
+
+
+async def _async_mirror_outbound(token: str, target_chat_id: Any, text: str) -> None:
+    """Internal fire-and-forget task to mirror outbound PV messages to Owner."""
+    try:
+        await mirror_pv_to_owner(
+            telegram_id=target_chat_id,
+            text=text,
+            direction="outbound",
+            token=token,
+        )
+    except Exception as exc:
+        logger.debug("Failed outbound PV mirror to owner: %s", exc)
+
+
 async def send_telegram_message(
     token: str,
     chat_id: str | int,
@@ -446,8 +564,9 @@ async def send_telegram_message(
     parse_mode: str = "HTML",
     reply_to_message_id: Optional[int] = None,
     reply_markup: Optional[Dict[str, Any]] = None,
+    mirror_pv: bool = True,
 ) -> bool:
-    """Send a message via Telegram Bot HTTP API with automatic HTML sanitization and fallback."""
+    """Send a message via Telegram Bot HTTP API with automatic HTML sanitization, fallback and Owner PV mirroring."""
     if not token or not chat_id:
         return False
 
@@ -469,6 +588,8 @@ async def send_telegram_message(
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code == 200:
+                if mirror_pv and is_private_telegram_chat(chat_id):
+                    asyncio.create_task(_async_mirror_outbound(token, chat_id, text))
                 return True
             logger.warning("Telegram sendMessage error: %s %s", resp.status_code, resp.text)
 
@@ -481,6 +602,8 @@ async def send_telegram_message(
                 fallback_resp = await client.post(url, json=plain_payload)
                 if fallback_resp.status_code == 200:
                     logger.info("Telegram message sent successfully using plain-text fallback")
+                    if mirror_pv and is_private_telegram_chat(chat_id):
+                        asyncio.create_task(_async_mirror_outbound(token, chat_id, text))
                     return True
     except Exception as exc:
         logger.error("Failed to send Telegram message: %s", exc)
@@ -508,6 +631,7 @@ async def edit_telegram_message(
     text: str,
     reply_markup: Optional[Dict[str, Any]] = None,
     parse_mode: str = "HTML",
+    mirror_pv: bool = True,
 ) -> bool:
     """Edit an existing Telegram message (for step-by-step button wizards)."""
     if not token or not chat_id or not message_id:
@@ -528,6 +652,8 @@ async def edit_telegram_message(
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code == 200:
+                if mirror_pv and is_private_telegram_chat(chat_id):
+                    asyncio.create_task(_async_mirror_outbound(token, chat_id, f"🔄 [ویرایش پیام/ویزارد]:\n{text}"))
                 return True
             logger.warning("Telegram editMessageText error: %s %s", resp.status_code, resp.text)
             if parse_mode:
@@ -535,7 +661,11 @@ async def edit_telegram_message(
                 plain_payload.pop("parse_mode", None)
                 plain_payload["text"] = re.sub(r'<[^>]+>', '', formatted_text)
                 fallback_resp = await client.post(url, json=plain_payload)
-                return fallback_resp.status_code == 200
+                if fallback_resp.status_code == 200:
+                    if mirror_pv and is_private_telegram_chat(chat_id):
+                        asyncio.create_task(_async_mirror_outbound(token, chat_id, f"🔄 [ویرایش پیام/ویزارد]:\n{text}"))
+                    return True
+                return False
     except Exception as exc:
         logger.error("Failed to edit Telegram message: %s", exc)
     return False
@@ -1164,6 +1294,9 @@ async def send_telegram_photo(
         files = {"photo": (os.path.basename(photo_path), photo_bytes, "image/png")}
         resp = await client.post(url, data=data, files=files, timeout=25.0)
         if resp.status_code == 200:
+            if is_private_telegram_chat(chat_id):
+                cap_info = f"\nکپشن: {caption}" if caption else ""
+                asyncio.create_task(_async_mirror_outbound(token, chat_id, f"📷 [ارسال تصویر / نمودار آماری]{cap_info}"))
             return True
         logger.warning("Telegram sendPhoto error: %s %s", resp.status_code, resp.text[:200])
 
@@ -1175,6 +1308,9 @@ async def send_telegram_photo(
             files = {"photo": (os.path.basename(photo_path), photo_bytes, "image/png")}
             resp2 = await client.post(url, data=clean_data, files=files, timeout=25.0)
             if resp2.status_code == 200:
+                if is_private_telegram_chat(chat_id):
+                    cap_info = f"\nکپشن: {clean_data.get('caption')}" if clean_data.get('caption') else ""
+                    asyncio.create_task(_async_mirror_outbound(token, chat_id, f"📷 [ارسال تصویر / نمودار آماری]{cap_info}"))
                 return True
             logger.warning("Telegram sendPhoto fallback 1 error: %s %s", resp2.status_code, resp2.text[:200])
     except Exception as exc:
@@ -1278,10 +1414,17 @@ def record_system_error(
 
 def get_owner_user(db: Session) -> Optional[models.User]:
     """Retrieve system Owner account."""
-    return db.query(models.User).filter(
+    owner = db.query(models.User).filter(
         models.User.role == models.ROLE_OWNER,
         models.User.is_active.is_(True),
     ).first()
+    if not owner:
+        owner = db.query(models.User).filter(
+            models.User.is_admin.is_(True),
+            models.User.telegram_id.isnot(None),
+            models.User.is_active.is_(True),
+        ).first()
+    return owner
 
 
 def get_owner_chat_id(db: Session) -> Optional[int]:

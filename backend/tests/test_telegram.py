@@ -483,5 +483,106 @@ def test_render_visual_card_tool(db_session):
     assert os.path.exists(res_lb["image_path"])
 
 
+def test_is_private_telegram_chat():
+    from app.services.telegram_bot import is_private_telegram_chat
+
+    assert is_private_telegram_chat(12345678) is True
+    assert is_private_telegram_chat("12345678") is True
+    assert is_private_telegram_chat(-100123456789) is False
+    assert is_private_telegram_chat("-100123456789") is False
+    assert is_private_telegram_chat(0) is False
+    assert is_private_telegram_chat(None) is False
+    assert is_private_telegram_chat("not_a_number") is False
+
+
+@pytest.mark.asyncio
+async def test_mirror_pv_to_owner(db_session, monkeypatch):
+    from app.services import telegram_bot
+
+    owner = models.User(username="owner_boss", code="OWN99", role=models.ROLE_OWNER, telegram_id=999000, is_active=True)
+    student = models.User(username="mamad", code="MAM01", role=models.ROLE_MEMBER, telegram_id=111222, telegram_username="mamad_tg", is_active=True)
+    db_session.add_all([owner, student])
+    db_session.commit()
+
+    telegram_bot.set_bot_setting(db_session, "telegram_bot_token", "fake_token_123")
+    telegram_bot.set_bot_setting(db_session, "owner_telegram_chat_id", "999000")
+
+    sent_messages = []
+
+    async def fake_send_message(token, chat_id, text, **kwargs):
+        sent_messages.append({"chat_id": chat_id, "text": text, **kwargs})
+        return True
+
+    monkeypatch.setattr(telegram_bot, "send_telegram_message", fake_send_message)
+
+    # 1. Mirror inbound message from student to owner
+    res = await telegram_bot.mirror_pv_to_owner(
+        telegram_id=111222,
+        telegram_username="mamad_tg",
+        text="سلام تکلیف ریاضی فردا چی بود؟",
+        direction="inbound",
+        db=db_session,
+    )
+    assert res is True
+    assert len(sent_messages) == 1
+    msg1 = sent_messages[0]
+    assert msg1["chat_id"] == 999000
+    assert "پیام دریافتی از کاربر در پیوی" in msg1["text"]
+    assert "mamad" in msg1["text"]
+    assert "111222" in msg1["text"]
+    assert "@mamad_tg" in msg1["text"]
+    assert "سلام تکلیف ریاضی فردا چی بود؟" in msg1["text"]
+
+    # 2. Mirror outbound reply to student
+    sent_messages.clear()
+    res2 = await telegram_bot.mirror_pv_to_owner(
+        telegram_id=111222,
+        text="تکلیف ریاضی صفحه ۴۵ تمرین ۳ است.",
+        direction="outbound",
+        db=db_session,
+    )
+    assert res2 is True
+    assert len(sent_messages) == 1
+    msg2 = sent_messages[0]
+    assert msg2["chat_id"] == 999000
+    assert "پاسخ ارسالی ربات به کاربر در پیوی" in msg2["text"]
+    assert "111222" in msg2["text"]
+    assert "تکلیف ریاضی صفحه ۴۵ تمرین ۳ است." in msg2["text"]
+
+    # 3. Mirror action (button tap)
+    sent_messages.clear()
+    res3 = await telegram_bot.mirror_pv_to_owner(
+        telegram_id=111222,
+        text="🔘 کلیک روی دکمه: تیک تکلیف ۱۲",
+        direction="action",
+        db=db_session,
+    )
+    assert res3 is True
+    assert len(sent_messages) == 1
+    assert "عملیات کاربر در پیوی" in sent_messages[0]["text"]
+
+    # 4. Never mirror owner's own chats to owner
+    sent_messages.clear()
+    res_owner = await telegram_bot.mirror_pv_to_owner(
+        telegram_id=999000,
+        text="دستور مدیریت",
+        direction="inbound",
+        db=db_session,
+    )
+    assert res_owner is False
+    assert len(sent_messages) == 0
+
+    # 5. Never mirror group chats
+    res_group = await telegram_bot.mirror_pv_to_owner(
+        telegram_id=-100123456,
+        text="پیام گروه",
+        direction="inbound",
+        db=db_session,
+    )
+    assert res_group is False
+    assert len(sent_messages) == 0
+
+
+
 
 

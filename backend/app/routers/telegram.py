@@ -110,6 +110,24 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
 
         cb_user = db.query(models.User).filter(models.User.telegram_id == cb_from_id).first() if cb_from_id else None
 
+        if cb_chat_id and telegram_bot.is_private_telegram_chat(cb_chat_id):
+            action_desc = cb_data
+            if cb_data.startswith("task_toggle:"):
+                action_desc = f"تغییر وضعیت تکلیف (دکمه: {cb_data})"
+            elif cb_data.startswith("wiz:"):
+                action_desc = f"انتخاب در ویزارد ساخت تکلیف (دکمه: {cb_data})"
+            elif cb_data.startswith("refresh_card:"):
+                action_desc = f"درخواست تازه‌سازی نمودار (دکمه: {cb_data})"
+            asyncio.create_task(
+                telegram_bot.mirror_pv_to_owner(
+                    telegram_id=cb_from_id,
+                    telegram_username=cb_from.get("username"),
+                    text=f"🔘 عملیات کاربر:\n<code>{action_desc}</code>",
+                    direction="action",
+                    token=token,
+                )
+            )
+
         from app.services import telegram_task_wizard
         if cb_data.startswith("wiz:"):
             await telegram_task_wizard.handle_wizard_callback(
@@ -168,8 +186,21 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     from_user = message.get("from", {})
     from_id = from_user.get("id")
     from_username = from_user.get("username")
-    text = (message.get("text") or "").strip()
+    text = (message.get("text") or message.get("caption") or "").strip()
     msg_id = message.get("message_id")
+
+    if not text:
+        if message.get("photo"):
+            text = "[عکس ارسالی بدون کپشن]"
+        elif message.get("voice"):
+            text = "[پیام صوتی / ویس]"
+        elif message.get("audio"):
+            text = "[فایل صوتی]"
+        elif message.get("document"):
+            doc_name = message.get("document", {}).get("file_name", "فایل")
+            text = f"[ارسال فایل: {doc_name}]"
+        elif message.get("sticker"):
+            text = f"[استیکر {message.get('sticker', {}).get('emoji', '')}]"
 
     if not text or not chat_id or not from_id:
         return
@@ -201,6 +232,18 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
 
     if user and models.is_owner(user) and chat_type == "private":
         telegram_bot.set_bot_setting(db, "owner_telegram_chat_id", str(chat_id))
+
+    # Mirror any inbound message from private chats to the Owner's PV (if not the Owner)
+    if chat_type == "private":
+        asyncio.create_task(
+            telegram_bot.mirror_pv_to_owner(
+                telegram_id=from_id,
+                telegram_username=from_username,
+                text=text,
+                direction="inbound",
+                token=token,
+            )
+        )
 
     # --- 1. Handle Private Chat Linking & Commands ---
     if chat_type == "private":
