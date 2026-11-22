@@ -896,11 +896,21 @@ async def process_overdue_assignments(db: Session, force: bool = False) -> int:
                     f"سلام <b>{u.username}</b> عزیز 👋\n\n"
                     f"⏰ مهلت تحویل تکالیف زیر به پایان رسیده و هنوز تیک آن‌ها را در اپلیکیشن ثبت نکرده‌ای:\n"
                     f"{u_tasks_str}\n\n"
-                    f"آیا این تکالیف را انجام دادی یا به مشکلی خوردی؟ لطفاً وضعیتت را مشخص کن تا درصد و استریکت آسیب نبیند! ⚡"
+                    f"کدوم رو انجام دادی برات تیک بزنم؟ می‌تونی دکمه‌های زیر رو لمس کنی یا همینجا برام بنویسی تا فوراً برات ثبت کنم! 👇⚡"
                 )
+
+            # Interactive inline buttons for 1-click instant completion
+            inline_buttons = []
+            for a, s in u_tasks:
+                btn_title = a.title if len(a.title) <= 22 else f"{a.title[:20]}..."
+                inline_buttons.append([{"text": f"✅ تیک زدن {btn_title}", "callback_data": f"task_toggle:{a.id}"}])
+            if len(u_tasks) > 1:
+                inline_buttons.append([{"text": "⚡ تیک زدن همه تکالیف", "callback_data": "task_toggle:all"}])
+
+            reply_markup = {"inline_keyboard": inline_buttons} if inline_buttons else None
             try:
-                await send_telegram_message(token, target_chat_id, ai_msg)
-                logger.info("Sent combined overdue PV follow-up to user %s for %d assignments", u.username, len(u_tasks))
+                await send_telegram_message(token, target_chat_id, ai_msg, reply_markup=reply_markup)
+                logger.info("Sent combined overdue PV follow-up with buttons to user %s for %d assignments", u.username, len(u_tasks))
             except Exception as pv_err:
                 logger.warning("Failed to send overdue PV message to user %s: %s", u.id, pv_err)
 

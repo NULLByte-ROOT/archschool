@@ -323,11 +323,12 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     # --- 4. Direct Task Completion Interceptor (100% immune to LLM hallucination) ---
     is_toggle_cmd = any(k in text for k in (
         "تیک بزن", "تیک زدن", "تیک بردار", "تیکش رو بردار", "تیکش بردار",
-        "تیکمو بزن", "تیکش کن", "تیک بزنم", "انجام شد", "انجام دادم", "حل کردم", "تیک بخوره"
+        "تیکمو بزن", "تیکش کن", "تیکشو بزن", "تیک بزنم", "انجام شد", "انجام دادم", "انجامش دادم",
+        "حل کردم", "حل شد", "تیک بخوره", "خوندم", "تموم کردم", "کامل کردم", "کامل شد"
     ))
     if is_toggle_cmd:
-        action = "uncomplete" if any(w in text for w in ("بردار", "حذف", "برداشتن", "نکردم")) else "complete"
-        scope = "all" if any(w in text for w in ("همه", "تمام", "همشون", "همه‌شون")) else (
+        action = "uncomplete" if any(w in text for w in ("بردار", "حذف", "برداشتن", "نکردم", "نزن")) else "complete"
+        scope = "all" if any(w in text for w in ("همه", "تمام", "همشون", "همه‌شون", "همش", "همه‌اش", "همه رو")) else (
             "day" if any(d in text for d in ("شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "امروز", "فردا")) else "single"
         )
         target_day = ""

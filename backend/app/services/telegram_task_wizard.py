@@ -419,10 +419,15 @@ async def handle_toggle_callback(
         return True
 
     assignment_id_str = data.replace("task_toggle:", "").strip()
+    scope = "all" if assignment_id_str == "all" else "single"
     from . import ai_agent
     res = ai_agent.execute_tool(
         "toggle_assignment_completion",
-        {"action": "complete", "scope": "single", "assignment_query": assignment_id_str},
+        {
+            "action": "complete",
+            "scope": scope,
+            "assignment_query": "" if scope == "all" else assignment_id_str,
+        },
         db,
         user,
     )
