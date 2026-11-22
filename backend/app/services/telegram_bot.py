@@ -904,7 +904,7 @@ async def process_overdue_assignments(db: Session, force: bool = False) -> int:
             except Exception as pv_err:
                 logger.warning("Failed to send overdue PV message to user %s: %s", u.id, pv_err)
 
-    # 2. Group callout: EXACTLY ONE COMBINED MESSAGE tagging all incomplete students and listing all overdue tasks
+    # 2. Group callout: ONLY tag the students and tell them to come to PV (no tasks listed in group)
     if group_enabled and group_id and assignment_items and all_uncompleted_users:
         user_mentions = []
         for u in all_uncompleted_users.values():
@@ -915,28 +915,22 @@ async def process_overdue_assignments(db: Session, force: bool = False) -> int:
             else:
                 user_mentions.append(f"<b>{u.username}</b>")
 
-        tags_str = " ".join(user_mentions) if user_mentions else "بچه‌هایی که انجام ندادید"
-        tasks_list_str = "\n".join([f"🔹 <b>{a.title}</b> ({s}{t})" for a, s, t in assignment_items])
+        tags_str = " ".join(user_mentions) if user_mentions else "بچه‌ها"
 
         group_context = {
             "event": "overdue_group",
-            "assignment_title": ", ".join([a.title for a, _, _ in assignment_items]),
-            "tasks_list": tasks_list_str,
             "incomplete_count": len(all_uncompleted_users),
             "incomplete_tags": tags_str,
         }
         ai_group_msg = await ai_agent.generate_ai_event_text(db, "overdue_group", group_context)
         if not ai_group_msg:
             ai_group_msg = (
-                f"📢 <b>اعلام فوری وضعیت تکالیف منقضی‌شده</b> ⚠️\n\n"
-                f"مهلت تحویل تکالیف زیر به اتمام رسیده و وضعیت ثبت آن‌ها هنوز کامل نشده است:\n"
-                f"{tasks_list_str}\n\n"
                 f"👉 {tags_str}\n\n"
-                f"بچه‌ها سریعاً بیاید پیوی ربات کارتون دارم! وضعیت تکالیفتون رو مشخص کنید تا استریک‌هاتون صفر نشه! ⚠️🔥"
+                f"بچه‌ها سریع بیاید پیوی ربات کارتون دارم! 🏃‍♂️⚡"
             )
         try:
             await send_telegram_message(token, group_id, ai_group_msg)
-            logger.info("Broadcasted ONE combined overdue group callout for %d assignments with %d users tagged", len(assignment_items), len(user_mentions))
+            logger.info("Broadcasted group callout tagging %d users to check PV", len(user_mentions))
         except Exception as grp_err:
             logger.warning("Failed to send overdue group callout: %s", grp_err)
 
