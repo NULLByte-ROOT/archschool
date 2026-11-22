@@ -777,13 +777,63 @@ async def broadcast_new_assignment(
     return await send_telegram_message(token, group_id, text)
 
 
+def build_owner_overdue_audit_report(
+    assignments: List[Tuple[models.Assignment, str, str]],
+    all_uncompleted_users: Dict[int, models.User],
+    pv_sent_users: List[Tuple[str, int]],
+    skipped_users: List[Tuple[str, int]],
+    group_sent: bool,
+    skipped_overflow: bool,
+) -> str:
+    from . import school_knowledge
+    now_iran = (datetime.utcnow() + timedelta(hours=3.5)).strftime("%Y-%m-%d %H:%M:%S")
+    lines = [
+        "🛡️ <b>گزارش لحظه‌ای پیگیری تکالیف منقضی (Owner Live Audit)</b> 📊",
+        "────────────────────",
+        f"🕒 <b>زمان اجرا:</b> <code>{now_iran}</code>",
+        f"📋 <b>تعداد تکالیف منقضی بررسی‌شده:</b> <b>{len(assignments)}</b> مورد",
+    ]
+    for asgn, subj, tch in assignments:
+        due_str = school_knowledge.format_iran_datetime(asgn.due_date) if asgn.due_date else "گذشته"
+        lines.append(f"  ▫️ <b>{asgn.title}</b> ({subj}{tch}) - موعد: {due_str}")
+
+    lines.append("────────────────────")
+    if skipped_overflow:
+        lines.append("⚠️ <b>تصمیم هوشمند سیستم (قانون اپلیکیشن):</b>")
+        lines.append(
+            f"تعداد تکالیف منقضی به <b>{len(assignments)} مورد (≥ ۴)</b> رسید؛ "
+            "دقیقاً مطابق رفتار اپلیکیشن، ربات از ارسال پیام یادآوری و تگ در گروه صرف‌نظر کرد (بی‌خیال شد) "
+            "تا از اسپم چت جلوگیری شود و تکالیف به بخش منقضی‌ها منتقل شدند."
+        )
+    else:
+        lines.append("📊 <b>تصمیم سیستم:</b>")
+        lines.append("تعداد تکالیف کمتر از ۴ مورد است؛ فرآیند پیگیری فعال شد.")
+        lines.append("")
+        lines.append(f"📢 <b>اطلاع‌رسانی در گروه:</b> {'✅ ارسال شد (فقط تگ کردن بچه‌ها برای مراجعه به پیوی)' if group_sent else '❌ ارسال نشد یا گروه متصل نیست'}")
+        lines.append(f"💬 <b>پیام خصوصی (PV) به دانش‌آموزان:</b>")
+        if pv_sent_users:
+            for uname, tcount in pv_sent_users:
+                lines.append(f"  ▫️ کاربر <b>{uname}</b>: {tcount} تکلیف ناتمام ➔ پیام پیوی + دکمه‌های تیک‌زنی ارسال شد ✅")
+        else:
+            lines.append("  ▫️ هیچ پیام خصوصی ارسال نشد (یا آیدی تلگرام متصل نیست)")
+        if skipped_users:
+            for uname, tcount in skipped_users:
+                lines.append(f"  ▫️ کاربر <b>{uname}</b>: {tcount} تکلیف (≥ ۴) ➔ طبق قانون اپ نادیده گرفته شد ⏭️")
+
+    lines.append("────────────────────")
+    lines.append("⚡ <i>این گزارش جهت اطلاع لحظه‌ای مدیریت ارشد به پیوی شما ارسال گردید.</i>")
+    return "\n".join(lines)
+
+
 async def process_overdue_assignments(db: Session, force: bool = False) -> int:
     """Find newly expired assignments and send ONE combined message to the group
     tagging incomplete students, and ONE private follow-up message to each student.
+    Enforces the app rule: if overdue tasks >= 4, skips prompting to avoid spam.
+    Dispatches a real-time audit report directly to Owner's Telegram PV.
     """
     token = get_bot_setting(db, "telegram_bot_token")
     group_id = get_bot_setting(db, "telegram_group_id")
-    owner_chat_id = get_bot_setting(db, "owner_telegram_chat_id")
+    owner_chat_id = get_owner_chat_id(db) or get_bot_setting(db, "owner_telegram_chat_id")
     enabled = get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
     if not token or not enabled:
         return 0
@@ -850,13 +900,13 @@ async def process_overdue_assignments(db: Session, force: bool = False) -> int:
             q_users = q_users.filter(~models.User.id.in_(completed_user_ids))
         uncompleted_for_this = q_users.all()
 
-        if not uncompleted_for_this:
-            continue
-
         subj_info = school_knowledge.resolve_subject(asgn.subject_id or asgn.course or "")
         teacher = f" (استاد {subj_info['teacher']})" if subj_info else ""
         subj_name = subj_info["name"] if subj_info else (asgn.subject_id or "عمومی")
         assignment_items.append((asgn, subj_name, teacher))
+
+        if not uncompleted_for_this:
+            continue
 
         for u in uncompleted_for_this:
             all_uncompleted_users[u.id] = u
@@ -864,85 +914,100 @@ async def process_overdue_assignments(db: Session, force: bool = False) -> int:
                 user_to_assignments[u.id] = []
             user_to_assignments[u.id].append((asgn, subj_name))
 
-    # 1. Private chat follow-up: EXACTLY ONE MESSAGE per student listing all their overdue tasks
-    if pv_enabled and all_uncompleted_users:
-        for u_id, u in all_uncompleted_users.items():
-            target_chat_id = u.telegram_id
-            if not target_chat_id and (models.is_owner(u) or u.id == 1) and owner_chat_id:
-                target_chat_id = owner_chat_id
+    # Rule 1: Exactly like the app (home.tsx): if overdue assignments count >= 4, auto-skip / dismiss
+    skip_due_to_overflow = len(new_overdue_assignments) >= 4
+
+    pv_sent_users: List[Tuple[str, int]] = []
+    skipped_users: List[Tuple[str, int]] = []
+    group_sent = False
+
+    if not skip_due_to_overflow:
+        # 1. Private chat follow-up: EXACTLY ONE MESSAGE per student listing all their overdue tasks
+        if pv_enabled and all_uncompleted_users:
+            for u_id, u in all_uncompleted_users.items():
+                u_tasks = user_to_assignments.get(u_id, [])
+                if not u_tasks:
+                    continue
+
+                # App rule check: if this specific student has >= 4 overdue tasks, skip prompting them
+                if len(u_tasks) >= 4:
+                    skipped_users.append((u.username, len(u_tasks)))
+                    continue
+
+                target_chat_id = u.telegram_id
+                if not target_chat_id and (models.is_owner(u) or u.id == 1) and owner_chat_id:
+                    target_chat_id = owner_chat_id
+                    try:
+                        u.telegram_id = int(owner_chat_id)
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+
+                if not target_chat_id:
+                    continue
+
+                u_tasks_str = "\n".join([f"🔹 <b>{a.title}</b> ({s})" for a, s in u_tasks])
+                pv_context = {
+                    "event": "overdue_pv",
+                    "student_name": u.username,
+                    "assignment_title": ", ".join([a.title for a, _ in u_tasks]),
+                    "tasks_list": u_tasks_str,
+                }
+                ai_msg = await ai_agent.generate_ai_event_text(db, "overdue_pv", pv_context)
+                if not ai_msg:
+                    ai_msg = (
+                        f"سلام <b>{u.username}</b> عزیز 👋\n\n"
+                        f"⏰ مهلت تحویل تکالیف زیر به پایان رسیده و هنوز تیک آن‌ها را در اپلیکیشن ثبت نکرده‌ای:\n"
+                        f"{u_tasks_str}\n\n"
+                        f"کدوم رو انجام دادی برات تیک بزنم؟ می‌تونی دکمه‌های زیر رو لمس کنی یا همینجا برام بنویسی تا فوراً برات ثبت کنم! 👇⚡"
+                    )
+
+                # Interactive inline buttons for 1-click instant completion
+                inline_buttons = []
+                for a, s in u_tasks:
+                    btn_title = a.title if len(a.title) <= 22 else f"{a.title[:20]}..."
+                    inline_buttons.append([{"text": f"✅ تیک زدن {btn_title}", "callback_data": f"task_toggle:{a.id}"}])
+                if len(u_tasks) > 1:
+                    inline_buttons.append([{"text": "⚡ تیک زدن همه تکالیف", "callback_data": "task_toggle:all"}])
+
+                reply_markup = {"inline_keyboard": inline_buttons} if inline_buttons else None
                 try:
-                    u.telegram_id = int(owner_chat_id)
-                    db.commit()
-                except Exception:
-                    db.rollback()
+                    if await send_telegram_message(token, target_chat_id, ai_msg, reply_markup=reply_markup):
+                        pv_sent_users.append((u.username, len(u_tasks)))
+                        logger.info("Sent combined overdue PV follow-up with buttons to user %s for %d assignments", u.username, len(u_tasks))
+                except Exception as pv_err:
+                    logger.warning("Failed to send overdue PV message to user %s: %s", u.id, pv_err)
 
-            if not target_chat_id:
-                continue
+        # 2. Group callout: ONLY tag the students and tell them to come to PV (no tasks listed in group)
+        if group_enabled and group_id and assignment_items and all_uncompleted_users:
+            user_mentions = []
+            for u in all_uncompleted_users.values():
+                if u.telegram_id:
+                    user_mentions.append(f'<a href="tg://user?id={u.telegram_id}">{u.username}</a>')
+                elif u.telegram_username:
+                    user_mentions.append(f"@{u.telegram_username.lstrip('@')}")
+                else:
+                    user_mentions.append(f"<b>{u.username}</b>")
 
-            u_tasks = user_to_assignments.get(u_id, [])
-            if not u_tasks:
-                continue
+            tags_str = " ".join(user_mentions) if user_mentions else "بچه‌ها"
 
-            u_tasks_str = "\n".join([f"🔹 <b>{a.title}</b> ({s})" for a, s in u_tasks])
-            pv_context = {
-                "event": "overdue_pv",
-                "student_name": u.username,
-                "assignment_title": ", ".join([a.title for a, _ in u_tasks]),
-                "tasks_list": u_tasks_str,
+            group_context = {
+                "event": "overdue_group",
+                "incomplete_count": len(all_uncompleted_users),
+                "incomplete_tags": tags_str,
             }
-            ai_msg = await ai_agent.generate_ai_event_text(db, "overdue_pv", pv_context)
-            if not ai_msg:
-                ai_msg = (
-                    f"سلام <b>{u.username}</b> عزیز 👋\n\n"
-                    f"⏰ مهلت تحویل تکالیف زیر به پایان رسیده و هنوز تیک آن‌ها را در اپلیکیشن ثبت نکرده‌ای:\n"
-                    f"{u_tasks_str}\n\n"
-                    f"کدوم رو انجام دادی برات تیک بزنم؟ می‌تونی دکمه‌های زیر رو لمس کنی یا همینجا برام بنویسی تا فوراً برات ثبت کنم! 👇⚡"
+            ai_group_msg = await ai_agent.generate_ai_event_text(db, "overdue_group", group_context)
+            if not ai_group_msg:
+                ai_group_msg = (
+                    f"👉 {tags_str}\n\n"
+                    f"بچه‌ها سریع بیاید پیوی ربات کارتون دارم! 🏃‍♂️⚡"
                 )
-
-            # Interactive inline buttons for 1-click instant completion
-            inline_buttons = []
-            for a, s in u_tasks:
-                btn_title = a.title if len(a.title) <= 22 else f"{a.title[:20]}..."
-                inline_buttons.append([{"text": f"✅ تیک زدن {btn_title}", "callback_data": f"task_toggle:{a.id}"}])
-            if len(u_tasks) > 1:
-                inline_buttons.append([{"text": "⚡ تیک زدن همه تکالیف", "callback_data": "task_toggle:all"}])
-
-            reply_markup = {"inline_keyboard": inline_buttons} if inline_buttons else None
             try:
-                await send_telegram_message(token, target_chat_id, ai_msg, reply_markup=reply_markup)
-                logger.info("Sent combined overdue PV follow-up with buttons to user %s for %d assignments", u.username, len(u_tasks))
-            except Exception as pv_err:
-                logger.warning("Failed to send overdue PV message to user %s: %s", u.id, pv_err)
-
-    # 2. Group callout: ONLY tag the students and tell them to come to PV (no tasks listed in group)
-    if group_enabled and group_id and assignment_items and all_uncompleted_users:
-        user_mentions = []
-        for u in all_uncompleted_users.values():
-            if u.telegram_id:
-                user_mentions.append(f'<a href="tg://user?id={u.telegram_id}">{u.username}</a>')
-            elif u.telegram_username:
-                user_mentions.append(f"@{u.telegram_username.lstrip('@')}")
-            else:
-                user_mentions.append(f"<b>{u.username}</b>")
-
-        tags_str = " ".join(user_mentions) if user_mentions else "بچه‌ها"
-
-        group_context = {
-            "event": "overdue_group",
-            "incomplete_count": len(all_uncompleted_users),
-            "incomplete_tags": tags_str,
-        }
-        ai_group_msg = await ai_agent.generate_ai_event_text(db, "overdue_group", group_context)
-        if not ai_group_msg:
-            ai_group_msg = (
-                f"👉 {tags_str}\n\n"
-                f"بچه‌ها سریع بیاید پیوی ربات کارتون دارم! 🏃‍♂️⚡"
-            )
-        try:
-            await send_telegram_message(token, group_id, ai_group_msg)
-            logger.info("Broadcasted group callout tagging %d users to check PV", len(user_mentions))
-        except Exception as grp_err:
-            logger.warning("Failed to send overdue group callout: %s", grp_err)
+                if await send_telegram_message(token, group_id, ai_group_msg):
+                    group_sent = True
+                    logger.info("Broadcasted group callout tagging %d users to check PV", len(user_mentions))
+            except Exception as grp_err:
+                logger.warning("Failed to send overdue group callout: %s", grp_err)
 
     # Mark all assignments in this batch as processed so they NEVER trigger again
     for asgn in assignments_to_mark:
@@ -960,6 +1025,22 @@ async def process_overdue_assignments(db: Session, force: bool = False) -> int:
     except Exception as exc:
         db.rollback()
         logger.error("Failed to commit OverdueFollowupNotification markers: %s", exc)
+
+    # Real-time Audit Report sent directly to Owner's Telegram PV!
+    if owner_chat_id:
+        audit_report = build_owner_overdue_audit_report(
+            assignments=assignment_items,
+            all_uncompleted_users=all_uncompleted_users,
+            pv_sent_users=pv_sent_users,
+            skipped_users=skipped_users,
+            group_sent=group_sent,
+            skipped_overflow=skip_due_to_overflow,
+        )
+        try:
+            await send_telegram_message(token, owner_chat_id, audit_report)
+            logger.info("Dispatched real-time overdue audit report to owner (chat %s)", owner_chat_id)
+        except Exception as o_err:
+            logger.warning("Could not dispatch overdue audit report to owner: %s", o_err)
 
     return len(assignments_to_mark)
 
