@@ -205,6 +205,10 @@ OPENAI_TOOLS = [
                         "enum": ["progress", "leaderboard", "schedule", "assignments"],
                         "description": "نوع کارت تصویری: 'progress' (کارنامه و نمودار پیشرفت تحصیلی)، 'leaderboard' (سکوی قهرمانی و رتبه‌بندی)، 'schedule' (برنامه هفتگی و زنگ‌ها)، 'assignments' (تکالیف فعال و جاری)",
                     },
+                    "target_day": {
+                        "type": "string",
+                        "description": "روز مشخص برای رندر کارت تکالیف یا برنامه (مثلاً: 'امروز'، 'فردا'، 'پس‌فردا'، 'شنبه'، 'یکشنبه'، 'دوشنبه'، 'سه‌شنبه'، 'چهارشنبه'). اگر کاربر تکالیف یا برنامه روز خاصی مثل فردا را خواست، این پارامتر را پر کن.",
+                    },
                     "subject": {
                         "type": "string",
                         "description": "نام یا شناسه درس در صورت نیاز به فیلتر برنامه",
@@ -720,8 +724,9 @@ def execute_tool(
             from . import card_renderer
             card_type = args.get("card_type", "progress")
             subject = args.get("subject")
+            target_day = args.get("target_day")
             image_path, title, summary_data = card_renderer.generate_card(
-                db, card_type=card_type, user=current_user, subject=subject
+                db, card_type=card_type, user=current_user, subject=subject, target_day=target_day
             )
             return {
                 "success": True,
@@ -1212,3 +1217,100 @@ async def ask_universal_ai_agent(
     except Exception as exc:
         logger.error("Universal AI agent exception: %s", exc, exc_info=True)
         return (_handle_ai_error(500, f"{type(exc).__name__}: {str(exc)}", current_user, endpoint_url, clean_model), meta)
+
+
+async def generate_ai_event_text(
+    db: Session,
+    event_type: str,
+    context_data: Dict[str, Any],
+) -> str:
+    """Generate dynamic AI-crafted announcement or follow-up text for automated events.
+
+    Uses the user's configured event prompt from the Admin panel. Falls back gracefully
+    if AI is unavailable or produces an error.
+    """
+    from . import telegram_bot
+    from ..prompts import default_prompts
+
+    prompt_key = f"notify_{event_type}_prompt"
+    def_prompt_attr = f"DEFAULT_NOTIFY_{event_type.upper()}_PROMPT"
+    default_prompt = getattr(default_prompts, def_prompt_attr, "")
+    event_prompt = telegram_bot.get_bot_setting(db, prompt_key, default_prompt)
+
+    api_key = telegram_bot.get_bot_setting(db, "ai_api_key") or telegram_bot.get_bot_setting(db, "gemini_api_key")
+    if not api_key:
+        return ""
+
+    provider = telegram_bot.get_bot_setting(db, "ai_provider", "openrouter")
+    def_base, def_model = telegram_bot.get_provider_defaults(provider)
+    base_url = telegram_bot.get_bot_setting(db, "ai_base_url") or def_base
+    model_name = telegram_bot.get_bot_setting(db, "ai_model") or def_model
+
+    endpoint_url = base_url.rstrip("/")
+    if not endpoint_url.endswith("/chat/completions"):
+        endpoint_url = f"{endpoint_url}/chat/completions"
+
+    clean_model = model_name.strip()
+    if clean_model.startswith("models/"):
+        clean_model = clean_model[len("models/"):]
+
+    persona = (
+        telegram_bot.get_bot_setting(db, "ai_persona_anchor")
+        or telegram_bot.get_bot_setting(db, "ai_system_prompt")
+        or "تو هوش مصنوعی و ربات هوشمند کلاس درس ArchSchool هستی."
+    )
+
+    sys_instr = (
+        f"{persona}\n\n"
+        f"دستورالعمل ویژه این رویداد:\n{event_prompt}\n\n"
+        f"قوانین مهم نگارش تلگرام:\n"
+        f"۱. مستقیماً متن نهایی پیام تلگرام را به فارسی روان و جذاب خروجی بده (بدون هرگونه پیش‌درآمد یا کلمات اضافه).\n"
+        f"۲. از تگ‌های استاندارد HTML تلگرام (<b>، <i>، <code>) استفاده کن.\n"
+        f"۳. در صورتی که شناسه کاربری تلگرام یا منشن (@username یا تگ کاربری) در داده‌های رویداد آمده است، حتماً آن را دقیقاً در متن درج کن تا کاربر نوتیفیکیشن دریافت کند.\n"
+        f"۴. به هیچ وجه نام فایل‌ها، فرمت‌های برنامه‌نویسی یا مسیرهای فنی سرور را ننویس."
+    )
+
+    user_msg = f"اطلاعات رویداد:\n{json.dumps(context_data, ensure_ascii=False, indent=2)}"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if "openrouter" in endpoint_url.lower():
+        headers["HTTP-Referer"] = "https://archschool.vidxsepehr.ir"
+        headers["X-Title"] = "ArchSchool"
+
+    payload = {
+        "model": clean_model,
+        "messages": [
+            {"role": "system", "content": sys_instr},
+            {"role": "user", "content": user_msg},
+        ],
+        "temperature": 0.85,
+        "max_tokens": 600,
+    }
+
+    client = get_shared_client()
+    for attempt in range(1, 3):
+        try:
+            resp = await client.post(endpoint_url, json=payload, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices:
+                    text = choices[0].get("message", {}).get("content", "").strip()
+                    if text:
+                        return text
+            if attempt < 2 and _is_busy_error(resp.status_code, resp.text):
+                await asyncio.sleep(2.0)
+                continue
+            break
+        except Exception as exc:
+            logger.warning("generate_ai_event_text attempt %s failed: %s", attempt, exc)
+            if attempt < 2:
+                await asyncio.sleep(2.0)
+                continue
+            break
+
+    return ""
+

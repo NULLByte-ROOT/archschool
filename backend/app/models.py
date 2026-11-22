@@ -600,4 +600,31 @@ class TelegramChatHistory(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
+class OverdueFollowupNotification(Base):
+    """Idempotency marker for overdue assignment follow-ups.
+
+    Guarantees that each expired assignment triggers automated private follow-up
+    and group callout mentions exactly once, even across server restarts or blue/green
+    deployments.
+    """
+
+    __tablename__ = "overdue_followup_notifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "assignment_id",
+            name="uq_overdue_followup_assignment",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    assignment_id = Column(
+        Integer,
+        ForeignKey("assignments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    processed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+
 

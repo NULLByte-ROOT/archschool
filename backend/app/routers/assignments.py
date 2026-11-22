@@ -272,6 +272,7 @@ def _toggle_completion(
 def list_assignments(
     completed: Optional[bool] = Query(None),
     course: Optional[str] = Query(None),
+    include_overdue: bool = Query(True),
     db: Session = Depends(get_db),
     current: models.User = Depends(get_current_user),
 ):
@@ -285,6 +286,15 @@ def list_assignments(
             q = q.filter(models.Assignment.id.in_(mine))
         else:
             q = q.filter(~models.Assignment.id.in_(mine))
+            if not include_overdue:
+                from sqlalchemy import or_
+                now = datetime.utcnow()
+                q = q.filter(
+                    or_(
+                        models.Assignment.due_date.is_(None),
+                        models.Assignment.due_date >= now,
+                    )
+                )
     if course:
         q = q.filter(models.Assignment.course == course)
     return [

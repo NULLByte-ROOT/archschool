@@ -449,9 +449,17 @@ def render_schedule_card(db: Session, target_day: Optional[str] = None) -> Tuple
     fonts = _get_fonts()
 
     current_status = school_knowledge.get_current_school_status()
-    day_name = current_status.get("day_name", "امروز")
-    sched = current_status.get("schedule", {})
-    periods = sched.get("periods", [])
+    if target_day and ("فردا" in target_day or any(k in target_day for k in ("شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنج‌شنبه", "جمعه"))):
+        _, _, day_label, d_key = school_knowledge.resolve_target_day_bounds(target_day)
+        day_sched = school_knowledge.WEEKLY_SCHEDULE.get(d_key, {})
+        periods = day_sched.get("periods", [])
+        day_name = day_label
+        b_stat = "برنامه انتخابی روز"
+    else:
+        day_name = current_status.get("day_name", "امروز")
+        sched = current_status.get("schedule", {})
+        periods = sched.get("periods", [])
+        b_stat = current_status.get("bell_status", "خارج از ساعات کلاسی")
 
     _draw_mobile_header(
         draw,
@@ -462,7 +470,6 @@ def render_schedule_card(db: Session, target_day: Optional[str] = None) -> Tuple
     )
 
     # Active Bell Status Pill
-    b_stat = current_status.get("bell_status", "خارج از ساعات کلاسی")
     b_pill_box = (32, 126, width - 32, 172)
     _draw_panel(draw, b_pill_box, radius=12, fill=C_PANEL, outline=C_LINE, corners=False)
     draw.text((48, 140), "// CURRENT BELL", font=fonts["mono"], fill=C_FLAME)
@@ -471,7 +478,7 @@ def render_schedule_card(db: Session, target_day: Optional[str] = None) -> Tuple
     if not periods:
         empty_box = (32, 190, width - 32, 516)
         _draw_panel(draw, empty_box, radius=16, fill=C_PANEL, outline=C_LINE, corners=True, corner_tone=C_CORNERS)
-        no_fa = fa("امروز کلاس درسی برگزار نمی‌شود و تعطیل است 🏖️")
+        no_fa = fa(f"برای {day_name} کلاسی برگزار نمی‌شود و تعطیل است 🏖️")
         draw.text((width // 2 - draw.textlength(no_fa, font=fonts["title"]) // 2, 310), no_fa, font=fonts["title"], fill=C_SKY)
         sub_fa = fa("فرصت عالی برای جبران تکالیف عقب‌افتاده و استراحت!")
         draw.text((width // 2 - draw.textlength(sub_fa, font=fonts["small"]) // 2, 350), sub_fa, font=fonts["small"], fill=C_MUTED)
@@ -479,7 +486,7 @@ def render_schedule_card(db: Session, target_day: Optional[str] = None) -> Tuple
         card_w = (width - 64 - (len(periods) - 1) * 16) // len(periods)
         for idx, p in enumerate(periods):
             px = 32 + idx * (card_w + 16)
-            is_active = (idx + 1) == current_status.get("active_period")
+            is_active = (idx + 1) == current_status.get("active_period") if not target_day else False
             border_c = C_GOLD if is_active else C_LINE
             p_box = (px, 190, px + card_w, 516)
             _draw_panel(draw, p_box, radius=16, fill=C_PANEL, outline=border_c, corners=True, corner_tone=border_c)
@@ -527,47 +534,90 @@ def render_schedule_card(db: Session, target_day: Optional[str] = None) -> Tuple
 # ---------------------------------------------------------------------------
 # 4. Active Assignments Card (کارت تکالیف فعال و اولویت‌دار)
 # ---------------------------------------------------------------------------
-def render_assignments_card(db: Session, user: Optional[models.User] = None) -> Tuple[str, str, Dict[str, Any]]:
+def render_assignments_card(
+    db: Session,
+    user: Optional[models.User] = None,
+    target_day: Optional[str] = None,
+) -> Tuple[str, str, Dict[str, Any]]:
     width, height = 960, 550
     img = Image.new("RGB", (width, height), color=C_BG)
     draw = ImageDraw.Draw(img)
     fonts = _get_fonts()
 
+    now = datetime.utcnow()
+
+    if target_day:
+        start_utc, end_utc, day_label, day_key = school_knowledge.resolve_target_day_bounds(target_day)
+        card_title = f"تکالیف {day_label}"
+        mono_label = f"// ASSIGNMENTS: {day_key.upper()}"
+        summary_pill_text = f"تکالیف {day_label}"
+
+        day_sched = school_knowledge.WEEKLY_SCHEDULE.get(day_key, {})
+        day_subjs = [p["subject_id"] for p in day_sched.get("periods", []) if p.get("subject_id")]
+
+        tasks = (
+            db.query(models.Assignment)
+            .filter(
+                models.Assignment.deleted_at.is_(None),
+                or_(
+                    and_(
+                        models.Assignment.due_date.isnot(None),
+                        models.Assignment.due_date >= start_utc,
+                        models.Assignment.due_date <= end_utc,
+                    ),
+                    and_(
+                        models.Assignment.due_date.is_(None),
+                        or_(
+                            models.Assignment.subject_id.in_(day_subjs),
+                            models.Assignment.course.in_(day_subjs),
+                        ),
+                    ),
+                ),
+            )
+            .order_by(models.Assignment.due_date.asc().nulls_last())
+            .limit(4)
+            .all()
+        )
+    else:
+        card_title = "تکالیف فعال و دارای مهلت تحویل"
+        mono_label = "// ACTIVE ASSIGNMENTS"
+        day_label = "روزهای جاری"
+        summary_pill_text = "تکالیف اولویت‌دار کلاسی"
+
+        tasks = (
+            db.query(models.Assignment)
+            .filter(
+                models.Assignment.deleted_at.is_(None),
+                or_(
+                    models.Assignment.due_date.is_(None),
+                    models.Assignment.due_date >= now,
+                ),
+            )
+            .order_by(models.Assignment.due_date.asc().nulls_last())
+            .limit(4)
+            .all()
+        )
+
     _draw_mobile_header(
         draw,
-        title="تکالیف فعال و دارای مهلت تحویل",
-        mono_label="// ACTIVE ASSIGNMENTS",
+        title=card_title,
+        mono_label=mono_label,
         user=user,
         width=width,
-    )
-
-    now = datetime.utcnow()
-    tasks = (
-        db.query(models.Assignment)
-        .filter(
-            models.Assignment.deleted_at.is_(None),
-            or_(
-                models.Assignment.due_date.is_(None),
-                models.Assignment.due_date >= now,
-            ),
-        )
-        .order_by(models.Assignment.due_date.asc().nulls_last())
-        .limit(4)
-        .all()
     )
 
     # Top summary pill
     t_box = (32, 126, width - 32, 168)
     _draw_panel(draw, t_box, radius=12, fill=C_PANEL, outline=C_LINE, corners=False)
     draw.text((48, 138), "// QUEUE STATUS", font=fonts["mono"], fill=C_FLAME)
-    draw.text((width - 32 - draw.textlength(fa(f"تعداد {len(tasks)} تکلیف اولویت‌دار کلاسی"), font=fonts["small"]) - 16, 136), fa(f"تعداد {len(tasks)} تکلیف اولویت‌دار کلاسی"), font=fonts["small"], fill=C_TEXT)
+    draw.text((width - 32 - draw.textlength(fa(f"تعداد {len(tasks)} {summary_pill_text}"), font=fonts["small"]) - 16, 136), fa(f"تعداد {len(tasks)} {summary_pill_text}"), font=fonts["small"], fill=C_TEXT)
 
     if not tasks:
         empty_box = (32, 184, width - 32, 516)
         _draw_panel(draw, empty_box, radius=16, fill=C_PANEL, outline=C_LINE, corners=True, corner_tone=C_CORNERS)
-        no_fa = fa("در حال حاضر هیچ تکلیف فعالی با مهلت باز وجود ندارد 🎉")
+        no_fa = fa(f"برای {day_label} هیچ تکلیفی ثبت نشده است ✨")
         draw.text((width // 2 - draw.textlength(no_fa, font=fonts["title"]) // 2, 320), no_fa, font=fonts["title"], fill=C_SUCCESS)
-        sub_fa = fa("تمامی پروژه‌ها و مشق‌ها تحویل داده شده است. عالی کار کردی!")
+        sub_fa = fa("تمامی موارد انجام شده یا تکلیفی برای این موعد در سیستم وجود ندارد.")
         draw.text((width // 2 - draw.textlength(sub_fa, font=fonts["small"]) // 2, 360), sub_fa, font=fonts["small"], fill=C_MUTED)
     else:
         row_h = 76
@@ -598,7 +648,10 @@ def render_assignments_card(db: Session, user: Optional[models.User] = None) -> 
             # Due Date / Urgent chip on Left
             if t.due_date:
                 hours_left = (t.due_date - now).total_seconds() / 3600.0
-                if hours_left <= 6:
+                if hours_left < 0:
+                    time_lbl = fa("⌛ مهلت به پایان رسیده")
+                    t_col = C_DANGER
+                elif hours_left <= 6:
                     time_lbl = fa(f"🚨 فوری ({int(max(1, hours_left))} ساعت مانده)")
                     t_col = C_DANGER
                 elif hours_left <= 24:
@@ -613,13 +666,15 @@ def render_assignments_card(db: Session, user: Optional[models.User] = None) -> 
 
             draw.text((54, ty + 28), time_lbl, font=fonts["small"], fill=t_col)
 
-    out_file = str(CACHE_DIR / "card_assignments.png")
+    cache_key = f"card_assignments_{target_day or 'default'}.png".replace(" ", "_")
+    out_file = str(CACHE_DIR / cache_key)
     img.save(out_file, "PNG", optimize=True)
     summary_data = {
         "active_count": len(tasks),
+        "target_day": day_label,
         "nearest_task": tasks[0].title if tasks else "بدون تکلیف",
     }
-    return out_file, "لیست تکالیف فعال 📝", summary_data
+    return out_file, f"{card_title} 📝", summary_data
 
 
 # ---------------------------------------------------------------------------
@@ -630,14 +685,15 @@ def generate_card(
     card_type: str,
     user: Optional[models.User] = None,
     subject: Optional[str] = None,
+    target_day: Optional[str] = None,
 ) -> Tuple[str, str, Dict[str, Any]]:
     """Generates the requested visual card and returns (file_path, card_title, data_summary)."""
     ctype = (card_type or "progress").lower().strip()
     if ctype in ("leaderboard", "ranks", "لیدربورد", "رتبه"):
         return render_leaderboard_card(db)
     elif ctype in ("schedule", "timetable", "برنامه", "زنگ"):
-        return render_schedule_card(db, subject)
+        return render_schedule_card(db, target_day=target_day)
     elif ctype in ("assignments", "tasks", "مشق", "تکالیف"):
-        return render_assignments_card(db, user)
+        return render_assignments_card(db, user, target_day=target_day)
     else:
         return render_progress_card(db, user)

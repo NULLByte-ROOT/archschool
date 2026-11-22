@@ -217,6 +217,74 @@ def format_due_date_relative(due_utc: Optional[datetime], now_iran: Optional[dat
     return rel
 
 
+def resolve_target_day_bounds(
+    target_day: Optional[str] = None,
+) -> Tuple[datetime, datetime, str, str]:
+    """Resolve a user-specified day query (e.g. 'امروز', 'فردا', 'شنبه') into UTC start/end datetime bounds,
+    Persian day label, and weekday key.
+    """
+    now_iran = get_iran_now()
+    clean = (target_day or "").strip().lower()
+
+    target_iran_date = now_iran.date()
+    day_label_prefix = ""
+
+    if not clean or "امروز" in clean:
+        target_iran_date = now_iran.date()
+        day_label_prefix = "امروز"
+    elif "پس‌فردا" in clean or "پس فردا" in clean:
+        target_iran_date = now_iran.date() + timedelta(days=2)
+        day_label_prefix = "پس‌فردا"
+    elif "فردا" in clean:
+        target_iran_date = now_iran.date() + timedelta(days=1)
+        day_label_prefix = "فردا"
+    else:
+        day_map = {
+            "شنبه": 5,
+            "یکشنبه": 6,
+            "دوشنبه": 0,
+            "سه‌شنبه": 1,
+            "سه شنبه": 1,
+            "چهارشنبه": 2,
+            "پنج‌شنبه": 3,
+            "پنج شنبه": 3,
+            "جمعه": 4,
+        }
+        matched_target_weekday = None
+        for name, wd in day_map.items():
+            if name in clean:
+                matched_target_weekday = wd
+                break
+
+        if matched_target_weekday is not None:
+            current_weekday = now_iran.weekday()
+            days_ahead = (matched_target_weekday - current_weekday) % 7
+            target_iran_date = now_iran.date() + timedelta(days=days_ahead)
+            if days_ahead == 0:
+                day_label_prefix = "امروز"
+            elif days_ahead == 1:
+                day_label_prefix = "فردا"
+            elif days_ahead == 2:
+                day_label_prefix = "پس‌فردا"
+
+    iran_start = datetime.combine(target_iran_date, datetime.min.time())
+    iran_end = datetime.combine(target_iran_date, datetime.max.time())
+
+    start_utc = iran_start - timedelta(hours=3.5)
+    end_utc = iran_end - timedelta(hours=3.5)
+
+    jy, jm, jd = gregorian_to_jalali(target_iran_date.year, target_iran_date.month, target_iran_date.day)
+    d_key, d_fa = WEEKDAYS_MAP.get(target_iran_date.weekday(), ("sat", "شنبه"))
+    m_fa = PERSIAN_MONTHS[jm] if 1 <= jm <= 12 else ""
+
+    if day_label_prefix:
+        full_label = f"{day_label_prefix} ({d_fa}، {jd} {m_fa})"
+    else:
+        full_label = f"{d_fa} ({jd} {m_fa})"
+
+    return start_utc, end_utc, full_label, d_key
+
+
 def resolve_subject(subject_query: str) -> Optional[Dict[str, str]]:
     """Resolve user-entered subject name or ID to subject dict."""
     if not subject_query:

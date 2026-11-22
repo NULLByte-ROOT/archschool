@@ -15,6 +15,7 @@ import {
   AlertCircle,
   ShieldCheck,
   CheckCircle2,
+  Bell,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import Corners from "../components/Corners";
@@ -74,7 +75,7 @@ export default function BotSettingsPage() {
   const [resetting, setResetting] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showKey, setShowKey] = useState(false);
-  const [activeTab, setActiveTab] = useState<"prompt" | "ai" | "telegram">("prompt");
+  const [activeTab, setActiveTab] = useState<"prompt" | "events" | "ai" | "telegram">("prompt");
 
   // Form State
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -82,6 +83,18 @@ export default function BotSettingsPage() {
   const [followupAnchor, setFollowupAnchor] = useState("");
   const [temperature, setTemperature] = useState(0.85);
   const [maxTokens, setMaxTokens] = useState(600);
+
+  // Automated Event Triggers
+  const [notifyTop1Enabled, setNotifyTop1Enabled] = useState(true);
+  const [notifyTop1Prompt, setNotifyTop1Prompt] = useState("");
+  const [notifyNewAssignmentEnabled, setNotifyNewAssignmentEnabled] = useState(true);
+  const [notifyNewAssignmentPrompt, setNotifyNewAssignmentPrompt] = useState("");
+  const [notifyDeadlineEnabled, setNotifyDeadlineEnabled] = useState(true);
+  const [notifyDeadlinePrompt, setNotifyDeadlinePrompt] = useState("");
+  const [notifyOverduePvEnabled, setNotifyOverduePvEnabled] = useState(true);
+  const [notifyOverduePvPrompt, setNotifyOverduePvPrompt] = useState("");
+  const [notifyOverdueGroupEnabled, setNotifyOverdueGroupEnabled] = useState(true);
+  const [notifyOverdueGroupPrompt, setNotifyOverdueGroupPrompt] = useState("");
 
   const [aiProvider, setAiProvider] = useState("openrouter");
   const [aiApiKey, setAiApiKey] = useState("");
@@ -124,6 +137,17 @@ export default function BotSettingsPage() {
       setBotToken(data.bot_token || "");
       setGroupId(data.group_id || "");
       setBotEnabled(data.bot_enabled ?? true);
+
+      setNotifyTop1Enabled(data.notify_top1_enabled ?? true);
+      setNotifyTop1Prompt(data.notify_top1_prompt || "");
+      setNotifyNewAssignmentEnabled(data.notify_new_assignment_enabled ?? true);
+      setNotifyNewAssignmentPrompt(data.notify_new_assignment_prompt || "");
+      setNotifyDeadlineEnabled(data.notify_deadline_enabled ?? true);
+      setNotifyDeadlinePrompt(data.notify_deadline_prompt || "");
+      setNotifyOverduePvEnabled(data.notify_overdue_pv_enabled ?? true);
+      setNotifyOverduePvPrompt(data.notify_overdue_pv_prompt || "");
+      setNotifyOverdueGroupEnabled(data.notify_overdue_group_enabled ?? true);
+      setNotifyOverdueGroupPrompt(data.notify_overdue_group_prompt || "");
     } catch (err: any) {
       setErrorMsg(err.message || "خطا در دریافت تنظیمات");
     } finally {
@@ -159,6 +183,16 @@ export default function BotSettingsPage() {
         bot_token: botToken,
         group_id: groupId,
         bot_enabled: botEnabled,
+        notify_top1_enabled: notifyTop1Enabled,
+        notify_top1_prompt: notifyTop1Prompt,
+        notify_new_assignment_enabled: notifyNewAssignmentEnabled,
+        notify_new_assignment_prompt: notifyNewAssignmentPrompt,
+        notify_deadline_enabled: notifyDeadlineEnabled,
+        notify_deadline_prompt: notifyDeadlinePrompt,
+        notify_overdue_pv_enabled: notifyOverduePvEnabled,
+        notify_overdue_pv_prompt: notifyOverduePvPrompt,
+        notify_overdue_group_enabled: notifyOverdueGroupEnabled,
+        notify_overdue_group_prompt: notifyOverdueGroupPrompt,
       });
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
@@ -182,6 +216,16 @@ export default function BotSettingsPage() {
       setFollowupAnchor(res.settings.ai_followup_anchor);
       setTemperature(res.settings.ai_temperature);
       setMaxTokens(res.settings.ai_max_tokens);
+      setNotifyTop1Enabled(res.settings.notify_top1_enabled ?? true);
+      setNotifyTop1Prompt(res.settings.notify_top1_prompt || "");
+      setNotifyNewAssignmentEnabled(res.settings.notify_new_assignment_enabled ?? true);
+      setNotifyNewAssignmentPrompt(res.settings.notify_new_assignment_prompt || "");
+      setNotifyDeadlineEnabled(res.settings.notify_deadline_enabled ?? true);
+      setNotifyDeadlinePrompt(res.settings.notify_deadline_prompt || "");
+      setNotifyOverduePvEnabled(res.settings.notify_overdue_pv_enabled ?? true);
+      setNotifyOverduePvPrompt(res.settings.notify_overdue_pv_prompt || "");
+      setNotifyOverdueGroupEnabled(res.settings.notify_overdue_group_enabled ?? true);
+      setNotifyOverdueGroupPrompt(res.settings.notify_overdue_group_prompt || "");
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 2500);
     } catch (err: any) {
@@ -258,7 +302,19 @@ export default function BotSettingsPage() {
           }`}
         >
           <Sparkles size={15} />
-          سیستم پرامپت و لحن
+          سیستم پرامپت
+        </button>
+
+        <button
+          onClick={() => setActiveTab("events")}
+          className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-semibold transition ${
+            activeTab === "events"
+              ? "border border-white/20 bg-white/10 text-white shadow-[0_0_20px_-8px_rgba(255,255,255,0.5)]"
+              : "text-fg-500 hover:bg-white/5 hover:text-white"
+          }`}
+        >
+          <Bell size={15} />
+          پیام‌های خودکار و رویدادها
         </button>
 
         <button
@@ -392,6 +448,156 @@ export default function BotSettingsPage() {
                 placeholder="دستور نحوه گزارش و قالب‌بندی داده‌های ابزار..."
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: AUTOMATED EVENTS & NOTIFICATIONS */}
+      {activeTab === "events" && (
+        <div className="space-y-6">
+          {/* 1. Top 1 Shift */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">تغییر صدرنشین و رتبه ۱ کلاس در لیدربورد</h3>
+                <p className="mt-1 text-xs text-fg-500">اعلان فوری در گروه کلاس هنگام جابه‌جایی تاج و تخت لیدربورد</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyTop1Enabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyTop1Enabled}
+                  onChange={(e) => setNotifyTop1Enabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی برای تولید متن این پیام:</p>
+            <textarea
+              value={notifyTop1Prompt}
+              onChange={(e) => setNotifyTop1Prompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل هوش مصنوعی برای اعلان تغییر رتبه یک..."
+            />
+          </div>
+
+          {/* 2. New Assignment */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">ثبت تکلیف یا یادآوری جدید</h3>
+                <p className="mt-1 text-xs text-fg-500">ارسال بلافاصله پیام هوشمند در گروه کلاس پس از ایجاد تکلیف در اپلیکیشن</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyNewAssignmentEnabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyNewAssignmentEnabled}
+                  onChange={(e) => setNotifyNewAssignmentEnabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی برای تولید متن این پیام:</p>
+            <textarea
+              value={notifyNewAssignmentPrompt}
+              onChange={(e) => setNotifyNewAssignmentPrompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل هوش مصنوعی برای اعلام تکلیف جدید..."
+            />
+          </div>
+
+          {/* 3. Approaching Deadline */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">یادآوری نزدیک شدن ددلاین تکالیف</h3>
+                <p className="mt-1 text-xs text-fg-500">هشدار هوشمند در گروه کلاس قبل از اتمام موعد تحویل (کمتر از ۲۴ ساعت یا ۲ ساعت)</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyDeadlineEnabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyDeadlineEnabled}
+                  onChange={(e) => setNotifyDeadlineEnabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی برای تولید متن این پیام:</p>
+            <textarea
+              value={notifyDeadlinePrompt}
+              onChange={(e) => setNotifyDeadlinePrompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل هوش مصنوعی برای هشدار ددلاین نزدیک..."
+            />
+          </div>
+
+          {/* 4. Overdue PV Follow-up */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">پیام خودکار به پیوی دانش‌آموز پس از اتمام مهلت</h3>
+                <p className="mt-1 text-xs text-fg-500">پیام خصوصی خودکار هوش مصنوعی به دانش‌آموزانی که مهلت تکلیفشان گذشته و تیک نزده‌اند</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyOverduePvEnabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyOverduePvEnabled}
+                  onChange={(e) => setNotifyOverduePvEnabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی در چت خصوصی (پیوی):</p>
+            <textarea
+              value={notifyOverduePvPrompt}
+              onChange={(e) => setNotifyOverduePvPrompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل پیگیری انجام یا عدم انجام تکلیف در پیوی..."
+            />
+          </div>
+
+          {/* 5. Overdue Group Callout */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">صدا زدن و تگ کردن افراد عقب‌افتاده در گروه کلاس</h3>
+                <p className="mt-1 text-xs text-fg-500">اعلان در گروه کلاس و تگ کردن دانش‌آموزانی که تکلیف را تحویل نداده‌اند تا به پیوی مراجعه کنند</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyOverdueGroupEnabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyOverdueGroupEnabled}
+                  onChange={(e) => setNotifyOverdueGroupEnabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی برای منشن کردن در گروه:</p>
+            <textarea
+              value={notifyOverdueGroupPrompt}
+              onChange={(e) => setNotifyOverdueGroupPrompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل هوش مصنوعی برای صدا زدن افراد در گروه کلاس..."
+            />
           </div>
         </div>
       )}
@@ -555,6 +761,156 @@ export default function BotSettingsPage() {
                 <p className="mt-1 text-[10px] text-fg-500">سقف طول پاسخ به توکن (پیش‌فرض: ۶۰۰)</p>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: AUTOMATED EVENTS & NOTIFICATIONS */}
+      {activeTab === "events" && (
+        <div className="space-y-6">
+          {/* 1. Top 1 Shift */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">تغییر صدرنشین و رتبه ۱ کلاس در لیدربورد</h3>
+                <p className="mt-1 text-xs text-fg-500">اعلان فوری در گروه کلاس هنگام جابه‌جایی تاج و تخت لیدربورد</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyTop1Enabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyTop1Enabled}
+                  onChange={(e) => setNotifyTop1Enabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی برای تولید متن این پیام:</p>
+            <textarea
+              value={notifyTop1Prompt}
+              onChange={(e) => setNotifyTop1Prompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل هوش مصنوعی برای اعلان تغییر رتبه یک..."
+            />
+          </div>
+
+          {/* 2. New Assignment */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">ثبت تکلیف یا یادآوری جدید</h3>
+                <p className="mt-1 text-xs text-fg-500">ارسال بلافاصله پیام هوشمند در گروه کلاس پس از ایجاد تکلیف در اپلیکیشن</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyNewAssignmentEnabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyNewAssignmentEnabled}
+                  onChange={(e) => setNotifyNewAssignmentEnabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی برای تولید متن این پیام:</p>
+            <textarea
+              value={notifyNewAssignmentPrompt}
+              onChange={(e) => setNotifyNewAssignmentPrompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل هوش مصنوعی برای اعلام تکلیف جدید..."
+            />
+          </div>
+
+          {/* 3. Approaching Deadline */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">یادآوری نزدیک شدن ددلاین تکالیف</h3>
+                <p className="mt-1 text-xs text-fg-500">هشدار هوشمند در گروه کلاس قبل از اتمام موعد تحویل (کمتر از ۲۴ ساعت یا ۲ ساعت)</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyDeadlineEnabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyDeadlineEnabled}
+                  onChange={(e) => setNotifyDeadlineEnabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی برای تولید متن این پیام:</p>
+            <textarea
+              value={notifyDeadlinePrompt}
+              onChange={(e) => setNotifyDeadlinePrompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل هوش مصنوعی برای هشدار ددلاین نزدیک..."
+            />
+          </div>
+
+          {/* 4. Overdue PV Follow-up */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">پیام خودکار به پیوی دانش‌آموز پس از اتمام مهلت</h3>
+                <p className="mt-1 text-xs text-fg-500">پیام خصوصی خودکار هوش مصنوعی به دانش‌آموزانی که مهلت تکلیفشان گذشته و تیک نزده‌اند</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyOverduePvEnabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyOverduePvEnabled}
+                  onChange={(e) => setNotifyOverduePvEnabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی در چت خصوصی (پیوی):</p>
+            <textarea
+              value={notifyOverduePvPrompt}
+              onChange={(e) => setNotifyOverduePvPrompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل پیگیری انجام یا عدم انجام تکلیف در پیوی..."
+            />
+          </div>
+
+          {/* 5. Overdue Group Callout */}
+          <div className="panel relative overflow-hidden p-4 sm:p-6">
+            <Corners />
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-white">صدا زدن و تگ کردن افراد عقب‌افتاده در گروه کلاس</h3>
+                <p className="mt-1 text-xs text-fg-500">اعلان در گروه کلاس و تگ کردن دانش‌آموزانی که تکلیف را تحویل نداده‌اند تا به پیوی مراجعه کنند</p>
+              </div>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span className="text-xs text-fg-400">{notifyOverdueGroupEnabled ? "فعال" : "غیرفعال"}</span>
+                <input
+                  type="checkbox"
+                  checked={notifyOverdueGroupEnabled}
+                  onChange={(e) => setNotifyOverdueGroupEnabled(e.target.checked)}
+                  className="toggle"
+                />
+              </label>
+            </div>
+            <p className="mb-2 text-[11px] text-fg-400">پرامپت و لحن هوش مصنوعی برای منشن کردن در گروه:</p>
+            <textarea
+              value={notifyOverdueGroupPrompt}
+              onChange={(e) => setNotifyOverdueGroupPrompt(e.target.value)}
+              rows={3}
+              dir="rtl"
+              className="input w-full resize-y text-xs leading-relaxed text-fg-100"
+              placeholder="دستورالعمل هوش مصنوعی برای صدا زدن افراد در گروه کلاس..."
+            />
           </div>
         </div>
       )}

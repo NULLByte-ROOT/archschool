@@ -791,6 +791,16 @@ export interface BotSettings {
   bot_enabled: boolean;
   has_token: boolean;
   has_ai: boolean;
+  notify_top1_enabled?: boolean;
+  notify_top1_prompt?: string;
+  notify_new_assignment_enabled?: boolean;
+  notify_new_assignment_prompt?: string;
+  notify_deadline_enabled?: boolean;
+  notify_deadline_prompt?: string;
+  notify_overdue_pv_enabled?: boolean;
+  notify_overdue_pv_prompt?: string;
+  notify_overdue_group_enabled?: boolean;
+  notify_overdue_group_prompt?: string;
 }
 
 export interface BotSettingsUpdatePayload {
@@ -806,6 +816,16 @@ export interface BotSettingsUpdatePayload {
   ai_followup_anchor?: string;
   ai_temperature?: number;
   ai_max_tokens?: number;
+  notify_top1_enabled?: boolean;
+  notify_top1_prompt?: string;
+  notify_new_assignment_enabled?: boolean;
+  notify_new_assignment_prompt?: string;
+  notify_deadline_enabled?: boolean;
+  notify_deadline_prompt?: string;
+  notify_overdue_pv_enabled?: boolean;
+  notify_overdue_pv_prompt?: string;
+  notify_overdue_group_enabled?: boolean;
+  notify_overdue_group_prompt?: string;
 }
 
 export interface ModelItem {

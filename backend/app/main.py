@@ -421,13 +421,14 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """Own the deadline watcher for the lifetime of the process.
+    """Own the deadline watcher and telegram automation daemon for the lifetime of the process.
 
-    The task is created after boot migrations and cancelled on shutdown; its
-    first pass waits 20 seconds so a blue-green slot is healthy before it can
-    touch Expo. ``asyncio.to_thread`` keeps the DB scan off the event loop.
+    The tasks are created after boot migrations and cancelled on shutdown; initial
+    waits ensure database bootstrap is complete before running background cycles.
     """
     watcher: asyncio.Task[None] | None = None
+    tg_daemon: asyncio.Task[None] | None = None
+
     if settings.PUSH_NOTIFICATIONS_ENABLED:
         from .notifications import deadline_watcher
 
@@ -435,6 +436,17 @@ async def lifespan(_: FastAPI):
             deadline_watcher(settings.DEADLINE_CHECK_INTERVAL_MINUTES),
             name="archschool-deadline-watcher",
         )
+
+    try:
+        from .services.telegram_bot import telegram_automation_daemon
+
+        tg_daemon = asyncio.create_task(
+            telegram_automation_daemon(poll_seconds=45),
+            name="archschool-telegram-automation-daemon",
+        )
+    except Exception as exc:
+        logger.warning("Could not launch telegram automation daemon: %s", exc)
+
     try:
         yield
     finally:
@@ -442,6 +454,10 @@ async def lifespan(_: FastAPI):
             watcher.cancel()
             with suppress(asyncio.CancelledError):
                 await watcher
+        if tg_daemon is not None:
+            tg_daemon.cancel()
+            with suppress(asyncio.CancelledError):
+                await tg_daemon
 
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)

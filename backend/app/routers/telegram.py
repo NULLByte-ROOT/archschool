@@ -60,6 +60,17 @@ class BotSettingsUpdate(BaseModel):
     ai_followup_anchor: Optional[str] = None
     ai_temperature: Optional[float] = None
     ai_max_tokens: Optional[int] = None
+    # Automated Event Triggers & Prompts
+    notify_top1_enabled: Optional[bool] = None
+    notify_top1_prompt: Optional[str] = None
+    notify_new_assignment_enabled: Optional[bool] = None
+    notify_new_assignment_prompt: Optional[str] = None
+    notify_deadline_enabled: Optional[bool] = None
+    notify_deadline_prompt: Optional[str] = None
+    notify_overdue_pv_enabled: Optional[bool] = None
+    notify_overdue_pv_prompt: Optional[str] = None
+    notify_overdue_group_enabled: Optional[bool] = None
+    notify_overdue_group_prompt: Optional[str] = None
 
 
 class BotTestRequest(BaseModel):
@@ -117,11 +128,12 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
             parts = cb_data.split(":")
             c_type = parts[1] if len(parts) > 1 else "progress"
             t_uid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() and int(parts[2]) > 0 else (cb_user.id if cb_user else None)
+            t_day = parts[3] if len(parts) > 3 and parts[3] else None
             target_u = db.query(models.User).filter(models.User.id == t_uid).first() if t_uid else cb_user
 
             await telegram_bot.answer_callback_query(token, cb_id, text="در حال به‌روزرسانی نمودار... 🔄")
 
-            new_img, c_title, _ = card_renderer.generate_card(db, c_type, user=target_u)
+            new_img, c_title, _ = card_renderer.generate_card(db, c_type, user=target_u, target_day=t_day)
             now_iran = (datetime.utcnow() + timedelta(hours=3.5)).strftime("%H:%M:%S")
             clean_title = re.sub(r'^[📊🏆📝📅\s]+', '', c_title).strip()
             new_caption = (
@@ -134,7 +146,7 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
 
             reply_kb = {
                 "inline_keyboard": [
-                    [{"text": "🔄 به‌روزرسانی نمودار", "callback_data": f"refresh_card:{c_type}:{t_uid or 0}"}]
+                    [{"text": "🔄 به‌روزرسانی نمودار", "callback_data": f"refresh_card:{c_type}:{t_uid or 0}:{t_day or ''}"}]
                 ]
             }
             await telegram_bot.edit_telegram_photo(
@@ -344,10 +356,11 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     visual_card = ai_meta.get("visual_card")
     if visual_card and visual_card.get("image_path"):
         c_type = visual_card.get("card_type", "progress")
+        c_day = visual_card.get("target_day") or ""
         t_uid = user.id if user else 0
         photo_markup = {
             "inline_keyboard": [
-                [{"text": "🔄 به‌روزرسانی نمودار", "callback_data": f"refresh_card:{c_type}:{t_uid}"}]
+                [{"text": "🔄 به‌روزرسانی نمودار", "callback_data": f"refresh_card:{c_type}:{t_uid}:{c_day}"}]
             ]
         }
 
@@ -533,6 +546,32 @@ async def update_settings(
 
     if payload.ai_max_tokens is not None:
         telegram_bot.set_bot_setting(db, "ai_max_tokens", str(payload.ai_max_tokens))
+
+    # Event Triggers & Prompts
+    if payload.notify_top1_enabled is not None:
+        telegram_bot.set_bot_setting(db, "notify_top1_enabled", "true" if payload.notify_top1_enabled else "false")
+    if payload.notify_top1_prompt is not None:
+        telegram_bot.set_bot_setting(db, "notify_top1_prompt", payload.notify_top1_prompt.strip())
+
+    if payload.notify_new_assignment_enabled is not None:
+        telegram_bot.set_bot_setting(db, "notify_new_assignment_enabled", "true" if payload.notify_new_assignment_enabled else "false")
+    if payload.notify_new_assignment_prompt is not None:
+        telegram_bot.set_bot_setting(db, "notify_new_assignment_prompt", payload.notify_new_assignment_prompt.strip())
+
+    if payload.notify_deadline_enabled is not None:
+        telegram_bot.set_bot_setting(db, "notify_deadline_enabled", "true" if payload.notify_deadline_enabled else "false")
+    if payload.notify_deadline_prompt is not None:
+        telegram_bot.set_bot_setting(db, "notify_deadline_prompt", payload.notify_deadline_prompt.strip())
+
+    if payload.notify_overdue_pv_enabled is not None:
+        telegram_bot.set_bot_setting(db, "notify_overdue_pv_enabled", "true" if payload.notify_overdue_pv_enabled else "false")
+    if payload.notify_overdue_pv_prompt is not None:
+        telegram_bot.set_bot_setting(db, "notify_overdue_pv_prompt", payload.notify_overdue_pv_prompt.strip())
+
+    if payload.notify_overdue_group_enabled is not None:
+        telegram_bot.set_bot_setting(db, "notify_overdue_group_enabled", "true" if payload.notify_overdue_group_enabled else "false")
+    if payload.notify_overdue_group_prompt is not None:
+        telegram_bot.set_bot_setting(db, "notify_overdue_group_prompt", payload.notify_overdue_group_prompt.strip())
 
     # Invalidate in-memory prompt cache so new settings apply immediately
     from app.services import ai_agent

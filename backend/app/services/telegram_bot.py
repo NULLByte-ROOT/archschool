@@ -199,6 +199,17 @@ def get_all_bot_settings(db: Session) -> Dict[str, Any]:
         "bot_enabled": data.get("telegram_bot_enabled", "true").lower() in ("true", "1", "yes"),
         "has_token": bool(data.get("telegram_bot_token")),
         "has_ai": bool(api_key),
+        # Automated Event Triggers & Prompts
+        "notify_top1_enabled": data.get("notify_top1_enabled", "true").lower() in ("true", "1", "yes"),
+        "notify_top1_prompt": data.get("notify_top1_prompt") if data.get("notify_top1_prompt") is not None else default_prompts.DEFAULT_NOTIFY_TOP1_PROMPT,
+        "notify_new_assignment_enabled": data.get("notify_new_assignment_enabled", "true").lower() in ("true", "1", "yes"),
+        "notify_new_assignment_prompt": data.get("notify_new_assignment_prompt") if data.get("notify_new_assignment_prompt") is not None else default_prompts.DEFAULT_NOTIFY_NEW_ASSIGNMENT_PROMPT,
+        "notify_deadline_enabled": data.get("notify_deadline_enabled", "true").lower() in ("true", "1", "yes"),
+        "notify_deadline_prompt": data.get("notify_deadline_prompt") if data.get("notify_deadline_prompt") is not None else default_prompts.DEFAULT_NOTIFY_DEADLINE_PROMPT,
+        "notify_overdue_pv_enabled": data.get("notify_overdue_pv_enabled", "true").lower() in ("true", "1", "yes"),
+        "notify_overdue_pv_prompt": data.get("notify_overdue_pv_prompt") if data.get("notify_overdue_pv_prompt") is not None else default_prompts.DEFAULT_NOTIFY_OVERDUE_PV_PROMPT,
+        "notify_overdue_group_enabled": data.get("notify_overdue_group_enabled", "true").lower() in ("true", "1", "yes"),
+        "notify_overdue_group_prompt": data.get("notify_overdue_group_prompt") if data.get("notify_overdue_group_prompt") is not None else default_prompts.DEFAULT_NOTIFY_OVERDUE_GROUP_PROMPT,
     }
 
 
@@ -210,6 +221,17 @@ def reset_bot_prompts(db: Session) -> Dict[str, Any]:
     set_bot_setting(db, "ai_followup_anchor", default_prompts.DEFAULT_FOLLOWUP_ANCHOR)
     set_bot_setting(db, "ai_temperature", str(default_prompts.DEFAULT_TEMPERATURE))
     set_bot_setting(db, "ai_max_tokens", str(default_prompts.DEFAULT_MAX_TOKENS))
+    # Reset event prompts to defaults
+    set_bot_setting(db, "notify_top1_enabled", "true")
+    set_bot_setting(db, "notify_top1_prompt", default_prompts.DEFAULT_NOTIFY_TOP1_PROMPT)
+    set_bot_setting(db, "notify_new_assignment_enabled", "true")
+    set_bot_setting(db, "notify_new_assignment_prompt", default_prompts.DEFAULT_NOTIFY_NEW_ASSIGNMENT_PROMPT)
+    set_bot_setting(db, "notify_deadline_enabled", "true")
+    set_bot_setting(db, "notify_deadline_prompt", default_prompts.DEFAULT_NOTIFY_DEADLINE_PROMPT)
+    set_bot_setting(db, "notify_overdue_pv_enabled", "true")
+    set_bot_setting(db, "notify_overdue_pv_prompt", default_prompts.DEFAULT_NOTIFY_OVERDUE_PV_PROMPT)
+    set_bot_setting(db, "notify_overdue_group_enabled", "true")
+    set_bot_setting(db, "notify_overdue_group_prompt", default_prompts.DEFAULT_NOTIFY_OVERDUE_GROUP_PROMPT)
     return get_all_bot_settings(db)
 
 
@@ -588,6 +610,7 @@ async def check_and_broadcast_top1(db: Session) -> Optional[str]:
     token = get_bot_setting(db, "telegram_bot_token")
     group_id = get_bot_setting(db, "telegram_group_id")
     enabled = get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
+    notify_enabled = get_bot_setting(db, "notify_top1_enabled", "true").lower() in ("true", "1")
 
     if not token or not group_id or not enabled:
         return None
@@ -618,7 +641,19 @@ async def check_and_broadcast_top1(db: Session) -> Optional[str]:
             set_bot_setting(db, "last_top1_user_id", top_user_id)
             set_bot_setting(db, "last_top1_username", top_username)
 
-            announcement = (
+            if not notify_enabled:
+                return top_username
+
+            from . import ai_agent
+            ctx = {
+                "event": "top1_change",
+                "new_leader": top_username,
+                "previous_leader": last_top_name,
+                "completion_percentage": percentage,
+                "current_streak": streak,
+            }
+            ai_text = await ai_agent.generate_ai_event_text(db, "top1", ctx)
+            announcement = ai_text or (
                 f"🚨 <b>زلزله در لیدربورد کلاس! تاج و تخت جابه‌جا شد!</b> 👑🔥\n\n"
                 f"🏆 <b>{top_username}</b> کولاک کرد و با استریک آتشین <b>{streak} روزه</b> "
                 f"و موفقیت <b>{percentage}%</b>، صدر جدول رو از <i>{last_top_name}</i> پس گرفت و سلطان جدید کلاس شد! 🦁💪\n\n"
@@ -643,8 +678,9 @@ async def broadcast_deadline_announcement(
     token = get_bot_setting(db, "telegram_bot_token")
     group_id = get_bot_setting(db, "telegram_group_id")
     enabled = get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
+    notify_enabled = get_bot_setting(db, "notify_deadline_enabled", "true").lower() in ("true", "1")
 
-    if not token or not group_id or not enabled:
+    if not token or not group_id or not enabled or not notify_enabled:
         return False
 
     import math
@@ -665,7 +701,16 @@ async def broadcast_deadline_announcement(
         time_text = f"حدود <b>{math.ceil(hours_left)} ساعت</b> (فردا)"
         urgency = "📢 <b>یادآوری موعد تحویل تکلیف</b> 📚"
 
-    text = (
+    from . import ai_agent
+    ctx = {
+        "event": "deadline_reminder",
+        "assignment_title": assignment.title,
+        "subject": f"{subj_name}{teacher}",
+        "hours_left": hours_left,
+        "time_text": time_text,
+    }
+    ai_text = await ai_agent.generate_ai_event_text(db, "deadline", ctx)
+    text = ai_text or (
         f"{urgency}\n\n"
         f"🔹 <b>تکلیف:</b> {assignment.title}\n"
         f"🔹 <b>درس:</b> {subj_name}{teacher}\n"
@@ -685,8 +730,9 @@ async def broadcast_new_assignment(
     token = get_bot_setting(db, "telegram_bot_token")
     group_id = get_bot_setting(db, "telegram_group_id")
     enabled = get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
+    notify_enabled = get_bot_setting(db, "notify_new_assignment_enabled", "true").lower() in ("true", "1")
 
-    if not token or not group_id or not enabled:
+    if not token or not group_id or not enabled or not notify_enabled:
         return False
 
     from . import school_knowledge
@@ -701,19 +747,202 @@ async def broadcast_new_assignment(
     is_reminder = getattr(assignment, "is_reminder_only", False)
     header = "📌 <b>یادآوری جدید کلاس ثبت شد!</b>" if is_reminder else "📢 <b>تکلیف جدید در اپلیکیشن ثبت شد!</b> 📚🔥"
 
-    text = (
-        f"{header}\n\n"
-        f"🔹 <b>عنوان:</b> {assignment.title}\n"
-        f"🔹 <b>درس:</b> {subj_name}{teacher}\n"
-        f"⏰ <b>مهلت تحویل:</b> {due_str}\n"
-    )
-    if is_reminder:
-        text += "<i>(این مورد فقط جهت یادآوری ثبت شده و نیاز به تیک زدن ندارد)</i>\n\n"
-    else:
-        text += "\nبچه‌ها سریع دست‌به‌کار بشید و تیکش رو بزنید تا استریک‌تون پرواز کنه! 🚀⚡\n"
+    from . import ai_agent
+    ctx = {
+        "event": "new_assignment",
+        "assignment_title": assignment.title,
+        "subject": f"{subj_name}{teacher}",
+        "due_date": due_str,
+        "description": assignment.description or "",
+        "is_reminder_only": is_reminder,
+    }
+    ai_text = await ai_agent.generate_ai_event_text(db, "new_assignment", ctx)
 
-    text += "📱 <i>مشاهده پیوست‌ها و جزئیات در اپلیکیشن ArchSchool</i>"
+    if ai_text:
+        text = ai_text
+    else:
+        text = (
+            f"{header}\n\n"
+            f"🔹 <b>عنوان:</b> {assignment.title}\n"
+            f"🔹 <b>درس:</b> {subj_name}{teacher}\n"
+            f"⏰ <b>مهلت تحویل:</b> {due_str}\n"
+        )
+        if is_reminder:
+            text += "<i>(این مورد فقط جهت یادآوری ثبت شده و نیاز به تیک زدن ندارد)</i>\n\n"
+        else:
+            text += "\nبچه‌ها سریع دست‌به‌کار بشید و تیکش رو بزنید تا استریک‌تون پرواز کنه! 🚀⚡\n"
+
+        text += "📱 <i>مشاهده پیوست‌ها و جزئیات در اپلیکیشن ArchSchool</i>"
+
     return await send_telegram_message(token, group_id, text)
+
+
+async def process_overdue_assignments(db: Session) -> int:
+    """Find newly expired assignments and send automated private follow-up messages
+    to incomplete students, and tag them in the school Telegram group.
+    """
+    token = get_bot_setting(db, "telegram_bot_token")
+    group_id = get_bot_setting(db, "telegram_group_id")
+    enabled = get_bot_setting(db, "telegram_bot_enabled", "true").lower() in ("true", "1")
+    if not token or not enabled:
+        return 0
+
+    pv_enabled = get_bot_setting(db, "notify_overdue_pv_enabled", "true").lower() in ("true", "1")
+    group_enabled = get_bot_setting(db, "notify_overdue_group_enabled", "true").lower() in ("true", "1")
+
+    if not pv_enabled and not group_enabled:
+        return 0
+
+    now = datetime.utcnow()
+    overdue_assignments = (
+        db.query(models.Assignment)
+        .filter(
+            models.Assignment.deleted_at.is_(None),
+            models.Assignment.is_reminder_only.is_(False),
+            models.Assignment.due_date.isnot(None),
+            models.Assignment.due_date < now,
+        )
+        .order_by(models.Assignment.due_date.asc())
+        .all()
+    )
+
+    processed_count = 0
+    from . import ai_agent, school_knowledge
+
+    for asgn in overdue_assignments:
+        existing = (
+            db.query(models.OverdueFollowupNotification)
+            .filter(models.OverdueFollowupNotification.assignment_id == asgn.id)
+            .first()
+        )
+        if existing:
+            continue
+
+        marker = models.OverdueFollowupNotification(assignment_id=asgn.id)
+        db.add(marker)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            continue
+        except Exception:
+            db.rollback()
+            continue
+
+        completed_user_ids = {
+            row[0]
+            for row in db.query(models.AssignmentCompletion.user_id)
+            .filter(models.AssignmentCompletion.assignment_id == asgn.id)
+            .all()
+        }
+
+        uncompleted_users = (
+            db.query(models.User)
+            .filter(
+                models.User.is_active.is_(True),
+                ~models.User.id.in_(completed_user_ids),
+            )
+            .all()
+        )
+
+        subj_info = school_knowledge.resolve_subject(asgn.subject_id or asgn.course or "")
+        teacher = f" (استاد {subj_info['teacher']})" if subj_info else ""
+        subj_name = subj_info["name"] if subj_info else (asgn.subject_id or "عمومی")
+        due_str = school_knowledge.format_iran_datetime(asgn.due_date) if asgn.due_date else "گذشته"
+
+        # 1. Private chat follow-up to each incomplete student
+        if pv_enabled:
+            for u in uncompleted_users:
+                if not u.telegram_id:
+                    continue
+                pv_context = {
+                    "event": "overdue_pv",
+                    "student_name": u.username,
+                    "assignment_title": asgn.title,
+                    "subject": f"{subj_name}{teacher}",
+                    "due_date": due_str,
+                }
+                ai_msg = await ai_agent.generate_ai_event_text(db, "overdue_pv", pv_context)
+                if not ai_msg:
+                    ai_msg = (
+                        f"سلام <b>{u.username}</b> عزیز 👋\n\n"
+                        f"⏰ مهلت تحویل تکلیف <b>«{asgn.title}»</b> ({subj_name}) به پایان رسیده و هنوز تیک آن را در اپلیکیشن ثبت نکرده‌ای!\n\n"
+                        f"آیا این تکلیف را انجام دادی یا به مشکلی خوردی؟ لطفاً وضعیتت را مشخص کن تا درصد و استریکت آسیب نبیند! ⚡"
+                    )
+                try:
+                    await send_telegram_message(token, u.telegram_id, ai_msg)
+                    logger.info("Sent automated overdue PV follow-up to user %s for assignment %s", u.username, asgn.id)
+                except Exception as pv_err:
+                    logger.warning("Failed to send overdue PV message to user %s: %s", u.id, pv_err)
+
+        # 2. Group callout tagging incomplete students
+        if group_enabled and group_id and uncompleted_users:
+            user_mentions = []
+            for u in uncompleted_users:
+                if u.telegram_id:
+                    if u.telegram_link_token and not u.telegram_link_token.startswith("arch_"):
+                        user_mentions.append(f"@{u.telegram_link_token}")
+                    else:
+                        user_mentions.append(f'<a href="tg://user?id={u.telegram_id}">{u.username}</a>')
+
+            tags_str = " ".join(user_mentions) if user_mentions else "بچه‌هایی که انجام ندادید"
+            group_context = {
+                "event": "overdue_group",
+                "assignment_title": asgn.title,
+                "subject": f"{subj_name}{teacher}",
+                "due_date": due_str,
+                "incomplete_count": len(uncompleted_users),
+                "incomplete_tags": tags_str,
+            }
+            ai_group_msg = await ai_agent.generate_ai_event_text(db, "overdue_group", group_context)
+            if not ai_group_msg:
+                ai_group_msg = (
+                    f"📢 <b>اعلام فوری در مورد تکلیف {asgn.title}</b> ({subj_name})\n\n"
+                    f"مهلت این تکلیف به اتمام رسید و وضعیت چند نفر از بچه‌ها هنوز مشخص نشده!\n\n"
+                    f"👉 {tags_str}\n\n"
+                    f"بچه‌ها سریعاً بیاید پیوی ربات کارتون دارم! وضعیت تکلیفتون رو سریع‌تر مشخص کنید تا استریک‌هاتون صفر نشه! ⚠️🔥"
+                )
+            try:
+                await send_telegram_message(token, group_id, ai_group_msg)
+                logger.info("Broadcasted automated overdue group callout for assignment %s with %d users tagged", asgn.id, len(user_mentions))
+            except Exception as grp_err:
+                logger.warning("Failed to send overdue group callout for assignment %s: %s", asgn.id, grp_err)
+
+        processed_count += 1
+
+    return processed_count
+
+
+async def telegram_automation_daemon(poll_seconds: int = 45) -> None:
+    """Continuous automated background worker for ArchSchool Telegram integration.
+    Executes periodic checks for newly overdue assignments and Top 1 leaderboard rank shifts.
+    Runs continuously throughout application lifespan.
+    """
+    logger.info("Starting ArchSchool Telegram Automation Daemon (poll interval: %ds)...", poll_seconds)
+    await asyncio.sleep(15)
+
+    from ..database import SessionLocal
+
+    while True:
+        try:
+            with SessionLocal() as db:
+                try:
+                    await process_overdue_assignments(db)
+                except Exception as exc:
+                    logger.warning("Error processing overdue assignments in daemon: %s", exc)
+
+                try:
+                    await check_and_broadcast_top1(db)
+                except Exception as exc:
+                    logger.warning("Error checking top 1 leaderboard in daemon: %s", exc)
+
+        except asyncio.CancelledError:
+            logger.info("ArchSchool Telegram Automation Daemon cancelled.")
+            raise
+        except Exception as exc:
+            logger.error("Unhandled error in telegram_automation_daemon: %s", exc, exc_info=True)
+
+        await asyncio.sleep(poll_seconds)
 
 
 async def broadcast_new_assignment_by_id(assignment_id: int) -> bool:
