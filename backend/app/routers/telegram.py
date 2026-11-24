@@ -306,6 +306,16 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
             )
             return
 
+        # Dedicated Owner VIP Command: Force Resolve 503 Backlog
+        if is_owner_user and any(k in text.lower() for k in ("/retry_503", "/resolve_503", "حل 503", "بررسی 503", "پاسخ 503", "پیام های مانده", "پیام‌های مانده")):
+            cnt = await telegram_bot.resolve_pending_503_chats(db)
+            await telegram_bot.send_telegram_message(
+                token, chat_id,
+                f"🔄 رسیدگی به پیام‌های معوقه ۵۰۳ انجام شد. تعداد {cnt} پیام معوقه با موفقیت پاسخ داده شدند.",
+                reply_to_message_id=msg_id
+            )
+            return
+
     # --- 2. Handle Group Chat Mention / Reply Check ---
     elif chat_type in ("group", "supergroup"):
         # Auto-learn group_id if not configured
@@ -431,6 +441,20 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     # Instant visual feedback: send 'typing' action immediately to Telegram header
     asyncio.create_task(telegram_bot.send_chat_action(token, chat_id, "typing"))
 
+    queue_msg_id: Optional[int] = None
+
+    async def notify_user_queued() -> None:
+        nonlocal queue_msg_id
+        if queue_msg_id is not None:
+            return
+        queue_text = "⏳ پیامتان در صف پردازش قرار دارد و سرور زیر بار شدید ترافیک است. تا چند دقیقه دیگر پاسختان آماده و ارسال می‌شود..."
+        queue_msg_id = await telegram_bot.send_telegram_message_get_id(
+            token=token,
+            chat_id=chat_id,
+            text=queue_text,
+            reply_to_message_id=msg_id,
+        )
+
     ai_reply, ai_meta = await ai_agent.ask_universal_ai_agent(
         user_prompt=text,
         api_key=ai_key,
@@ -440,6 +464,7 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
         current_user=user,
         conversation_history=history,
         is_recent=is_recent,
+        on_503_callback=notify_user_queued,
     )
 
     # Persist user prompt and assistant response to chat history for multi-turn sessions
@@ -449,6 +474,10 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
     # Check if a visual screenshot card was rendered by the AI tool
     visual_card = ai_meta.get("visual_card")
     if visual_card and visual_card.get("image_path"):
+        # If queue notification message exists, delete it so only the visual photo displays
+        if queue_msg_id:
+            await telegram_bot.delete_telegram_message(token, chat_id, queue_msg_id)
+
         c_type = visual_card.get("card_type", "progress")
         c_day = visual_card.get("target_day") or ""
         t_uid = user.id if user else 0
@@ -507,9 +536,17 @@ async def _handle_telegram_update_logic(update: Dict[str, Any], db: Session) -> 
         from app.services import telegram_task_wizard
         reply_markup = telegram_task_wizard.build_step1_keyboard()
 
-    await telegram_bot.send_telegram_message(
-        token, chat_id, ai_reply, parse_mode="HTML", reply_to_message_id=msg_id, reply_markup=reply_markup
-    )
+    # If user received queue notification due to 503, edit that message seamlessly into the final answer!
+    edited_ok = False
+    if queue_msg_id:
+        edited_ok = await telegram_bot.edit_telegram_message(
+            token, chat_id, queue_msg_id, ai_reply, parse_mode="HTML", reply_markup=reply_markup
+        )
+
+    if not edited_ok:
+        await telegram_bot.send_telegram_message(
+            token, chat_id, ai_reply, parse_mode="HTML", reply_to_message_id=msg_id, reply_markup=reply_markup
+        )
 
 
 async def _process_telegram_update_task(update: Dict[str, Any], update_id: Optional[int]) -> None:
@@ -827,3 +864,14 @@ def revoke_user_token(
         "is_linked": False,
         "telegram_username": None,
     }
+
+
+@router.post("/resolve-503-backlog")
+async def resolve_503_backlog_endpoint(
+    db: Session = Depends(get_db),
+    owner: models.User = Depends(get_current_owner),
+):
+    """Admin endpoint to find all conversations whose last message received a 503 error,
+    and process/deliver their answers immediately."""
+    count = await telegram_bot.resolve_pending_503_chats(db)
+    return {"ok": True, "resolved_chats": count}

@@ -1,5 +1,6 @@
 import pytest
 from datetime import datetime, timedelta
+from unittest.mock import patch, AsyncMock
 from app import models
 from app.services import ai_agent, telegram_bot
 
@@ -668,6 +669,62 @@ def test_live_context_strictly_excludes_overdue_and_segregates_realtime(db_sessi
     assert "تکلیف قدیمی شیمی" not in ctx2
     assert "تکالیف جاری انجام‌شده کاربر" in ctx2
     assert "پروژه طراحی وب" in ctx2
+
+
+def test_is_503_error_detection():
+    assert ai_agent._is_503_error(503, "") is True
+    assert ai_agent._is_503_error(200, "503 Service Unavailable") is True
+    assert ai_agent._is_503_error(429, "The model is overloaded. Please try again.") is True
+    assert ai_agent._is_503_error(500, "model is busy") is True
+    assert ai_agent._is_503_error(200, "Normal response") is False
+    assert ai_agent._is_503_error(401, "Invalid API key") is False
+
+
+@pytest.mark.asyncio
+async def test_resolve_pending_503_chats(db_session):
+    telegram_bot.set_bot_setting(db_session, "telegram_bot_token", "fake_test_token")
+    telegram_bot.set_bot_setting(db_session, "ai_api_key", "fake_ai_key")
+
+    test_chat_id = 99887766
+    # Seed user question followed by 503 assistant error
+    u_msg = models.TelegramChatHistory(
+        chat_id=test_chat_id,
+        role="user",
+        content="برنامه روز دوشنبه چیه؟",
+        created_at=datetime.utcnow() - timedelta(minutes=10),
+    )
+    a_err = models.TelegramChatHistory(
+        chat_id=test_chat_id,
+        role="assistant",
+        content="⚠️ سرور ارائه‌دهنده هوش مصنوعی موقتاً با ترافیک بالا مواجه است. لطفاً چند لحظه دیگر پیام دهید.",
+        created_at=datetime.utcnow() - timedelta(minutes=9),
+    )
+    db_session.add_all([u_msg, a_err])
+    db_session.commit()
+
+    with patch.object(ai_agent, "ask_universal_ai_agent", new_callable=AsyncMock) as mock_ask, \
+         patch.object(telegram_bot, "send_telegram_message", new_callable=AsyncMock) as mock_send, \
+         patch.object(telegram_bot, "send_chat_action", new_callable=AsyncMock):
+        
+        mock_ask.return_value = ("برنامه دوشنبه شامل ریاضی و فیزیک است.", {})
+        mock_send.return_value = True
+
+        resolved = await telegram_bot.resolve_pending_503_chats(db_session)
+        assert resolved == 1
+        assert mock_ask.await_count == 1
+        assert mock_send.await_count >= 1
+
+        # Verify new assistant message was recorded in history
+        last_rec = (
+            db_session.query(models.TelegramChatHistory)
+            .filter(models.TelegramChatHistory.chat_id == test_chat_id)
+            .order_by(models.TelegramChatHistory.id.desc())
+            .first()
+        )
+        assert last_rec.role == "assistant"
+        assert "برنامه دوشنبه شامل ریاضی و فیزیک است" in last_rec.content
+        assert not telegram_bot.is_503_error_content(last_rec.content)
+
 
 
 

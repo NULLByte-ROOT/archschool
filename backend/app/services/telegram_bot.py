@@ -557,7 +557,7 @@ async def _async_mirror_outbound(token: str, target_chat_id: Any, text: str) -> 
         logger.debug("Failed outbound PV mirror to owner: %s", exc)
 
 
-async def send_telegram_message(
+async def send_telegram_message_get_id(
     token: str,
     chat_id: str | int,
     text: str,
@@ -565,10 +565,10 @@ async def send_telegram_message(
     reply_to_message_id: Optional[int] = None,
     reply_markup: Optional[Dict[str, Any]] = None,
     mirror_pv: bool = True,
-) -> bool:
-    """Send a message via Telegram Bot HTTP API with automatic HTML sanitization, fallback and Owner PV mirroring."""
+) -> Optional[int]:
+    """Send a message via Telegram Bot HTTP API and return message_id if successful."""
     if not token or not chat_id:
-        return False
+        return None
 
     # Sanitize and convert markdown to valid Telegram HTML if in HTML mode
     formatted_text = format_telegram_html(text) if parse_mode == "HTML" else text
@@ -588,9 +588,11 @@ async def send_telegram_message(
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code == 200:
+                data = resp.json()
+                msg_id = data.get("result", {}).get("message_id")
                 if mirror_pv and is_private_telegram_chat(chat_id):
                     asyncio.create_task(_async_mirror_outbound(token, chat_id, text))
-                return True
+                return msg_id
             logger.warning("Telegram sendMessage error: %s %s", resp.status_code, resp.text)
 
             # Fallback: if Telegram rejected the HTML entities, send as clean plain text
@@ -601,13 +603,51 @@ async def send_telegram_message(
                 plain_payload["text"] = re.sub(r'<[^>]+>', '', formatted_text)
                 fallback_resp = await client.post(url, json=plain_payload)
                 if fallback_resp.status_code == 200:
+                    fb_data = fallback_resp.json()
+                    msg_id = fb_data.get("result", {}).get("message_id")
                     logger.info("Telegram message sent successfully using plain-text fallback")
                     if mirror_pv and is_private_telegram_chat(chat_id):
                         asyncio.create_task(_async_mirror_outbound(token, chat_id, text))
-                    return True
+                    return msg_id
     except Exception as exc:
         logger.error("Failed to send Telegram message: %s", exc)
-    return False
+    return None
+
+
+async def send_telegram_message(
+    token: str,
+    chat_id: str | int,
+    text: str,
+    parse_mode: str = "HTML",
+    reply_to_message_id: Optional[int] = None,
+    reply_markup: Optional[Dict[str, Any]] = None,
+    mirror_pv: bool = True,
+) -> bool:
+    """Send a message via Telegram Bot HTTP API with automatic HTML sanitization, fallback and Owner PV mirroring."""
+    msg_id = await send_telegram_message_get_id(
+        token=token,
+        chat_id=chat_id,
+        text=text,
+        parse_mode=parse_mode,
+        reply_to_message_id=reply_to_message_id,
+        reply_markup=reply_markup,
+        mirror_pv=mirror_pv,
+    )
+    return msg_id is not None
+
+
+async def delete_telegram_message(token: str, chat_id: str | int, message_id: int) -> bool:
+    """Delete a Telegram message."""
+    if not token or not chat_id or not message_id:
+        return False
+    url = f"{TELEGRAM_API_BASE.format(token=token)}/deleteMessage"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json={"chat_id": chat_id, "message_id": message_id})
+            return resp.status_code == 200
+    except Exception as exc:
+        logger.warning("Failed to delete Telegram message %s in chat %s: %s", message_id, chat_id, exc)
+        return False
 
 
 async def send_chat_action(token: str, chat_id: str | int, action: str = "typing") -> bool:
@@ -1175,6 +1215,146 @@ async def process_overdue_assignments(db: Session, force: bool = False) -> int:
     return len(assignments_to_mark)
 
 
+def is_503_error_content(text: str) -> bool:
+    """Check if content indicates a 503 Service Unavailable or overloaded AI response."""
+    if not text:
+        return False
+    lower = text.lower()
+    return (
+        "503" in lower
+        or "سرور ارائه‌دهنده هوش مصنوعی موقتاً با ترافیک بالا مواجه است" in text
+        or "ترافیک بالا مواجه است" in text
+        or "ترافیک شدید" in text
+        or "زیر بار شدید ترافیک" in text
+        or "در صف پردازش" in text
+        or "service unavailable" in lower
+        or "overloaded" in lower
+    )
+
+
+async def resolve_pending_503_chats(db: Session) -> int:
+    """Finds all conversations whose last message received a 503 error,
+    and delivers the generated answer now using the full 30-attempt retry mechanism.
+    Returns the number of resolved chats.
+    """
+    token = get_bot_setting(db, "telegram_bot_token")
+    if not token:
+        return 0
+
+    ai_key = get_bot_setting(db, "ai_api_key") or get_bot_setting(db, "gemini_api_key")
+    if not ai_key:
+        return 0
+
+    from sqlalchemy import func
+    from . import ai_agent
+
+    try:
+        # Query the latest TelegramChatHistory record for each chat_id
+        subq = (
+            db.query(
+                models.TelegramChatHistory.chat_id,
+                func.max(models.TelegramChatHistory.id).label("max_id"),
+            )
+            .group_by(models.TelegramChatHistory.chat_id)
+            .subquery()
+        )
+
+        latest_records = (
+            db.query(models.TelegramChatHistory)
+            .join(subq, models.TelegramChatHistory.id == subq.c.max_id)
+            .all()
+        )
+    except Exception as q_err:
+        logger.warning("Could not query pending 503 records: %s", q_err)
+        return 0
+
+    resolved_count = 0
+    provider = get_bot_setting(db, "ai_provider", "openrouter")
+    def_base, def_model = get_provider_defaults(provider)
+    base_url = get_bot_setting(db, "ai_base_url") or def_base
+    model_name = get_bot_setting(db, "ai_model") or def_model
+
+    for record in latest_records:
+        chat_id = record.chat_id
+        # Check if the latest message was an assistant 503 error or left in queue
+        if record.role == "assistant" and is_503_error_content(record.content):
+            # Find the user question right before this failed response
+            user_msg = (
+                db.query(models.TelegramChatHistory)
+                .filter(
+                    models.TelegramChatHistory.chat_id == chat_id,
+                    models.TelegramChatHistory.id < record.id,
+                    models.TelegramChatHistory.role == "user",
+                )
+                .order_by(models.TelegramChatHistory.id.desc())
+                .first()
+            )
+            if not user_msg or not user_msg.content:
+                continue
+
+            user_prompt = user_msg.content
+            target_user = None
+            if user_msg.user_id:
+                target_user = db.query(models.User).filter(models.User.id == user_msg.user_id).first()
+            elif record.user_id:
+                target_user = db.query(models.User).filter(models.User.id == record.user_id).first()
+
+            logger.info("Resolving pending 503 for chat %s (prompt: %s)", chat_id, user_prompt[:50])
+
+            # Fetch compact conversation history excluding the failed assistant message
+            history = (
+                db.query(models.TelegramChatHistory)
+                .filter(
+                    models.TelegramChatHistory.chat_id == chat_id,
+                    models.TelegramChatHistory.id < record.id,
+                )
+                .order_by(models.TelegramChatHistory.id.desc())
+                .limit(6)
+                .all()
+            )
+            history.reverse()
+            conv_history = [{"role": h.role, "content": h.content} for h in history]
+
+            # Indicate typing in chat
+            await send_chat_action(token, chat_id, "typing")
+
+            ai_reply, ai_meta = await ai_agent.ask_universal_ai_agent(
+                user_prompt=user_prompt,
+                api_key=ai_key,
+                db=db,
+                base_url=base_url,
+                model_name=model_name,
+                current_user=target_user,
+                conversation_history=conv_history,
+                is_recent=False,
+            )
+
+            # Check if resolution succeeded (not another 503 error)
+            if not is_503_error_content(ai_reply):
+                formatted_reply = (
+                    "🔄 <b>پاسخ به سوال شما (پس از برطرف شدن ترافیک سرور):</b>\n\n"
+                    f"{ai_reply}"
+                )
+                sent = await send_telegram_message(token, chat_id, formatted_reply)
+                if sent:
+                    save_chat_history(
+                        db, chat_id, role="assistant", content=formatted_reply,
+                        user_id=target_user.id if target_user else None
+                    )
+                    resolved_count += 1
+                    logger.info("Successfully delivered 503 backlog answer to chat %s", chat_id)
+
+    if resolved_count > 0:
+        owner_chat_id = get_bot_setting(db, "owner_telegram_chat_id")
+        if owner_chat_id:
+            await send_telegram_message(
+                token, owner_chat_id,
+                f"✅ <b>رسیدگی به پیام‌های معوقه ۵۰۳:</b>\nتعداد <b>{resolved_count}</b> گفتگو که آخرین پیام آن‌ها با خطای ۵۰۳ مواجه شده بود، هم‌اکنون با موفقیت پاسخ داده شدند."
+            )
+
+    return resolved_count
+
+
 async def telegram_automation_daemon(poll_seconds: int = 45) -> None:
     """Continuous automated background worker for ArchSchool Telegram integration.
     Executes periodic checks for newly overdue assignments and Top 1 leaderboard rank shifts.
@@ -1184,6 +1364,13 @@ async def telegram_automation_daemon(poll_seconds: int = 45) -> None:
     await asyncio.sleep(2)
 
     from ..database import SessionLocal
+
+    # Initial resolution of any pending 503 chats upon startup/deployment
+    try:
+        with SessionLocal() as db:
+            await resolve_pending_503_chats(db)
+    except Exception as init_503_err:
+        logger.warning("Initial resolve_pending_503_chats failed: %s", init_503_err)
 
     while True:
         try:
@@ -1197,6 +1384,11 @@ async def telegram_automation_daemon(poll_seconds: int = 45) -> None:
                     await check_and_broadcast_top1(db)
                 except Exception as exc:
                     logger.warning("Error checking top 1 leaderboard in daemon: %s", exc)
+
+                try:
+                    await resolve_pending_503_chats(db)
+                except Exception as exc:
+                    logger.warning("Error resolving pending 503 chats in daemon: %s", exc)
 
         except asyncio.CancelledError:
             logger.info("ArchSchool Telegram Automation Daemon cancelled.")

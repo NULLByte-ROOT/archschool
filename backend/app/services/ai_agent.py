@@ -930,6 +930,19 @@ def _is_busy_error(status_code: int, raw_text: str = "") -> bool:
     return any(k in lower for k in ("rate limit", "resource exhausted", "overloaded", "busy", "too many requests", "capacity", "retry"))
 
 
+def _is_503_error(status_code: int, raw_text: str = "") -> bool:
+    """Check specifically if the response is HTTP 503, Service Unavailable, or overloaded model."""
+    if status_code == 503:
+        return True
+    lower = (raw_text or "").lower()
+    if "503" in lower:
+        return True
+    return any(k in lower for k in (
+        "service unavailable", "overloaded", "model is busy",
+        "temporarily unavailable", "try again later", "resource has been exhausted", "capacity"
+    ))
+
+
 def _format_friendly_ai_error(status_code: int, raw_text: str = "") -> str:
     """Generate clear, precise Persian error messages explaining exactly what happened."""
     lower = (raw_text or "").lower()
@@ -1103,15 +1116,18 @@ async def ask_universal_ai_agent(
     current_user: Optional[models.User] = None,
     conversation_history: Optional[List[Dict[str, Any]]] = None,
     is_recent: bool = False,
+    on_503_callback: Optional[Callable[[], Awaitable[None]]] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     """Universal OpenAI-compatible chat completions caller with Tools / Function Calling.
 
     Works natively with OpenRouter, Grok (xAI), DeepSeek, OpenAI, Groq, Together, and self-hosted models.
+    Supports smart 503 handling: immediately notifies user queue callback and retries up to 30 times with 3s interval.
     """
     meta: Dict[str, Any] = {"open_wizard": False}
     if not api_key:
         return ("⚠️ کلید API هوش مصنوعی هنوز در پنل مدیریت مدرسه تنظیم نشده است.", meta)
 
+    clean_model = model_name.strip() if model_name else "openai/gpt-4o-mini"
     clean_base = (base_url or "https://openrouter.ai/api/v1").rstrip("/")
     if not clean_base.endswith("/chat/completions"):
         endpoint_url = f"{clean_base}/chat/completions"
@@ -1125,8 +1141,6 @@ async def ask_universal_ai_agent(
             "https://archschool.vidxsepehr.ir/gemini",
             "https://generativelanguage.googleapis.com",
         )
-
-    clean_model = model_name.strip() if model_name else "openai/gpt-4o-mini"
 
     prompts_cfg = get_ai_prompts_and_config(db)
 
@@ -1182,21 +1196,45 @@ async def ask_universal_ai_agent(
         resp = None
         last_status = 200
         last_text = ""
+        notified_503 = False
 
-        for attempt in range(1, 4):
+        max_attempts = 30
+        for attempt in range(1, max_attempts + 1):
             try:
                 resp = await client.post(endpoint_url, json=payload, headers=headers)
                 if resp.status_code == 200:
                     break
                 last_status = resp.status_code
                 last_text = resp.text
-                logger.warning(
-                    "AI provider busy/error (attempt %d/3) %s from %s: %s",
-                    attempt, resp.status_code, endpoint_url, resp.text[:200]
-                )
+
+                # 503 / Service Unavailable / Overloaded handling:
+                # Notify queue callback immediately on first 503, then retry up to 30 times with 3.0s interval
+                if _is_503_error(resp.status_code, resp.text):
+                    logger.warning(
+                        "AI provider 503/overloaded (attempt %d/%d) %s from %s: %s",
+                        attempt, max_attempts, resp.status_code, endpoint_url, resp.text[:200]
+                    )
+                    if not notified_503:
+                        notified_503 = True
+                        if on_503_callback:
+                            try:
+                                await on_503_callback()
+                            except Exception as cb_err:
+                                logger.warning("Error in on_503_callback: %s", cb_err)
+                    if attempt < max_attempts:
+                        await asyncio.sleep(3.0)
+                        continue
+                    break
+
+                # For standard busy / rate limits (429, 502, 504): retry up to 3 times
                 if attempt < 3 and _is_busy_error(resp.status_code, resp.text):
+                    logger.warning(
+                        "AI provider busy (attempt %d/3) %s from %s: %s",
+                        attempt, resp.status_code, endpoint_url, resp.text[:200]
+                    )
                     await asyncio.sleep(2.0)
                     continue
+
                 break
             except (httpx.ProxyError, httpx.ConnectError, httpx.ConnectTimeout) as proxy_err:
                 if use_warp:
@@ -1204,13 +1242,13 @@ async def ask_universal_ai_agent(
                     use_warp = False
                     client = get_shared_client()
                     continue
-                logger.warning("AI provider connection error (attempt %d/3): %s", attempt, proxy_err)
+                logger.warning("AI provider connection error (attempt %d/%d): %s", attempt, max_attempts, proxy_err)
                 if attempt < 3:
                     await asyncio.sleep(2.0)
                     continue
                 return (_format_friendly_ai_error(504, "Connection error"), meta)
             except (httpx.TimeoutException, httpx.NetworkError) as net_err:
-                logger.warning("AI provider network/timeout (attempt %d/3): %s", attempt, net_err)
+                logger.warning("AI provider network/timeout (attempt %d/%d): %s", attempt, max_attempts, net_err)
                 if attempt < 3:
                     await asyncio.sleep(2.0)
                     continue
@@ -1327,11 +1365,30 @@ async def ask_universal_ai_agent(
                 "max_tokens": prompts_cfg.get("max_tokens", 1000),
             }
             followup_resp = None
-            for f_attempt in range(1, 4):
+            f_notified_503 = notified_503
+            for f_attempt in range(1, max_attempts + 1):
                 try:
                     followup_resp = await client.post(endpoint_url, json=followup_payload, headers=headers)
                     if followup_resp.status_code == 200:
                         break
+
+                    if _is_503_error(followup_resp.status_code, followup_resp.text):
+                        logger.warning(
+                            "AI followup 503/overloaded (attempt %d/%d) %s",
+                            f_attempt, max_attempts, followup_resp.status_code
+                        )
+                        if not f_notified_503:
+                            f_notified_503 = True
+                            if on_503_callback:
+                                try:
+                                    await on_503_callback()
+                                except Exception as cb_err:
+                                    logger.warning("Error in on_503_callback: %s", cb_err)
+                        if f_attempt < max_attempts:
+                            await asyncio.sleep(3.0)
+                            continue
+                        break
+
                     if f_attempt < 3 and _is_busy_error(followup_resp.status_code, followup_resp.text):
                         await asyncio.sleep(2.0)
                         continue
